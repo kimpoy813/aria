@@ -5,7 +5,9 @@ NLP pass name the song's **class/message**, then drag those same parts into a se
 with a code and share songs and lineups. A **Least Recently Used** engine makes sure you do not keep
 repeating the same lineup.
 
-Mobile-first. Calm green palette. Light and dark mode.
+Mobile-first. White canvas with a calm green accent. Light and dark mode.
+The logo (`src/components/Logo.tsx`, artwork in `public/logo.svg`) is used in the header, on the
+landing screen and on the public share page.
 
 ---
 
@@ -103,6 +105,8 @@ src/lib/nlp.ts           lyric classifier: lexicons, themes, tone, per-part sign
 src/lib/lru.ts           LRU ordering, sequence resolution, tempo mix, time helpers
 src/lib/store.tsx        app state, theme (light/dark), session
 src/pages/               Landing, Songs, SongForm, SongDetail, Lineups, Builder, LineupView, Teams, Shared
+src/components/Logo.tsx  the Aria mark (logo, wordmark, landing hero)
+public/logo.svg          the same artwork as a standalone file / favicon
 src/styles.css           design tokens for both themes and the mobile-first layout
 ```
 

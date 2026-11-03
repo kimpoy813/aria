@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../lib/store';
 import { Button, Icon, IconButton } from '../components/ui';
+import { LogoHero, Wordmark } from '../components/Logo';
 
 export function Landing() {
   const { signIn, theme, toggleTheme, error } = useStore();
@@ -29,15 +30,7 @@ export function Landing() {
     <div className="app">
       <div className="landing">
         <div className="row-between" style={{ alignItems: 'flex-start' }}>
-          <div className="landing-art" aria-hidden>
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
+          <LogoHero />
           <IconButton
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             onClick={toggleTheme}
@@ -47,7 +40,8 @@ export function Landing() {
         </div>
 
         <div>
-          <div className="eyebrow" style={{ marginBottom: 8 }}>
+          <Wordmark size={24} />
+          <div className="eyebrow" style={{ marginTop: 10, marginBottom: 8 }}>
             Lyric-aware lineups
           </div>
           <h1>

@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
 import { Button, Icon, IconButton } from '../components/ui';
+import { Wordmark } from '../components/Logo';
 
 export function SharedPage() {
   const { token } = useParams();
@@ -77,11 +78,8 @@ export function SharedPage() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-inner">
-          <Link to="/" className="wordmark" style={{ color: 'inherit' }}>
-            <span className="dot">
-              <Icon.Note size={15} stroke={1.9} />
-            </span>
-            Aria
+          <Link to="/" style={{ color: 'inherit' }}>
+            <Wordmark />
           </Link>
           <div className="push" />
           <span className="badge">View only</span>

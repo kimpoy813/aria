@@ -53,7 +53,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b1512' : '#f6f8f4');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#071410' : '#ffffff');
   }, [theme]);
 
   const refresh = useCallback(async () => {

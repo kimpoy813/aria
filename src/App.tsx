@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom';
 import { StoreProvider, useStore } from './lib/store';
 import { Icon, IconButton } from './components/ui';
+import { LogoHero, Wordmark } from './components/Logo';
 import { Landing } from './pages/Landing';
 import { SongsPage } from './pages/SongsPage';
 import { SongFormPage } from './pages/SongFormPage';
@@ -24,12 +25,7 @@ function TopBar() {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="wordmark">
-          <span className="dot">
-            <Icon.Note size={15} stroke={1.9} />
-          </span>
-          Aria
-        </div>
+        <Wordmark />
         <div className="push" />
         {user ? (
           <span className="chip" title={user.name} style={{ maxWidth: 120 }}>
@@ -105,15 +101,7 @@ function Shell() {
       <div className="app">
         <div className="overlay-center">
           <div className="stack-sm" style={{ alignItems: 'center' }}>
-            <div className="landing-art" aria-hidden>
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
+            <LogoHero size={52} />
             <p className="small">Tuning up…</p>
           </div>
         </div>
