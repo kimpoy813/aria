@@ -140,8 +140,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const isDark = theme === 'dark';
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = isDark ? 'dark' : 'only light';
+    document.documentElement.style.backgroundColor = isDark ? '#0b0c10' : '#ffffff';
     if (document.body) {
       document.body.dataset.theme = theme;
+      document.body.style.colorScheme = isDark ? 'dark' : 'only light';
       document.body.style.backgroundColor = isDark ? '#0b0c10' : '#ffffff';
     }
     localStorage.setItem(THEME_KEY, themePreference);

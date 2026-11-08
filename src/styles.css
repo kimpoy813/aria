@@ -5,7 +5,9 @@
 
 :root,
 :root[data-theme='light'],
+html[data-theme='light'],
 body[data-theme='light'] {
+  color-scheme: light;
   color-scheme: only light;
   forced-color-adjust: none;
   -webkit-print-color-adjust: exact;
@@ -52,6 +54,55 @@ body[data-theme='light'] {
 
   --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+}
+
+/*
+ * Declaring @media (prefers-color-scheme: dark) signals to Android WebView
+ * (DARK_STRATEGY_PREFER_WEB_THEME_OVER_USER_AGENT_DARKENING), PWABuilder TWAs,
+ * and Samsung Internet that Aria natively manages dark/light themes — disabling
+ * User-Agent Force-Dark inversion when the user selects Light Mode on a phone
+ * whose OS Dark Mode is turned on.
+ */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='light'],
+  html[data-theme='light'],
+  body[data-theme='light'] {
+    color-scheme: light;
+    color-scheme: only light;
+    forced-color-adjust: none;
+    --canvas: #f4f5f7;
+    --bg: #ffffff;
+    --glass-bg: rgba(255, 255, 255, 0.94);
+    --surface: #ffffff;
+    --surface-2: #f5f6f8;
+    --surface-3: #e9ecf1;
+    --ink: #0f1117;
+    --ink-2: #383c48;
+    --muted: #6f7585;
+  }
+
+  :root[data-theme='dark'],
+  html[data-theme='dark'],
+  body[data-theme='dark'] {
+    color-scheme: dark;
+  }
+}
+
+html[data-theme='light'],
+html[data-theme='light'] body,
+html[data-theme='light'] #root,
+html[data-theme='light'] .app {
+  background-color: #ffffff;
+  background-image: linear-gradient(#ffffff, #ffffff);
+  color: #0f1117;
+}
+
+html[data-theme='light'] input,
+html[data-theme='light'] textarea,
+html[data-theme='light'] select,
+html[data-theme='light'] button {
+  color-scheme: light;
+  color-scheme: only light;
 }
 
 :root[data-theme='dark'],
