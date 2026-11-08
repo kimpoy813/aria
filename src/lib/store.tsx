@@ -100,7 +100,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, themePreference);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#060e0b' : '#f5f8f6');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b0c10' : '#f8f9fb');
   }, [theme, themePreference]);
 
   const setThemePreference = useCallback((pref: ThemePreference) => {

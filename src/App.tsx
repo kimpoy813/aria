@@ -36,7 +36,7 @@ const TABS: { to: string; label: string; icon: IconName }[] = [
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IconName }[] = [
   { value: 'light', label: 'Light', icon: 'sun' },
   { value: 'dark', label: 'Dark', icon: 'moon' },
-  { value: 'system', label: 'System', icon: 'monitor' },
+  { value: 'system', label: 'Auto', icon: 'monitor' },
 ];
 
 function isTabActive(pathname: string, to: string) {
@@ -54,17 +54,9 @@ function TopBar() {
     lineups,
     teams,
     signOut,
-    config,
   } = useStore();
-  const { pathname } = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const counts: Record<string, number> = {
-    '/': songs.length,
-    '/lineups': lineups.length,
-    '/teams': teams.length,
-  };
 
   return (
     <header className="topbar">
@@ -75,33 +67,14 @@ function TopBar() {
           onClick={() => navigate('/')}
           aria-label="Aria home"
         >
-          <Wordmark size={30} />
+          <Wordmark size={26} />
         </button>
-
-        <nav className="desktop-nav" aria-label="Primary">
-          {TABS.map((tab) => {
-            const active = isTabActive(pathname, tab.to);
-            const count = counts[tab.to] ?? 0;
-            return (
-              <button
-                key={tab.to}
-                type="button"
-                className={`desktop-tab ${active ? 'active' : ''}`}
-                onClick={() => navigate(tab.to)}
-                aria-current={active ? 'page' : undefined}
-              >
-                <Icon name={tab.icon} size={16} />
-                <span>{tab.label}</span>
-                {count > 0 && <span className="nav-count">{count}</span>}
-              </button>
-            );
-          })}
-        </nav>
 
         <div className="push" />
 
         <IconButton
           label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          className="icon-btn-ghost"
           onClick={toggleTheme}
         >
           {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
@@ -111,7 +84,7 @@ function TopBar() {
           <button
             type="button"
             className="avatar-button"
-            aria-label="Account and settings"
+            aria-label="Account"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
           >
@@ -120,27 +93,9 @@ function TopBar() {
         ) : null}
       </div>
 
-      <Sheet
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        title="Account & workspace"
-        subtitle="Manage your profile, appearance, and session."
-      >
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={user?.name || 'Account'}>
         <div className="stack">
-          {user && (
-            <div className="account-profile">
-              <div className="account-avatar-lg">{user.name.slice(0, 1).toUpperCase()}</div>
-              <div className="account-meta">
-                <div className="account-name">{user.name}</div>
-                {user.email && <div className="small">{user.email}</div>}
-                <div className="row" style={{ gap: 6, marginTop: 6 }}>
-                  <span className="chip brand">
-                    {config.driver === 'supabase' ? 'Cloud sync' : 'Local workspace'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
+          {user?.email && <div className="small">{user.email}</div>}
 
           <div className="stat-strip">
             <div className="stat-cell">
@@ -158,7 +113,7 @@ function TopBar() {
           </div>
 
           <div className="field">
-            <span className="label">Appearance</span>
+            <span className="label">Theme</span>
             <div className="seg" role="radiogroup" aria-label="Theme preference">
               {THEME_OPTIONS.map((opt) => (
                 <button
@@ -184,7 +139,7 @@ function TopBar() {
                 navigate('/onboarding');
               }}
             >
-              <Icon name="sparkle" size={16} /> How Aria works
+              How Aria works
             </Button>
             <Button
               variant="danger"
@@ -194,7 +149,7 @@ function TopBar() {
                 await signOut();
               }}
             >
-              <Icon name="logout" size={16} /> Sign out
+              Sign out
             </Button>
           </div>
         </div>
@@ -205,21 +160,13 @@ function TopBar() {
 
 function TabBar() {
   const { pathname } = useLocation();
-  const { songs, lineups, teams } = useStore();
   const navigate = useNavigate();
-
-  const counts: Record<string, number> = {
-    '/': songs.length,
-    '/lineups': lineups.length,
-    '/teams': teams.length,
-  };
 
   return (
     <nav className="tabbar" aria-label="Main">
       <div className="tabbar-inner">
         {TABS.map((tab) => {
           const active = isTabActive(pathname, tab.to);
-          const count = counts[tab.to] ?? 0;
           return (
             <button
               key={tab.to}
@@ -228,10 +175,7 @@ function TabBar() {
               onClick={() => navigate(tab.to)}
               aria-current={active ? 'page' : undefined}
             >
-              <span className="tab-icon-wrap">
-                <Icon name={tab.icon} size={20} />
-                {count > 0 && <span className="tab-badge">{count}</span>}
-              </span>
+              <Icon name={tab.icon} size={20} />
               <span>{tab.label}</span>
             </button>
           );
@@ -253,7 +197,6 @@ function Shell() {
   const { loading, user, onboarded, popupStatus } = useStore();
   const { pathname } = useLocation();
 
-  // OAuth popup entry & completion screens run outside the session gate.
   if (pathname === '/auth/google') {
     return (
       <Routes>
@@ -266,7 +209,6 @@ function Shell() {
     return <PopupStatusPage />;
   }
 
-  // Password recovery works whether or not a session exists.
   if (pathname === '/reset') {
     return (
       <div className="app">
@@ -277,7 +219,6 @@ function Shell() {
     );
   }
 
-  // Public share links open for anyone, signed in or not.
   if (pathname.startsWith('/s/')) {
     return (
       <div className="app">
@@ -293,10 +234,8 @@ function Shell() {
       <div className="app">
         <div className="overlay-center">
           <div className="stack-sm" style={{ alignItems: 'center' }}>
-            <LogoHero size={56} />
-            <p className="small" style={{ marginTop: 6 }}>
-              Tuning your studio…
-            </p>
+            <LogoHero size={48} />
+            <p className="tiny">Loading…</p>
           </div>
         </div>
       </div>
@@ -314,7 +253,6 @@ function Shell() {
     );
   }
 
-  // Onboarding is a dedicated full-screen route, outside the tab shell.
   if (pathname === '/onboarding') {
     return (
       <div className="app">
@@ -325,7 +263,6 @@ function Shell() {
     );
   }
 
-  // First visit after signing in: show the tour before the library.
   if (!onboarded) {
     return (
       <div className="app">
@@ -334,14 +271,11 @@ function Shell() {
     );
   }
 
-  const isBuilder =
-    pathname === '/lineups/new' || /^\/lineups\/[^/]+\/edit$/.test(pathname);
-
   return (
     <div className="app">
       <TopBar />
       <ScrollToTop />
-      <main className={`app-main ${isBuilder ? 'app-main-wide' : ''}`.trim()}>
+      <main className="app-main">
         <Routes>
           <Route path="/" element={<SongsPage />} />
           <Route path="/songs/new" element={<SongFormPage />} />
