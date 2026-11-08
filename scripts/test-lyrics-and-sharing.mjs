@@ -189,6 +189,54 @@ My anchor is holding secure
       'does not hijack single-line paste',
       !shouldAutoSplitPaste('Just a single lyric line', '', false),
     );
+
+    // 1f. Christian / Church worship classification & message
+    const { analyzeLyrics } = await vite.ssrLoadModule('/src/lib/nlp.ts');
+    const graceAnalysis = analyzeLyrics([
+      {
+        id: 'p1',
+        kind: 'verse',
+        label: 'Verse 1',
+        lyrics: 'Amazing grace how sweet the sound, washed in the blood at the cross of Jesus my Savior',
+      },
+    ]);
+    check(
+      'classifies cross & redemption lyrics as Grace & Salvation with Christian message',
+      graceAnalysis.theme === 'Grace & Salvation' &&
+        /cross|Christ|salvation/i.test(graceAnalysis.message),
+      `${graceAnalysis.theme}: ${graceAnalysis.message}`,
+    );
+
+    const fatherLoveAnalysis = analyzeLyrics([
+      {
+        id: 'p1',
+        kind: 'chorus',
+        label: 'Chorus',
+        lyrics: 'Your love never fails, how great the Father love for us, faithful forever',
+      },
+    ]);
+    check(
+      'classifies love lyrics in a Christian Father/covenant context (not secular romance)',
+      fatherLoveAnalysis.theme === 'God’s Love' &&
+        /Father|God|mercy/i.test(fatherLoveAnalysis.message) &&
+        !/two people/i.test(fatherLoveAnalysis.message),
+      `${fatherLoveAnalysis.theme}: ${fatherLoveAnalysis.message}`,
+    );
+
+    const praiseAnalysis = analyzeLyrics([
+      {
+        id: 'p1',
+        kind: 'chorus',
+        label: 'Chorus',
+        lyrics: 'Holy holy King of Kings, hallelujah we praise and exalt Your glorious name',
+      },
+    ]);
+    check(
+      'classifies congregational praise lyrics as Praise & Adoration',
+      praiseAnalysis.theme === 'Praise & Adoration' &&
+        /worship|Lord|praise/i.test(praiseAnalysis.message),
+      `${praiseAnalysis.theme}: ${praiseAnalysis.message}`,
+    );
   } finally {
     await vite.close();
   }

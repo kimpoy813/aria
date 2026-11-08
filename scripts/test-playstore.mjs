@@ -69,8 +69,25 @@ async function run() {
     const manifest = await manRes.json();
     check('manifest.webmanifest is served with 200', manRes.status === 200);
     check(
-      'manifest declares standalone portrait mobile display',
-      manifest.display === 'standalone' && manifest.orientation === 'portrait',
+      'manifest declares standalone portrait mobile display and #ffffff light background',
+      manifest.display === 'standalone' &&
+        manifest.orientation === 'portrait' &&
+        manifest.background_color === '#ffffff' &&
+        manifest.theme_color === '#ffffff',
+    );
+    const htmlRes = await fetch(`${base}/`);
+    const htmlText = await htmlRes.text();
+    const cssBundle = fs
+      .readdirSync(path.join(process.cwd(), 'dist', 'assets'))
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
+      .join('\n');
+    check(
+      'HTML & CSS enforce color-scheme: only light and #ffffff white light mode against mobile auto-dark',
+      htmlText.includes('name="color-scheme" content="only light"') &&
+        cssBundle.includes('only light') &&
+        cssBundle.includes('forced-color-adjust:none') &&
+        /--bg:\s*#fff/i.test(cssBundle),
     );
     check(
       'manifest includes 192x192, 512x512, and maskable 512x512 PNG icons',
@@ -113,12 +130,19 @@ async function run() {
         assetLinks[0]?.target?.sha256_cert_fingerprints[0] === testFp1,
     );
 
-    /* -------------------------------- 3. Public Policy & Deletion URLs */
-    console.log('\n3. Public Privacy Policy & Account Deletion web routes');
+    /* -------------------------------- 3. Public Policy & Auth-Gated Deletion */
+    console.log('\n3. Public Privacy Policy & Authenticated Account Deletion');
     const privRes = await fetch(`${base}/privacy`);
-    const delPageRes = await fetch(`${base}/delete-account`);
+    const appBundle = fs
+      .readdirSync(path.join(process.cwd(), 'dist', 'assets'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
+      .join('\n');
     check('/privacy is publicly reachable (HTTP 200)', privRes.status === 200);
-    check('/delete-account is publicly reachable (HTTP 200)', delPageRes.status === 200);
+    check(
+      'unauthenticated Auth screen does not expose Delete Account link',
+      !appBundle.includes('Delete Account'),
+    );
 
     /* ------------------------------- 4. Account & Data Deletion Engine */
     console.log('\n4. Permanent Account & Data Deletion (DELETE /api/auth/account)');

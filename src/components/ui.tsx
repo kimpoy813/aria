@@ -107,13 +107,63 @@ export function Sheet({
   return typeof document !== 'undefined' ? createPortal(node, document.body) : node;
 }
 
-export function Toast({ message }: { message: string | null }) {
+export type ToastTone = 'success' | 'info' | 'error';
+
+export interface ToastItem {
+  id: number;
+  message: string;
+  tone: ToastTone;
+}
+
+function toneIcon(tone: ToastTone): IconName {
+  if (tone === 'error') return 'close';
+  if (tone === 'info') return 'sparkle';
+  return 'check';
+}
+
+export function ToastStack({
+  items,
+  onDismiss,
+}: {
+  items: ToastItem[];
+  onDismiss: (id: number) => void;
+}) {
+  if (items.length === 0) return null;
+  const node = (
+    <div className="toast-stack" role="status" aria-live="polite">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className={`toast toast-${item.tone}`}
+          onClick={() => onDismiss(item.id)}
+        >
+          <span className="toast-badge" aria-hidden="true">
+            <Icon name={toneIcon(item.tone)} size={12} />
+          </span>
+          <span className="toast-text">{item.message}</span>
+        </button>
+      ))}
+    </div>
+  );
+  return typeof document !== 'undefined' ? createPortal(node, document.body) : node;
+}
+
+export function Toast({
+  message,
+  tone = 'success',
+}: {
+  message: string | null;
+  tone?: ToastTone;
+}) {
   if (!message) return null;
   const node = (
-    <div className="toast-wrap" role="status" aria-live="polite">
-      <div className="toast">
-        <Icon name="check" size={14} />
-        <span>{message}</span>
+    <div className="toast-stack" role="status" aria-live="polite">
+      <div className={`toast toast-${tone}`}>
+        <span className="toast-badge" aria-hidden="true">
+          <Icon name={toneIcon(tone)} size={12} />
+        </span>
+        <span className="toast-text">{message}</span>
       </div>
     </div>
   );

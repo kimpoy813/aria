@@ -9,7 +9,7 @@ import {
   Icon,
   IconButton,
   Sheet,
-  Toast,
+  type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
 import { resolveSequence, timeAgo } from '../lib/lru';
@@ -17,7 +17,7 @@ import { useStore } from '../lib/store';
 
 export function LineupViewPage() {
   const { id } = useParams();
-  const { lineups, songs, teams, user, refresh } = useStore();
+  const { lineups, songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const fromHome = (location.state as { from?: string } | null)?.from === 'home';
@@ -26,7 +26,6 @@ export function LineupViewPage() {
 
   const [shareOpen, setShareOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const lineup = lineups.find((l) => l.id === id);
@@ -36,9 +35,8 @@ export function LineupViewPage() {
     [lineup, songs],
   );
 
-  const showToast = (m: string) => {
-    setToast(m);
-    setTimeout(() => setToast(null), 2000);
+  const showToast = (m: string, tone: ToastTone = 'success') => {
+    notify(m, tone);
   };
 
   if (!lineup) {
@@ -88,10 +86,10 @@ export function LineupViewPage() {
     try {
       const res = await api.copyLineup(lineup.id);
       await refresh();
-      showToast('Copied to your lineups');
+      showToast('Copied to your lineups', 'success');
       navigate(`/lineups/${res.lineup.id}/edit`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Could not copy');
+      showToast(e instanceof Error ? e.message : 'Could not copy', 'error');
     } finally {
       setBusy(false);
     }
@@ -102,9 +100,10 @@ export function LineupViewPage() {
     try {
       await api.deleteLineup(lineup.id);
       await refresh();
+      showToast(`Deleted “${lineup.name}”`, 'info');
       navigate(backTo);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Could not delete');
+      showToast(e instanceof Error ? e.message : 'Could not delete', 'error');
       setBusy(false);
     }
   };
@@ -218,8 +217,6 @@ export function LineupViewPage() {
           </Button>
         </div>
       </Sheet>
-
-      <Toast message={toast} />
     </div>
   );
 }

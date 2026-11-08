@@ -6,10 +6,11 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0b0c10" />
+    <meta name="color-scheme" content="only light" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta
       name="description"
       content="Aria — minimalist mobile song library, lyric classification, and setlist builder."
@@ -31,12 +32,16 @@
           var pref = localStorage.getItem('aria.theme');
           var dark =
             pref === 'dark' ||
-            ((!pref || pref === 'system') &&
+            (pref === 'system' &&
               window.matchMedia &&
               window.matchMedia('(prefers-color-scheme: dark)').matches);
-          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          var mode = dark ? 'dark' : 'light';
+          document.documentElement.dataset.theme = mode;
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'only light';
           var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute('content', dark ? '#0b0c10' : '#f8f9fb');
+          if (meta) meta.setAttribute('content', dark ? '#0b0c10' : '#ffffff');
+          var cs = document.querySelector('meta[name="color-scheme"]');
+          if (cs) cs.setAttribute('content', dark ? 'dark' : 'only light');
         } catch (_e) {}
       })();
     </script>

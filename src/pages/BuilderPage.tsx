@@ -8,7 +8,7 @@ import {
   Icon,
   IconButton,
   Sheet,
-  Toast,
+  type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
@@ -33,7 +33,7 @@ interface TouchDragState {
 
 export function BuilderPage() {
   const { id } = useParams();
-  const { lineups, songs, teams, user, refresh } = useStore();
+  const { lineups, songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
 
   const existing = id ? lineups.find((l) => l.id === id) : undefined;
@@ -67,7 +67,6 @@ export function BuilderPage() {
   const [previewSlot, setPreviewSlot] = useState<{ song: Song; part: SongPart } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (existing && existing.ownerId !== user?.id) {
@@ -75,9 +74,8 @@ export function BuilderPage() {
     }
   }, [existing, user?.id, navigate]);
 
-  const showToast = (m: string) => {
-    setToast(m);
-    setTimeout(() => setToast(null), 1800);
+  const showToast = (m: string, tone: ToastTone = 'success') => {
+    notify(m, tone);
   };
 
   const resolved = useMemo(() => {
@@ -316,11 +314,21 @@ export function BuilderPage() {
 
   const save = async () => {
     setError(null);
-    if (!name.trim()) return setError('Name this lineup.');
-    if (resolved.length < 2) return setError('Add at least two parts.');
-    if (songCount < 2) return setError('Include parts from at least two songs.');
+    if (!name.trim()) {
+      setError('Name this lineup.');
+      return showToast('Enter a lineup name', 'error');
+    }
+    if (resolved.length < 2) {
+      setError('Add at least two parts.');
+      return showToast('Add at least two parts', 'error');
+    }
+    if (songCount < 2) {
+      setError('Include parts from at least two songs.');
+      return showToast('Include parts from at least two songs', 'error');
+    }
     if (fastCount === 0 || slowCount === 0) {
-      return setError('Include both a fast song and a slow song.');
+      setError('Include both a fast song and a slow song.');
+      return showToast('Include both a fast song and a slow song', 'error');
     }
     setBusy(true);
     try {
@@ -333,14 +341,18 @@ export function BuilderPage() {
       if (editing && existing) {
         const res = await api.updateLineup(existing.id, payload);
         await refresh();
+        showToast('Lineup saved', 'success');
         navigate(`/lineups/${res.lineup.id}`);
       } else {
         const res = await api.createLineup(payload);
         await refresh();
+        showToast(`Created “${payload.name}”`, 'success');
         navigate(`/lineups/${res.lineup.id}`);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save lineup.');
+      const msg = e instanceof Error ? e.message : 'Could not save lineup.';
+      setError(msg);
+      showToast(msg, 'error');
     } finally {
       setBusy(false);
     }
@@ -698,8 +710,6 @@ export function BuilderPage() {
           </div>
         )}
       </Sheet>
-
-      <Toast message={toast} />
     </div>
   );
 }

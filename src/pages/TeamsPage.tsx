@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Button, Chip, Empty, Icon, Sheet, Toast } from '../components/ui';
+import { Button, Chip, Empty, Icon, Sheet, type ToastTone } from '../components/ui';
 import { useStore } from '../lib/store';
 import type { Team } from '../lib/types';
 
 export function TeamsPage() {
-  const { teams, createTeam, joinTeam, leaveTeam } = useStore();
+  const { teams, createTeam, joinTeam, leaveTeam, notify } = useStore();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -13,11 +13,9 @@ export function TeamsPage() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
-  const showToast = (m: string) => {
-    setToast(m);
-    setTimeout(() => setToast(null), 2000);
+  const showToast = (m: string, tone: ToastTone = 'success') => {
+    notify(m, tone);
   };
 
   const onCreate = async (e: React.FormEvent) => {
@@ -29,9 +27,11 @@ export function TeamsPage() {
       const team = await createTeam(teamName.trim());
       setTeamName('');
       setCreateOpen(false);
-      showToast(`${team.name} · ${team.code}`);
+      showToast(`Created ${team.name} · ${team.code}`, 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create team.');
+      const msg = err instanceof Error ? err.message : 'Could not create team.';
+      setError(msg);
+      showToast(msg, 'error');
     } finally {
       setBusy(false);
     }
@@ -46,9 +46,11 @@ export function TeamsPage() {
       const team = await joinTeam(code.trim());
       setCode('');
       setJoinOpen(false);
-      showToast(`Joined ${team.name}`);
+      showToast(`Joined ${team.name}`, 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not join team.');
+      const msg = err instanceof Error ? err.message : 'Could not join team.';
+      setError(msg);
+      showToast(msg, 'error');
     } finally {
       setBusy(false);
     }
@@ -57,9 +59,9 @@ export function TeamsPage() {
   const copyCode = async (c: string) => {
     try {
       await navigator.clipboard.writeText(c);
-      showToast(`Copied ${c}`);
+      showToast(`Copied invite code ${c}`, 'success');
     } catch {
-      showToast(c);
+      showToast(c, 'info');
     }
   };
 
@@ -68,10 +70,10 @@ export function TeamsPage() {
     setBusy(true);
     try {
       await leaveTeam(leaveTarget.id);
-      showToast(`Left ${leaveTarget.name}`);
+      showToast(`Left ${leaveTarget.name}`, 'info');
       setLeaveTarget(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not leave');
+      showToast(err instanceof Error ? err.message : 'Could not leave', 'error');
     } finally {
       setBusy(false);
     }
@@ -247,8 +249,6 @@ export function TeamsPage() {
           </Button>
         </div>
       </Sheet>
-
-      <Toast message={toast} />
     </div>
   );
 }

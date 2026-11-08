@@ -322,7 +322,7 @@ function ScrollToTop() {
 }
 
 function Shell() {
-  const { loading, user, onboarded, popupStatus, systemStatus, refresh, signOut } =
+  const { loading, user, onboarded, popupStatus, systemStatus, refresh, signOut, notify } =
     useStore();
   const { pathname } = useLocation();
 
@@ -363,16 +363,6 @@ function Shell() {
       <div className="app">
         <Routes>
           <Route path="/privacy" element={<PrivacyPage />} />
-        </Routes>
-      </div>
-    );
-  }
-
-  if (pathname === '/delete-account') {
-    return (
-      <div className="app">
-        <Routes>
-          <Route path="/delete-account" element={<DeleteAccountPage />} />
         </Routes>
       </div>
     );
@@ -425,7 +415,14 @@ function Shell() {
               {m.eta && <p className="tiny">{m.eta}</p>}
             </div>
             <div className="stack-sm">
-              <Button variant="primary" block onClick={() => void refresh()}>
+              <Button
+                variant="primary"
+                block
+                onClick={async () => {
+                  await refresh();
+                  notify('Status checked', 'info');
+                }}
+              >
                 <Icon name="refresh" size={15} /> Check status
               </Button>
               <Button variant="quiet" block onClick={() => void signOut()}>
@@ -465,6 +462,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/delete-account" element={<DeleteAccountPage />} />
           <Route path="/songs" element={<SongsPage />} />
           <Route path="/songs/new" element={<SongFormPage />} />
           <Route path="/songs/:id" element={<SongDetailPage />} />
