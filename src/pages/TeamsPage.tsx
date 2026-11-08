@@ -17,19 +17,19 @@ export function TeamsPage() {
 
   const showToast = (m: string) => {
     setToast(m);
-    setTimeout(() => setToast(null), 2200);
+    setTimeout(() => setToast(null), 2000);
   };
 
   const onCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!teamName.trim()) return setError('Give your team a name.');
+    if (!teamName.trim()) return setError('Enter a team name.');
     setBusy(true);
     try {
       const team = await createTeam(teamName.trim());
       setTeamName('');
       setCreateOpen(false);
-      showToast(`Created ${team.name} · ${team.code}`);
+      showToast(`${team.name} · ${team.code}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create team.');
     } finally {
@@ -40,7 +40,7 @@ export function TeamsPage() {
   const onJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!code.trim()) return setError('Enter a team invite code.');
+    if (!code.trim()) return setError('Enter an invite code.');
     setBusy(true);
     try {
       const team = await joinTeam(code.trim());
@@ -71,7 +71,7 @@ export function TeamsPage() {
       showToast(`Left ${leaveTarget.name}`);
       setLeaveTarget(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not leave team');
+      showToast(err instanceof Error ? err.message : 'Could not leave');
     } finally {
       setBusy(false);
     }
@@ -81,18 +81,16 @@ export function TeamsPage() {
     <div className="stack">
       <div className="page-head-row">
         <div className="page-head">
-          <span className="eyebrow">Collaboration</span>
           <h1>Teams</h1>
-          <p>Share songs and lineups with bandmates while keeping personal copies yours.</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="row" style={{ gap: 6 }}>
           <Button
             onClick={() => {
               setError(null);
               setJoinOpen(true);
             }}
           >
-            Join with code
+            Join
           </Button>
           <Button
             variant="primary"
@@ -101,7 +99,7 @@ export function TeamsPage() {
               setCreateOpen(true);
             }}
           >
-            <Icon name="add" size={16} /> Create team
+            <Icon name="add" size={16} /> New
           </Button>
         </div>
       </div>
@@ -110,9 +108,9 @@ export function TeamsPage() {
         <Empty
           icon="teams"
           title="No teams yet"
-          body="Create a workspace for your band, choir, or music group to share songs and setlists — or enter an invite code from a teammate."
+          body="Create a team to share songs and lineups, or join with an invite code."
           action={
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
               <Button
                 variant="primary"
                 onClick={() => {
@@ -120,7 +118,7 @@ export function TeamsPage() {
                   setCreateOpen(true);
                 }}
               >
-                <Icon name="add" size={16} /> Create a team
+                Create team
               </Button>
               <Button
                 onClick={() => {
@@ -128,24 +126,24 @@ export function TeamsPage() {
                   setJoinOpen(true);
                 }}
               >
-                Enter invite code
+                Join with code
               </Button>
             </div>
           }
         />
       ) : (
-        <div className="stack">
+        <div className="stack-sm">
           {teams.map((t) => (
             <div key={t.id} className="card stack">
-              <div className="row-between" style={{ alignItems: 'flex-start', gap: 10 }}>
-                <div>
-                  <div className="row" style={{ gap: 8 }}>
-                    <h2 className="team-card-title">{t.name}</h2>
-                    <Chip tone={t.myRole === 'owner' ? 'brand' : undefined}>
-                      {t.myRole === 'owner' ? 'Owner' : 'Member'}
-                    </Chip>
+              <div className="row-between" style={{ gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <strong className="truncate" style={{ fontSize: 16 }}>
+                      {t.name}
+                    </strong>
+                    {t.myRole === 'owner' && <Chip tone="brand">Owner</Chip>}
                   </div>
-                  <div className="tiny" style={{ marginTop: 3 }}>
+                  <div className="tiny">
                     {t.members.length} {t.members.length === 1 ? 'member' : 'members'}
                   </div>
                 </div>
@@ -160,30 +158,26 @@ export function TeamsPage() {
                 </button>
               </div>
 
-              <div className="stack-xs">
-                <span className="label">Members</span>
-                <div className="member-grid">
-                  {t.members.map((m) => (
-                    <div key={m.userId} className="member-pill">
-                      <span className="member-avatar">
-                        {m.name.slice(0, 1).toUpperCase()}
-                      </span>
-                      <span className="truncate" style={{ fontSize: 13.5, fontWeight: 500 }}>
-                        {m.name}
-                      </span>
-                      {m.role === 'owner' && <span className="tiny muted">Owner</span>}
-                    </div>
-                  ))}
-                </div>
+              <div className="member-grid">
+                {t.members.map((m) => (
+                  <div key={m.userId} className="member-pill">
+                    <span className="member-avatar">{m.name.slice(0, 1).toUpperCase()}</span>
+                    <span className="truncate" style={{ fontSize: 13 }}>
+                      {m.name}
+                    </span>
+                  </div>
+                ))}
               </div>
 
               <div className="row-between team-foot">
-                <span className="tiny">
-                  Personal copies stay in your library if you leave.
-                </span>
-                <Button variant="quiet" onClick={() => setLeaveTarget(t)}>
-                  Leave team
-                </Button>
+                <span className="tiny">Personal copies stay yours</span>
+                <button
+                  type="button"
+                  className="link-button tiny"
+                  onClick={() => setLeaveTarget(t)}
+                >
+                  Leave
+                </button>
               </div>
             </div>
           ))}
@@ -193,10 +187,10 @@ export function TeamsPage() {
       <Sheet
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        title="Create a team"
-        subtitle="Aria generates a unique invite code you can share with bandmates."
+        title="Create team"
+        subtitle="Generates an invite code to share with bandmates."
       >
-        <form className="stack" style={{ marginTop: 8 }} onSubmit={onCreate}>
+        <form className="stack" onSubmit={onCreate}>
           <div className="field">
             <label htmlFor="team-name">Team name</label>
             <input
@@ -204,12 +198,12 @@ export function TeamsPage() {
               className="input"
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
-              placeholder="e.g. Sunday Collective"
+              placeholder="e.g. Sunday Band"
             />
           </div>
           {error && <div className="alert alert-danger">{error}</div>}
           <Button type="submit" variant="primary" block disabled={busy}>
-            {busy ? 'Creating…' : 'Create team'}
+            {busy ? 'Creating…' : 'Create'}
           </Button>
         </form>
       </Sheet>
@@ -217,10 +211,10 @@ export function TeamsPage() {
       <Sheet
         open={joinOpen}
         onClose={() => setJoinOpen(false)}
-        title="Join with invite code"
+        title="Join team"
         subtitle="Enter the code shared by your team owner."
       >
-        <form className="stack" style={{ marginTop: 8 }} onSubmit={onJoin}>
+        <form className="stack" onSubmit={onJoin}>
           <div className="field">
             <label htmlFor="team-code">Invite code</label>
             <input
@@ -230,11 +224,10 @@ export function TeamsPage() {
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               placeholder="ARIA-000"
             />
-            <span className="hint">Ask your team owner for their ARIA-000 invite code.</span>
           </div>
           {error && <div className="alert alert-danger">{error}</div>}
           <Button type="submit" variant="primary" block disabled={busy}>
-            {busy ? 'Joining…' : 'Join team'}
+            {busy ? 'Joining…' : 'Join'}
           </Button>
         </form>
       </Sheet>
@@ -243,18 +236,14 @@ export function TeamsPage() {
         open={Boolean(leaveTarget)}
         onClose={() => setLeaveTarget(null)}
         title={leaveTarget ? `Leave ${leaveTarget.name}?` : 'Leave team?'}
-        subtitle={
-          leaveTarget?.myRole === 'owner' && leaveTarget.members.length === 1
-            ? 'You are the only member — leaving will dissolve this team.'
-            : 'Your personal song and lineup copies will stay safe in your library.'
-        }
+        subtitle="Your personal copies remain in your library."
       >
-        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <div className="row" style={{ gap: 8 }}>
           <Button onClick={() => setLeaveTarget(null)} style={{ flex: 1 }}>
             Cancel
           </Button>
           <Button variant="danger" onClick={confirmLeave} disabled={busy} style={{ flex: 1 }}>
-            {busy ? 'Leaving…' : 'Leave team'}
+            {busy ? 'Leaving…' : 'Leave'}
           </Button>
         </div>
       </Sheet>

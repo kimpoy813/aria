@@ -42,11 +42,19 @@ export function SharedPage() {
       <header className="topbar">
         <div className="topbar-inner">
           <Link to="/" className="brand-home" style={{ textDecoration: 'none' }}>
-            <Wordmark size={28} subtitle="Shared Program" />
+            <Wordmark size={24} />
           </Link>
           <div className="push" />
           <IconButton
+            label="Copy link"
+            className="icon-btn-ghost"
+            onClick={copyUrl}
+          >
+            <Icon name="copy" size={16} />
+          </IconButton>
+          <IconButton
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="icon-btn-ghost"
             onClick={toggleTheme}
           >
             {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
@@ -57,60 +65,46 @@ export function SharedPage() {
       <main className="app-main no-nav">
         {loading ? (
           <div className="overlay-center" style={{ minHeight: '50vh' }}>
-            <span className="small">Loading shared program…</span>
+            <span className="tiny">Loading…</span>
           </div>
         ) : error || !lineup ? (
           <Empty
             icon="link"
-            title="This share link isn’t active"
-            body={error ?? 'Ask the sender for an updated lineup link.'}
+            title="Link unavailable"
+            body={error ?? 'Ask the sender for an updated link.'}
             action={
               <Link to="/" className="btn btn-primary" style={{ textDecoration: 'none' }}>
-                Open Aria Studio
+                Open Aria
               </Link>
             }
           />
         ) : (
           <div className="stack">
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <div className="share-hero stack-xs">
-                <span className="eyebrow" style={{ justifyContent: 'center' }}>
-                  Shared Lineup
-                </span>
-                <h1>{lineup.name}</h1>
-                <div
-                  className="row"
-                  style={{ justifyContent: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 }}
-                >
-                  {lineup.theme && <Chip tone="brand">{lineup.theme}</Chip>}
-                  <Chip>{lineup.items.length} parts</Chip>
-                  <Chip>Curated by {lineup.ownerName}</Chip>
-                </div>
+            <div className="stack-xs">
+              <h1 className="detail-title">{lineup.name}</h1>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                {lineup.theme && <Chip tone="brand">{lineup.theme}</Chip>}
+                <Chip>{lineup.items.length} parts</Chip>
+                <span className="tiny">by {lineup.ownerName}</span>
               </div>
+            </div>
 
+            <div className="stack-sm">
               {lineup.items.map((item, i) => {
                 const lines = item.lyrics.split(/\r?\n/);
                 return (
-                  <div key={i} className="share-part">
-                    <div className="row-between" style={{ gap: 8 }}>
-                      <div className="row" style={{ gap: 10, minWidth: 0 }}>
-                        <span className="part-index">{i + 1}</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 15 }} className="truncate">
-                            {item.songTitle}
-                          </div>
-                          <div className="tiny">
-                            {item.partLabel}
-                            {item.artist ? ` · ${item.artist}` : ''}
-                          </div>
-                        </div>
+                  <div key={i} className="part-block">
+                    <div className="part-head">
+                      <span className="part-index">{i + 1}</span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="part-title truncate">{item.songTitle}</div>
+                        <div className="tiny">{item.partLabel}</div>
                       </div>
                       <Chip tone={item.tempo}>
-                        <Icon name={item.tempo} size={12} />
                         {item.tempo === 'fast' ? 'Fast' : 'Slow'}
                       </Chip>
                     </div>
-                    <div className="lyrics-lines">
+                    <div className="part-body">
                       {lines.map((l, li) => (
                         <div key={li} className="lyric-line">
                           {l || '\u00A0'}
@@ -122,19 +116,11 @@ export function SharedPage() {
               })}
             </div>
 
-            <div className="card row-between" style={{ flexWrap: 'wrap', gap: 10 }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>Made with Aria</div>
-                <div className="tiny">Read-only lyric program · edits stay with the creator</div>
-              </div>
-              <div className="row" style={{ gap: 8 }}>
-                <Button onClick={copyUrl}>
-                  <Icon name="copy" size={14} /> Copy link
-                </Button>
-                <Link to="/" className="btn btn-primary" style={{ textDecoration: 'none' }}>
-                  Open Aria
-                </Link>
-              </div>
+            <div className="row-between" style={{ paddingTop: 6 }}>
+              <span className="tiny">Shared via Aria</span>
+              <Button onClick={copyUrl}>
+                <Icon name="copy" size={14} /> Copy link
+              </Button>
             </div>
           </div>
         )}

@@ -48,13 +48,12 @@ export function BuilderPage() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    songs.slice(0, 4).forEach((s) => {
+    songs.slice(0, 3).forEach((s) => {
       initial[s.id] = true;
     });
     return initial;
   });
   const [search, setSearch] = useState('');
-  const [libTheme, setLibTheme] = useState<string>('all');
   const [libTempo, setLibTempo] = useState<'all' | Tempo>('all');
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -78,7 +77,7 @@ export function BuilderPage() {
 
   const showToast = (m: string) => {
     setToast(m);
-    setTimeout(() => setToast(null), 1900);
+    setTimeout(() => setToast(null), 1800);
   };
 
   const resolved = useMemo(() => {
@@ -117,8 +116,6 @@ export function BuilderPage() {
   };
   const balanced = checks.parts && checks.songs && checks.fast && checks.slow;
 
-  /* ---- sequence mutations ---- */
-
   const insertPart = (songId: string, partId: string, at?: number) => {
     const slot = makeSlot(songId, partId);
     setItems((prev) => {
@@ -129,7 +126,7 @@ export function BuilderPage() {
     });
     const song = songs.find((s) => s.id === songId);
     const part = song?.parts.find((p) => p.id === partId);
-    if (song && part) showToast(`Added ${song.title} · ${part.label}`);
+    if (song && part) showToast(`Added ${part.label}`);
   };
 
   const moveSlot = (from: number, to: number) => {
@@ -156,8 +153,6 @@ export function BuilderPage() {
   const removeSlot = (index: number) => {
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
-
-  /* ---- HTML5 drag & drop ---- */
 
   const onSlotDragStart = (e: React.DragEvent, index: number) => {
     setDragIndex(index);
@@ -211,8 +206,6 @@ export function BuilderPage() {
     setDragIndex(null);
     setOverIndex(null);
   };
-
-  /* ---- Touch / pointer drag ---- */
 
   const hitTestIndex = (clientY: number): number | 'zone' | null => {
     for (let i = 0; i < slotRefs.current.length; i++) {
@@ -310,58 +303,24 @@ export function BuilderPage() {
     window.addEventListener('pointercancel', up);
   };
 
-  /* ---- library filtering ---- */
-
-  const libraryThemes = useMemo(() => {
-    const s = new Set<string>();
-    songs.forEach((song) => {
-      if (song.theme) s.add(song.theme);
-    });
-    return Array.from(s).sort();
-  }, [songs]);
-
   const librarySongs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return songs.filter((s) => {
       if (libTempo !== 'all' && s.tempo !== libTempo) return false;
-      if (libTheme !== 'all' && s.theme !== libTheme) return false;
       if (!q) return true;
       return `${s.title} ${s.artist} ${s.theme} ${s.parts.map((p) => p.lyrics).join(' ')}`
         .toLowerCase()
         .includes(q);
     });
-  }, [songs, search, libTheme, libTempo]);
-
-  const allExpanded =
-    librarySongs.length > 0 && librarySongs.every((s) => Boolean(expanded[s.id]));
-
-  const toggleExpandAll = () => {
-    if (allExpanded) {
-      setExpanded({});
-    } else {
-      const next: Record<string, boolean> = { ...expanded };
-      librarySongs.forEach((s) => {
-        next[s.id] = true;
-      });
-      setExpanded(next);
-    }
-  };
-
-  /* ---- save ---- */
+  }, [songs, search, libTempo]);
 
   const save = async () => {
     setError(null);
     if (!name.trim()) return setError('Name this lineup.');
-    if (resolved.length < 2) return setError('Add at least two song parts to the sequence.');
-    if (songCount < 2) {
-      return setError('Include parts from at least two different songs.');
-    }
+    if (resolved.length < 2) return setError('Add at least two parts.');
+    if (songCount < 2) return setError('Include parts from at least two songs.');
     if (fastCount === 0 || slowCount === 0) {
-      return setError(
-        fastCount === 0
-          ? 'This lineup only has slow songs — add at least one fast song part.'
-          : 'This lineup only has fast songs — add at least one slow song part.',
-      );
+      return setError('Include both a fast song and a slow song.');
     }
     setBusy(true);
     try {
@@ -391,383 +350,289 @@ export function BuilderPage() {
     <div className="stack">
       <BackBar
         onBack={() => navigate(editing && existing ? `/lineups/${existing.id}` : '/lineups')}
-        label={editing ? 'Lineup' : 'Lineups'}
       />
 
-      <div className="page-head">
-        <span className="eyebrow">{editing ? 'Edit Lineup' : 'Sequence Studio'}</span>
-        <input
-          aria-label="Lineup name"
-          className="input title-input"
-          placeholder="Untitled lineup…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </div>
+      <input
+        aria-label="Lineup name"
+        className="input title-input"
+        placeholder="Lineup name…"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
 
-      {/* Live Guardrail Checklist */}
-      <div className="guardrail-bar" aria-label="Lineup balance requirements">
+      <div className="guardrail-bar" aria-label="Requirements">
         <span className={`guardrail-pill ${checks.parts ? 'ok' : ''}`}>
-          <Icon name={checks.parts ? 'check' : 'lineup'} size={12} />
-          {resolved.length}/2+ parts
+          {resolved.length}/2 parts
         </span>
         <span className={`guardrail-pill ${checks.songs ? 'ok' : ''}`}>
-          <Icon name={checks.songs ? 'check' : 'songs'} size={12} />
-          {songCount}/2+ songs
+          {songCount}/2 songs
         </span>
-        <button
-          type="button"
-          className={`guardrail-pill guardrail-btn ${checks.fast ? 'ok' : ''}`}
-          onClick={() => setLibTempo(libTempo === 'fast' ? 'all' : 'fast')}
-          title="Filter library to fast songs"
-        >
-          <Icon name={checks.fast ? 'check' : 'fast'} size={12} />
+        <span className={`guardrail-pill ${checks.fast ? 'ok' : ''}`}>
           {fastCount} fast
-        </button>
-        <button
-          type="button"
-          className={`guardrail-pill guardrail-btn ${checks.slow ? 'ok' : ''}`}
-          onClick={() => setLibTempo(libTempo === 'slow' ? 'all' : 'slow')}
-          title="Filter library to slow songs"
-        >
-          <Icon name={checks.slow ? 'check' : 'slow'} size={12} />
+        </span>
+        <span className={`guardrail-pill ${checks.slow ? 'ok' : ''}`}>
           {slowCount} slow
-        </button>
+        </span>
       </div>
 
-      <div className="builder-grid">
-        {/* LEFT COLUMN: Sequence & Settings */}
-        <div className="stack">
-          <div className="card stack-sm">
-            <div className="form-grid-2">
-              <div className="field">
-                <label htmlFor="lineup-class">Class</label>
-                <select
-                  id="lineup-class"
-                  className="select"
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value)}
-                >
-                  <option value="">
-                    {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto from lyrics'}
-                  </option>
-                  {THEME_LIST.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {teams.length > 0 && (
-                <div className="field">
-                  <label htmlFor="lineup-team">Visibility</label>
-                  <select
-                    id="lineup-team"
-                    className="select"
-                    value={teamId}
-                    onChange={(e) => setTeamId(e.target.value)}
-                  >
-                    <option value="">Personal</option>
-                    {teams.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        Shared · {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          </div>
+      <div className="row" style={{ gap: 8 }}>
+        <select
+          aria-label="Lineup class"
+          className="select"
+          style={{ flex: 1 }}
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+        >
+          <option value="">
+            {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto class'}
+          </option>
+          {THEME_LIST.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
 
-          <div className="stack-sm">
-            <div className="row-between">
-              <span className="label">Sequence ({resolved.length})</span>
-              {resolved.length > 0 && (
-                <button
-                  type="button"
-                  className="link-button tiny"
-                  onClick={() => setItems([])}
-                >
-                  Clear all
-                </button>
-              )}
-            </div>
+        {teams.length > 0 && (
+          <select
+            aria-label="Visibility"
+            className="select"
+            style={{ flex: 1 }}
+            value={teamId}
+            onChange={(e) => setTeamId(e.target.value)}
+          >
+            <option value="">Personal</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
 
-            {resolved.length > 0 && (
-              <div className="seq-list">
-                {resolved.map(({ item, song, part }, i) => {
-                  const firstLine =
-                    part.lyrics
-                      .split(/\r?\n/)
-                      .map((l) => l.trim())
-                      .find(Boolean) ?? '';
-                  return (
-                    <div
-                      key={item.id}
-                      ref={(el) => {
-                        slotRefs.current[i] = el;
-                      }}
-                      className={[
-                        'seq-item',
-                        dragIndex === i ? 'dragging' : '',
-                        overIndex === i && dragIndex !== i ? 'over' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      draggable
-                      onDragStart={(e) => onSlotDragStart(e, i)}
-                      onDragOver={(e) => onSlotDragOver(e, i)}
-                      onDrop={(e) => onSlotDrop(e, i)}
-                      onDragEnd={() => {
-                        setDragIndex(null);
-                        setOverIndex(null);
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="seq-handle"
-                        aria-label="Drag to reorder"
-                        onPointerDown={(e) =>
-                          startTouchSlot(e, i, `${song.title} · ${part.label}`)
-                        }
-                      >
-                        <Icon name="drag" size={16} />
-                      </button>
-
-                      <span className={`tempo-dot ${song.tempo}`} title={`${song.tempo} tempo`} />
-
-                      <div className="seq-body">
-                        <div className="seq-title">
-                          <span className="seq-index">{i + 1}</span>
-                          <span>{song.title}</span>
-                          <Chip tone={song.tempo}>{part.label}</Chip>
-                        </div>
-                        {firstLine && <div className="lyric-line muted">{firstLine}</div>}
-                      </div>
-
-                      <div className="seq-toolbar">
-                        <IconButton
-                          label="Preview lyrics"
-                          onClick={() => setPreviewSlot({ song, part })}
-                        >
-                          <Icon name="view" size={14} />
-                        </IconButton>
-                        <IconButton label="Duplicate slot" onClick={() => duplicateSlot(i)}>
-                          <Icon name="copy" size={14} />
-                        </IconButton>
-                        <IconButton
-                          label="Move up"
-                          onClick={() => moveSlot(i, i - 1)}
-                          disabled={i === 0}
-                        >
-                          <Icon name="arrowUp" size={14} />
-                        </IconButton>
-                        <IconButton
-                          label="Move down"
-                          onClick={() => moveSlot(i, i + 1)}
-                          disabled={i === resolved.length - 1}
-                        >
-                          <Icon name="arrowDown" size={14} />
-                        </IconButton>
-                        <IconButton label="Remove slot" onClick={() => removeSlot(i)}>
-                          <Icon name="trash" size={14} />
-                        </IconButton>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div
-              ref={dropzoneRef}
-              className={`dropzone ${dropActive ? 'active' : ''}`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDropActive(true);
-              }}
-              onDragLeave={() => setDropActive(false)}
-              onDrop={onZoneDrop}
-            >
-              <Icon
-                name="add"
-                size={18}
-                style={{ margin: '0 auto 6px', opacity: 0.7 }}
-              />
-              {resolved.length === 0
-                ? 'Tap or drag parts from your Song Library to start the sequence.'
-                : 'Drop a part here to append it to the end.'}
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Song Library */}
-        <div className="builder-library stack-sm">
-          <div className="row-between">
-            <span className="label">Song library ({librarySongs.length})</span>
-            {librarySongs.length > 0 && (
-              <button type="button" className="link-button tiny" onClick={toggleExpandAll}>
-                {allExpanded ? 'Collapse all' : 'Expand all'}
-              </button>
-            )}
-          </div>
-
-          {songs.length === 0 ? (
-            <Empty
-              icon="songs"
-              title="Your library is empty"
-              body="Add at least two songs — one Fast and one Slow — so you can arrange parts into a lineup."
-              action={
-                <Button variant="primary" onClick={() => navigate('/songs/new')}>
-                  <Icon name="add" size={16} /> Add a song
-                </Button>
-              }
-            />
-          ) : (
-            <>
-              <div className="search">
-                <Icon name="search" size={16} />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Filter songs or lyrics…"
-                  aria-label="Filter songs"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    className="search-clear"
-                    aria-label="Clear filter"
-                    onClick={() => setSearch('')}
-                  >
-                    <Icon name="close" size={14} />
-                  </button>
-                )}
-              </div>
-
-              <div className="filter-row">
-                <button
-                  type="button"
-                  className={`filter-pill ${libTempo === 'all' && libTheme === 'all' ? 'active' : ''}`}
-                  onClick={() => {
-                    setLibTempo('all');
-                    setLibTheme('all');
-                  }}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  className={`filter-pill ${libTempo === 'fast' ? 'active' : ''}`}
-                  onClick={() => setLibTempo(libTempo === 'fast' ? 'all' : 'fast')}
-                >
-                  <Icon name="fast" size={12} /> Fast
-                </button>
-                <button
-                  type="button"
-                  className={`filter-pill ${libTempo === 'slow' ? 'active' : ''}`}
-                  onClick={() => setLibTempo(libTempo === 'slow' ? 'all' : 'slow')}
-                >
-                  <Icon name="slow" size={12} /> Slow
-                </button>
-                {libraryThemes.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={`filter-pill ${libTheme === t ? 'active' : ''}`}
-                    onClick={() => setLibTheme(libTheme === t ? 'all' : t)}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-
-              {librarySongs.length === 0 ? (
-                <div className="card-subtle small" style={{ textAlign: 'center', padding: 18 }}>
-                  No songs match that filter.
-                </div>
-              ) : (
-                <div className="stack-xs">
-                  {librarySongs.map((song) => {
-                    const isOpen = Boolean(expanded[song.id]) || Boolean(search.trim());
-                    return (
-                      <div key={song.id} className="song-picker">
-                        <button
-                          type="button"
-                          className="song-picker-head"
-                          aria-expanded={isOpen}
-                          onClick={() =>
-                            setExpanded((prev) => ({ ...prev, [song.id]: !isOpen }))
-                          }
-                        >
-                          <span className={`tempo-dot ${song.tempo}`} />
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <h3 className="truncate">{song.title}</h3>
-                            <span className="tiny">
-                              {song.tempo === 'fast' ? 'Fast' : 'Slow'}
-                              {song.theme ? ` · ${song.theme}` : ''} · {song.parts.length} parts
-                            </span>
-                          </div>
-                          <span
-                            className="picker-chevron"
-                            style={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
-                          >
-                            <Icon name="chevronDown" size={16} />
-                          </span>
-                        </button>
-
-                        {isOpen && (
-                          <div className="picker-parts">
-                            {song.parts.map((part) => {
-                              const first =
-                                part.lyrics
-                                  .split(/\r?\n/)
-                                  .map((l) => l.trim())
-                                  .find(Boolean) ?? '';
-                              return (
-                                <button
-                                  key={part.id}
-                                  type="button"
-                                  className="part-chip"
-                                  draggable
-                                  onDragStart={(e) => onPartDragStart(e, song.id, part.id)}
-                                  onPointerDown={(e) =>
-                                    startTouchPart(
-                                      e,
-                                      song.id,
-                                      part.id,
-                                      `${song.title} · ${part.label}`,
-                                    )
-                                  }
-                                  onClick={(e) => {
-                                    if (
-                                      (e.nativeEvent as PointerEvent).pointerType &&
-                                      (e.nativeEvent as PointerEvent).pointerType !== 'mouse'
-                                    ) {
-                                      return;
-                                    }
-                                    insertPart(song.id, part.id);
-                                  }}
-                                >
-                                  <span className="kind">{part.label}</span>
-                                  <span className="excerpt">{first || 'Empty part'}</span>
-                                  <span className="push" />
-                                  <span className="part-add" aria-hidden="true">
-                                    <Icon name="add" size={14} />
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
+      <div className="stack-sm">
+        <div className="row-between">
+          <span className="label">Sequence ({resolved.length})</span>
+          {resolved.length > 0 && (
+            <button type="button" className="link-button tiny" onClick={() => setItems([])}>
+              Clear
+            </button>
           )}
         </div>
+
+        {resolved.length > 0 && (
+          <div className="seq-list">
+            {resolved.map(({ item, song, part }, i) => {
+              const firstLine =
+                part.lyrics
+                  .split(/\r?\n/)
+                  .map((l) => l.trim())
+                  .find(Boolean) ?? '';
+              return (
+                <div
+                  key={item.id}
+                  ref={(el) => {
+                    slotRefs.current[i] = el;
+                  }}
+                  className={[
+                    'seq-item',
+                    dragIndex === i ? 'dragging' : '',
+                    overIndex === i && dragIndex !== i ? 'over' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  draggable
+                  onDragStart={(e) => onSlotDragStart(e, i)}
+                  onDragOver={(e) => onSlotDragOver(e, i)}
+                  onDrop={(e) => onSlotDrop(e, i)}
+                  onDragEnd={() => {
+                    setDragIndex(null);
+                    setOverIndex(null);
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="seq-handle"
+                    aria-label="Drag to reorder"
+                    onPointerDown={(e) =>
+                      startTouchSlot(e, i, `${song.title} · ${part.label}`)
+                    }
+                  >
+                    <Icon name="drag" size={16} />
+                  </button>
+
+                  <span className={`tempo-dot ${song.tempo}`} />
+
+                  <div className="seq-body">
+                    <div className="seq-title">
+                      <span className="truncate">{song.title}</span>
+                      <Chip tone={song.tempo}>{part.label}</Chip>
+                    </div>
+                    {firstLine && <div className="lyric-line muted">{firstLine}</div>}
+                  </div>
+
+                  <div className="seq-toolbar">
+                    <IconButton
+                      label="Preview"
+                      onClick={() => setPreviewSlot({ song, part })}
+                    >
+                      <Icon name="view" size={14} />
+                    </IconButton>
+                    <IconButton label="Duplicate" onClick={() => duplicateSlot(i)}>
+                      <Icon name="copy" size={14} />
+                    </IconButton>
+                    <IconButton label="Remove" onClick={() => removeSlot(i)}>
+                      <Icon name="trash" size={14} />
+                    </IconButton>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div
+          ref={dropzoneRef}
+          className={`dropzone ${dropActive ? 'active' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDropActive(true);
+          }}
+          onDragLeave={() => setDropActive(false)}
+          onDrop={onZoneDrop}
+        >
+          {resolved.length === 0
+            ? 'Tap or drag song parts below to build your sequence.'
+            : 'Drop a part here to add to the end.'}
+        </div>
+      </div>
+
+      <div className="stack-sm">
+        <span className="label">Add parts</span>
+
+        {songs.length === 0 ? (
+          <Empty
+            icon="songs"
+            title="No songs yet"
+            body="Add at least one fast and one slow song first."
+            action={
+              <Button variant="primary" onClick={() => navigate('/songs/new')}>
+                <Icon name="add" size={16} /> Add song
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            <div className="search">
+              <Icon name="search" size={16} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Filter songs…"
+                aria-label="Filter songs"
+              />
+              {search && (
+                <button
+                  type="button"
+                  className="search-clear"
+                  aria-label="Clear"
+                  onClick={() => setSearch('')}
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              )}
+            </div>
+
+            <div className="filter-row">
+              {(['all', 'fast', 'slow'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`filter-pill ${libTempo === t ? 'active' : ''}`}
+                  onClick={() => setLibTempo(t)}
+                >
+                  {t === 'all' ? 'All' : t === 'fast' ? 'Fast' : 'Slow'}
+                </button>
+              ))}
+            </div>
+
+            <div className="stack-xs">
+              {librarySongs.map((song) => {
+                const isOpen = Boolean(expanded[song.id]) || Boolean(search.trim());
+                return (
+                  <div key={song.id} className="song-picker">
+                    <button
+                      type="button"
+                      className="song-picker-head"
+                      aria-expanded={isOpen}
+                      onClick={() =>
+                        setExpanded((prev) => ({ ...prev, [song.id]: !isOpen }))
+                      }
+                    >
+                      <span className={`tempo-dot ${song.tempo}`} />
+                      <span className="truncate" style={{ flex: 1, fontWeight: 500 }}>
+                        {song.title}
+                      </span>
+                      <span className="tiny">
+                        {song.tempo === 'fast' ? 'Fast' : 'Slow'}
+                      </span>
+                      <span
+                        className="picker-chevron"
+                        style={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
+                      >
+                        <Icon name="chevronDown" size={16} />
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="picker-parts">
+                        {song.parts.map((part) => {
+                          const first =
+                            part.lyrics
+                              .split(/\r?\n/)
+                              .map((l) => l.trim())
+                              .find(Boolean) ?? '';
+                          return (
+                            <button
+                              key={part.id}
+                              type="button"
+                              className="part-chip"
+                              draggable
+                              onDragStart={(e) => onPartDragStart(e, song.id, part.id)}
+                              onPointerDown={(e) =>
+                                startTouchPart(
+                                  e,
+                                  song.id,
+                                  part.id,
+                                  `${song.title} · ${part.label}`,
+                                )
+                              }
+                              onClick={(e) => {
+                                if (
+                                  (e.nativeEvent as PointerEvent).pointerType &&
+                                  (e.nativeEvent as PointerEvent).pointerType !== 'mouse'
+                                ) {
+                                  return;
+                                }
+                                insertPart(song.id, part.id);
+                              }}
+                            >
+                              <span className="kind">{part.label}</span>
+                              <span className="excerpt">{first || 'Empty'}</span>
+                              <span className="push" />
+                              <Icon name="add" size={14} className="muted" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {error && (
@@ -789,8 +654,7 @@ export function BuilderPage() {
           disabled={busy || !balanced || !name.trim()}
           style={{ flex: 2 }}
         >
-          <Icon name="check" size={16} />
-          {busy ? 'Saving…' : editing ? 'Save lineup' : 'Create lineup'}
+          {busy ? 'Saving…' : 'Save lineup'}
         </Button>
       </div>
 
@@ -820,14 +684,10 @@ export function BuilderPage() {
         open={Boolean(previewSlot)}
         onClose={() => setPreviewSlot(null)}
         title={previewSlot ? previewSlot.song.title : ''}
-        subtitle={
-          previewSlot
-            ? `${previewSlot.part.label} · ${previewSlot.song.tempo === 'fast' ? 'Fast' : 'Slow'}`
-            : ''
-        }
+        subtitle={previewSlot ? previewSlot.part.label : ''}
       >
         {previewSlot && (
-          <div className="part-block" style={{ marginTop: 8 }}>
+          <div className="part-block">
             <div className="part-body">
               {previewSlot.part.lyrics.split(/\r?\n/).map((line, i) => (
                 <div key={i} className="lyric-line">

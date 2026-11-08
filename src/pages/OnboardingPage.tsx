@@ -2,60 +2,33 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Wordmark } from '../components/Logo';
 import { Button, Icon, IconButton } from '../components/ui';
-import type { IconName } from '../components/Icon';
 import { useStore } from '../lib/store';
 
 interface Step {
-  eyebrow: string;
   title: string;
   body: string;
-  points: { icon: IconName; text: string }[];
   art: 'lyrics' | 'classify' | 'sequence' | 'team';
 }
 
 const STEPS: Step[] = [
   {
-    eyebrow: 'Welcome to Aria',
-    title: 'Structure every song,\npart by part.',
-    body:
-      'Capture verses, choruses, bridges, and outros as modular blocks so you can mix and arrange them effortlessly.',
-    points: [
-      { icon: 'lyrics', text: 'Paste full lyrics to split automatically, or craft part by part' },
-      { icon: 'fast', text: 'Tag each song as Fast or Slow to balance your setlist energy' },
-    ],
+    title: 'Songs by section',
+    body: 'Save verses, choruses, and bridges as modular blocks — or paste full lyrics to split automatically.',
     art: 'lyrics',
   },
   {
-    eyebrow: 'Lyric Intelligence',
-    title: 'Lyrics reveal their\nown meaning.',
-    body:
-      'One tap reads your verses and choruses to classify the song’s core theme and summarize its emotional message.',
-    points: [
-      { icon: 'sparkle', text: 'Eight lyrical classes: Love, Hope, Faith, Joy, Longing, and more' },
-      { icon: 'edit', text: 'Refine the suggested class or tempo anytime before saving' },
-    ],
+    title: 'Lyric intelligence',
+    body: 'Aria reads your lyrics to classify the song’s theme and summarize its core message.',
     art: 'classify',
   },
   {
-    eyebrow: 'Sequence Builder',
-    title: 'Arrange balanced sets\nthat stay fresh.',
-    body:
-      'Drag parts across songs into custom sequences. Aria checks tempo balance and rotates least-recently-used lineups to the top.',
-    points: [
-      { icon: 'lineup', text: 'Live guardrails ensure 2+ songs with both Fast and Slow dynamics' },
-      { icon: 'clock', text: 'Least-recently-used rotation keeps your setlists feeling fresh' },
-    ],
+    title: 'Balanced lineups',
+    body: 'Arrange song parts into sequences mixing fast and slow tempos, rotated by least recently used.',
     art: 'sequence',
   },
   {
-    eyebrow: 'Teams & Sharing',
-    title: 'Collaborate cleanly,\nshare in one link.',
-    body:
-      'Create a team workspace to share songs and lineups, copy items to customize personally, and send read-only lyric sheets.',
-    points: [
-      { icon: 'teams', text: 'Invite bandmates with a simple team code' },
-      { icon: 'share', text: 'Public share links open cleanly without requiring an account' },
-    ],
+    title: 'Simple collaboration',
+    body: 'Share repertoire with a team invite code and send read-only lyric links in one tap.',
     art: 'team',
   },
 ];
@@ -64,17 +37,13 @@ function Art({ kind }: { kind: Step['art'] }) {
   if (kind === 'classify') {
     return (
       <div className="onb-art" aria-hidden="true">
-        <div className="onb-class-row">
-          <span className="chip brand">
-            <Icon name="sparkle" size={12} /> Hope
-          </span>
-          <span className="chip">Renewal</span>
-          <span className="onb-confidence">Strong match · 84%</span>
+        <div className="row-between">
+          <span className="chip brand">Hope</span>
+          <span className="tiny">84% match</span>
         </div>
         <div className="onb-bars">
           <span style={{ width: '84%' }} />
-          <span style={{ width: '48%' }} />
-          <span style={{ width: '26%' }} />
+          <span style={{ width: '46%' }} />
         </div>
         <p className="onb-quote">“Morning breaks across the quiet ridge”</p>
       </div>
@@ -90,17 +59,11 @@ function Art({ kind }: { kind: Step['art'] }) {
           { part: 'Bridge', song: 'Quiet Anchor', tone: 'slow' as const },
         ].map((row, idx) => (
           <div key={row.part} className="onb-seq-row">
-            <Icon name="drag" size={14} />
             <span className="onb-seq-index">{idx + 1}</span>
-            <span className={`chip ${row.tone}`}>{row.part}</span>
             <span className="small truncate">{row.song}</span>
-            <Icon name={row.tone} size={14} />
+            <span className={`chip ${row.tone}`}>{row.part}</span>
           </div>
         ))}
-        <div className="onb-seq-foot">
-          <Icon name="clock" size={12} />
-          <span>Balanced Fast + Slow · Ready for rotation</span>
-        </div>
       </div>
     );
   }
@@ -108,7 +71,7 @@ function Art({ kind }: { kind: Step['art'] }) {
   if (kind === 'team') {
     return (
       <div className="onb-art onb-team" aria-hidden="true">
-        <span className="tiny muted">Team invite code</span>
+        <span className="tiny">Invite code</span>
         <div className="onb-code">ARIA-•••</div>
         <div className="onb-members">
           {['AR', 'JM', 'KL'].map((init) => (
@@ -116,13 +79,6 @@ function Art({ kind }: { kind: Step['art'] }) {
               {init}
             </span>
           ))}
-          <span className="onb-avatar onb-avatar-add">
-            <Icon name="add" size={12} />
-          </span>
-        </div>
-        <div className="onb-team-row">
-          <Icon name="share" size={14} />
-          <span>Share read-only lyric programs in one tap</span>
         </div>
       </div>
     );
@@ -131,17 +87,15 @@ function Art({ kind }: { kind: Step['art'] }) {
   return (
     <div className="onb-art" aria-hidden="true">
       <div className="row-between">
-        <span className="onb-song-title">Morning Anthem</span>
-        <span className="chip slow">
-          <Icon name="slow" size={12} /> Slow
-        </span>
+        <strong style={{ fontSize: 15 }}>Morning Anthem</strong>
+        <span className="chip slow">Slow</span>
       </div>
-      {['Verse 1', 'Chorus', 'Bridge'].map((label, idx) => (
+      {['Verse 1', 'Chorus'].map((label, idx) => (
         <div key={label} className="onb-part">
-          <span className="onb-part-tag">{label}</span>
+          <span className="tiny">{label}</span>
           <div className="onb-lines">
             <span style={{ width: idx === 1 ? '88%' : '76%' }} />
-            <span style={{ width: idx === 2 ? '56%' : '66%' }} />
+            <span style={{ width: '62%' }} />
           </div>
         </div>
       ))}
@@ -174,16 +128,17 @@ export function OnboardingPage({ replay = false }: { replay?: boolean }) {
   return (
     <div className="onb">
       <header className="onb-top">
-        <Wordmark size={26} />
-        <div className="row" style={{ gap: 8 }}>
+        <Wordmark size={24} />
+        <div className="row" style={{ gap: 6 }}>
           <IconButton
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="icon-btn-ghost"
             onClick={toggleTheme}
           >
             {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
           </IconButton>
-          <button type="button" className="link-button onb-skip" onClick={() => finish('/')}>
-            {replay ? 'Close' : 'Skip'}
+          <button type="button" className="btn btn-quiet" onClick={() => finish('/')}>
+            {replay ? 'Done' : 'Skip'}
           </button>
         </div>
       </header>
@@ -192,34 +147,20 @@ export function OnboardingPage({ replay = false }: { replay?: boolean }) {
         <Art kind={step.art} />
 
         <div className="onb-head">
-          <span className="eyebrow">
-            Step {index + 1} of {STEPS.length} · {step.eyebrow}
-          </span>
           <h1 className="onb-title">{step.title}</h1>
           <p className="onb-copy">{step.body}</p>
         </div>
-
-        <ul className="onb-points">
-          {step.points.map((point) => (
-            <li key={point.text}>
-              <span className="onb-point-icon">
-                <Icon name={point.icon} size={16} />
-              </span>
-              <span>{point.text}</span>
-            </li>
-          ))}
-        </ul>
       </div>
 
       <footer className="onb-foot">
-        <div className="onb-dots" role="tablist" aria-label="Onboarding steps">
+        <div className="onb-dots" role="tablist" aria-label="Steps">
           {STEPS.map((s, i) => (
             <button
-              key={s.eyebrow}
+              key={s.title}
               type="button"
               role="tab"
               aria-selected={i === index}
-              aria-label={`Step ${i + 1}: ${s.eyebrow}`}
+              aria-label={`Step ${i + 1}`}
               className={`onb-dot ${i === index ? 'active' : ''}`}
               onClick={() => setIndex(i)}
             />
@@ -228,7 +169,7 @@ export function OnboardingPage({ replay = false }: { replay?: boolean }) {
 
         <div className="onb-actions">
           {index > 0 ? (
-            <IconButton label="Previous step" onClick={() => setIndex((i) => i - 1)}>
+            <IconButton label="Previous" onClick={() => setIndex((i) => i - 1)}>
               <Icon name="back" size={18} />
             </IconButton>
           ) : (
@@ -236,28 +177,16 @@ export function OnboardingPage({ replay = false }: { replay?: boolean }) {
           )}
 
           {last ? (
-            <div className="row" style={{ flex: 1, gap: 8 }}>
-              {!replay && (
-                <Button
-                  className="onb-next"
-                  onClick={() => finish('/songs/new')}
-                >
-                  <Icon name="add" size={16} /> Add first song
-                </Button>
-              )}
-              <Button variant="primary" className="onb-next" onClick={() => finish('/')}>
-                {replay ? 'Back to studio' : 'Open studio'}
-                <Icon name="chevronRight" size={16} />
-              </Button>
-            </div>
+            <Button variant="primary" className="onb-next" onClick={() => finish('/')}>
+              Get started
+            </Button>
           ) : (
             <Button
               variant="primary"
               className="onb-next"
               onClick={() => setIndex((i) => i + 1)}
             >
-              Continue
-              <Icon name="chevronRight" size={16} />
+              Next
             </Button>
           )}
         </div>

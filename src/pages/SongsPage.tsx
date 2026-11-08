@@ -23,16 +23,6 @@ export function SongsPage() {
     return Array.from(set).sort();
   }, [songs]);
 
-  const counts = useMemo(() => {
-    let fast = 0;
-    let slow = 0;
-    for (const s of songs) {
-      if (s.tempo === 'fast') fast++;
-      else slow++;
-    }
-    return { fast, slow };
-  }, [songs]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return songs
@@ -56,9 +46,6 @@ export function SongsPage() {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [songs, scope, tempoFilter, themeFilter, query, user?.id]);
 
-  const teamName = (teamId: string | null) =>
-    teamId ? teams.find((t) => t.id === teamId)?.name ?? 'Team' : null;
-
   const hasActiveFilters =
     Boolean(query.trim()) || scope !== 'all' || tempoFilter !== 'all' || themeFilter !== 'all';
 
@@ -67,58 +54,23 @@ export function SongsPage() {
       <div className="stack">
         <div className="page-head-row">
           <div className="page-head">
-            <span className="eyebrow">Song Library</span>
             <h1>Songs</h1>
-            <p>Your lyric-structured repertoire lives here.</p>
           </div>
           <Button variant="primary" onClick={() => navigate('/songs/new')}>
-            <Icon name="add" size={16} /> New song
+            <Icon name="add" size={16} /> Add
           </Button>
         </div>
 
-        <div className="welcome-panel">
-          <div className="welcome-badge">
-            <Icon name="sparkle" size={16} /> Clean Studio Workspace
-          </div>
-          <h2>Start building your repertoire</h2>
-          <p className="small">
-            Add songs section by section — or paste full lyrics at once — to classify their message
-            and arrange balanced Fast &amp; Slow lineups.
-          </p>
-
-          <div className="welcome-steps">
-            <div className="welcome-step">
-              <span className="welcome-num">1</span>
-              <div>
-                <strong>Add song parts</strong>
-                <span className="small">Verses, choruses, bridges &amp; outros</span>
-              </div>
-            </div>
-            <div className="welcome-step">
-              <span className="welcome-num">2</span>
-              <div>
-                <strong>Classify lyrics</strong>
-                <span className="small">Auto-detect theme &amp; emotional message</span>
-              </div>
-            </div>
-            <div className="welcome-step">
-              <span className="welcome-num">3</span>
-              <div>
-                <strong>Build setlists</strong>
-                <span className="small">Mix parts into balanced, shareable lineups</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
+        <Empty
+          icon="songs"
+          title="No songs yet"
+          body="Add your first song to classify its lyrics and build balanced lineups."
+          action={
             <Button variant="primary" onClick={() => navigate('/songs/new')}>
-              <Icon name="add" size={16} /> Add your first song
+              <Icon name="add" size={16} /> Add song
             </Button>
-            <Button onClick={() => navigate('/teams')}>
-              <Icon name="teams" size={16} /> Join or create a team
-            </Button>
-          </div>
-        </div>
+          }
+        />
       </div>
     );
   }
@@ -127,14 +79,11 @@ export function SongsPage() {
     <div className="stack">
       <div className="page-head-row">
         <div className="page-head">
-          <span className="eyebrow">
-            {songs.length} {songs.length === 1 ? 'song' : 'songs'} · {counts.fast} fast ·{' '}
-            {counts.slow} slow
-          </span>
           <h1>Songs</h1>
+          <p>{songs.length} in library</p>
         </div>
         <Button variant="primary" onClick={() => navigate('/songs/new')}>
-          <Icon name="add" size={16} /> New song
+          <Icon name="add" size={16} /> Add
         </Button>
       </div>
 
@@ -143,7 +92,7 @@ export function SongsPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search titles, artists, lyrics, or messages…"
+          placeholder="Search songs or lyrics…"
           aria-label="Search songs"
         />
         {query && (
@@ -165,26 +114,26 @@ export function SongsPage() {
             className={scope === 'all' ? 'active' : ''}
             onClick={() => setScope('all')}
           >
-            All ({songs.length})
+            All
           </button>
           <button
             type="button"
             className={scope === 'mine' ? 'active' : ''}
             onClick={() => setScope('mine')}
           >
-            Personal
+            Mine
           </button>
           <button
             type="button"
             className={scope === 'team' ? 'active' : ''}
             onClick={() => setScope('team')}
           >
-            From teams
+            Shared
           </button>
         </div>
       )}
 
-      <div className="filter-row" aria-label="Filter by tempo and class">
+      <div className="filter-row" aria-label="Filters">
         <button
           type="button"
           className={`filter-pill ${tempoFilter === 'all' && themeFilter === 'all' ? 'active' : ''}`}
@@ -200,14 +149,14 @@ export function SongsPage() {
           className={`filter-pill ${tempoFilter === 'fast' ? 'active' : ''}`}
           onClick={() => setTempoFilter(tempoFilter === 'fast' ? 'all' : 'fast')}
         >
-          <Icon name="fast" size={12} /> Fast
+          Fast
         </button>
         <button
           type="button"
           className={`filter-pill ${tempoFilter === 'slow' ? 'active' : ''}`}
           onClick={() => setTempoFilter(tempoFilter === 'slow' ? 'all' : 'slow')}
         >
-          <Icon name="slow" size={12} /> Slow
+          Slow
         </button>
         {themes.map((t) => (
           <button
@@ -224,8 +173,8 @@ export function SongsPage() {
       {filtered.length === 0 ? (
         <Empty
           icon="search"
-          title="No matching songs"
-          body="Try broadening your search or clearing the active tempo and class filters."
+          title="No matches"
+          body="Nothing matched your current search or filter."
           action={
             hasActiveFilters ? (
               <Button
@@ -236,62 +185,34 @@ export function SongsPage() {
                   setThemeFilter('all');
                 }}
               >
-                Reset filters
+                Reset
               </Button>
             ) : undefined
           }
         />
       ) : (
-        <div className="stack-sm">
-          {filtered.map((song) => {
-            const tName = teamName(song.teamId);
-            const firstExcerpt =
-              song.analysis?.message ||
-              song.parts
-                .flatMap((p) => p.lyrics.split(/\r?\n/))
-                .map((l) => l.trim())
-                .find(Boolean) ||
-              '';
-            return (
-              <button
-                key={song.id}
-                type="button"
-                className="card interactive song-card"
-                onClick={() => navigate(`/songs/${song.id}`)}
-              >
-                <div className="row-between" style={{ alignItems: 'flex-start', gap: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <h3 className="song-card-title truncate">{song.title}</h3>
-                    <div className="small truncate">{song.artist || 'Unknown artist'}</div>
-                  </div>
-                  <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                    <Chip tone={song.tempo}>
-                      <Icon name={song.tempo} size={12} />
-                      {song.tempo === 'fast' ? 'Fast' : 'Slow'}
-                    </Chip>
-                    <Icon name="chevronRight" size={16} className="muted" />
-                  </div>
+        <div className="list-group">
+          {filtered.map((song) => (
+            <button
+              key={song.id}
+              type="button"
+              className="list-row"
+              onClick={() => navigate(`/songs/${song.id}`)}
+            >
+              <span className={`tempo-dot ${song.tempo}`} aria-hidden="true" />
+              <div className="list-row-body">
+                <div className="list-row-title truncate">{song.title}</div>
+                <div className="tiny truncate">
+                  {song.artist || 'Unknown artist'} · {song.parts.length}{' '}
+                  {song.parts.length === 1 ? 'part' : 'parts'}
                 </div>
-
-                {firstExcerpt && <p className="song-card-excerpt truncate">{firstExcerpt}</p>}
-
-                <div className="song-card-foot">
-                  <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-                    {song.theme && <Chip tone="brand">{song.theme}</Chip>}
-                    <Chip>
-                      {song.parts.length} {song.parts.length === 1 ? 'part' : 'parts'}
-                    </Chip>
-                    {tName && (
-                      <Chip>
-                        <Icon name="teams" size={12} /> {tName}
-                      </Chip>
-                    )}
-                    {song.copiedFrom && <Chip>From {song.copiedFrom}</Chip>}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+              </div>
+              <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                {song.theme && <Chip tone="brand">{song.theme}</Chip>}
+                <Chip tone={song.tempo}>{song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>

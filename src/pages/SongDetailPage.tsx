@@ -38,7 +38,7 @@ export function SongDetailPage() {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2200);
+    setTimeout(() => setToast(null), 2000);
   };
 
   const copyToMine = async () => {
@@ -46,7 +46,7 @@ export function SongDetailPage() {
     try {
       const res = await api.copySong(song.id);
       await refresh();
-      showToast('Copied to your personal library');
+      showToast('Saved to your library');
       navigate(`/songs/${res.song.id}`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not copy');
@@ -73,7 +73,7 @@ export function SongDetailPage() {
         theme: song.theme || analysis.theme,
       });
       await refresh();
-      showToast(`Classified as ${analysis.theme}`);
+      showToast(analysis.theme);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not analyze');
     } finally {
@@ -101,82 +101,56 @@ export function SongDetailPage() {
         right={
           mine ? (
             <div className="row" style={{ gap: 6 }}>
-              <Button onClick={() => navigate(`/songs/${song.id}/edit`)}>
-                <Icon name="edit" size={14} /> Edit
-              </Button>
+              <IconButton
+                label="Edit song"
+                onClick={() => navigate(`/songs/${song.id}/edit`)}
+              >
+                <Icon name="edit" size={16} />
+              </IconButton>
               <IconButton label="Delete song" onClick={() => setConfirmDelete(true)}>
                 <Icon name="trash" size={16} />
               </IconButton>
             </div>
           ) : (
             <Button variant="primary" onClick={copyToMine} disabled={busy}>
-              <Icon name="copy" size={14} /> Copy to my songs
+              <Icon name="copy" size={14} /> Copy
             </Button>
           )
         }
       />
 
-      <div className="card song-hero">
-        <div className="stack-xs">
-          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-            <Chip tone={song.tempo}>
-              <Icon name={song.tempo} size={12} />
-              {song.tempo === 'fast' ? 'Fast tempo' : 'Slow tempo'}
-            </Chip>
-            {song.theme && <Chip tone="brand">{song.theme}</Chip>}
-            <Chip>
-              {song.parts.length} {song.parts.length === 1 ? 'part' : 'parts'}
-            </Chip>
-            {team && (
-              <Chip>
-                <Icon name="teams" size={12} /> {team.name}
-              </Chip>
-            )}
-          </div>
-
-          <h1 className="song-hero-title">{song.title}</h1>
-          <p className="song-hero-artist">{song.artist || 'Unknown artist'}</p>
-
-          {!mine && <span className="tiny">Shared by {song.ownerName}</span>}
-          {song.copiedFrom && <span className="tiny">Copied from {song.copiedFrom}</span>}
+      <div className="stack-xs">
+        <h1 className="detail-title">{song.title}</h1>
+        <p className="small">{song.artist || 'Unknown artist'}</p>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+          <Chip tone={song.tempo}>{song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
+          {song.theme && <Chip tone="brand">{song.theme}</Chip>}
+          {team && <Chip>{team.name}</Chip>}
+          {!mine && <span className="tiny">by {song.ownerName}</span>}
         </div>
       </div>
 
       {song.analysis ? (
         <AnalysisCard analysis={song.analysis} />
       ) : mine ? (
-        <div className="card row-between" style={{ gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div className="label">Lyric intelligence</div>
-            <p className="small">Generate a theme class and message summary from these lyrics.</p>
-          </div>
-          <Button variant="primary" onClick={analyzeNow} disabled={busy}>
-            <Icon name="sparkle" size={14} /> Classify lyrics
-          </Button>
-        </div>
+        <Button onClick={analyzeNow} disabled={busy} block>
+          <Icon name="sparkle" size={14} /> Classify lyrics
+        </Button>
       ) : null}
 
       <div className="stack-sm">
-        <div className="row-between">
-          <span className="label">Song structure &amp; lyrics</span>
-          <span className="tiny">Swipe long lines horizontally</span>
-        </div>
-
-        {song.parts.map((part, idx) => {
+        {song.parts.map((part) => {
           const lines = part.lyrics.split(/\r?\n/);
-          const partClass =
-            part.lyrics.trim().length > 12 ? analyzeLyrics([part]).theme : null;
           return (
             <div key={part.id} className="part-block">
               <div className="part-head">
-                <span className="part-index">{idx + 1}</span>
-                <strong style={{ fontSize: 14 }}>{part.label}</strong>
-                {partClass && partClass !== song.theme && <Chip>{partClass}</Chip>}
+                <span className="part-title">{part.label}</span>
                 <span className="push" />
                 <IconButton
-                  label={`Copy ${part.label} lyrics`}
+                  label={`Copy ${part.label}`}
+                  className="icon-btn-ghost"
                   onClick={() => copyPartLyrics(part.label, part.lyrics)}
-                  style={{ width: 32, height: 32 }}
+                  style={{ width: 30, height: 30 }}
                 >
                   <Icon name="copy" size={14} />
                 </IconButton>
@@ -197,14 +171,14 @@ export function SongDetailPage() {
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         title="Delete song?"
-        subtitle={`“${song.title}” will be removed from your library and any lineups referencing its parts.`}
+        subtitle={`“${song.title}” will be removed permanently.`}
       >
-        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <div className="row" style={{ gap: 8 }}>
           <Button onClick={() => setConfirmDelete(false)} style={{ flex: 1 }}>
             Cancel
           </Button>
           <Button variant="danger" onClick={remove} disabled={busy} style={{ flex: 1 }}>
-            <Icon name="trash" size={16} /> {busy ? 'Deleting…' : 'Delete song'}
+            {busy ? 'Deleting…' : 'Delete'}
           </Button>
         </div>
       </Sheet>

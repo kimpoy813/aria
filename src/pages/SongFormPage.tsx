@@ -142,7 +142,7 @@ export function SongFormPage() {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2200);
+    setTimeout(() => setToast(null), 2000);
   };
 
   const addPart = (kind: PartKind) => {
@@ -165,7 +165,7 @@ export function SongFormPage() {
       return next;
     });
     setDirtyLyrics(true);
-    showToast('Part duplicated');
+    showToast('Duplicated');
   };
 
   const updatePart = (index: number, patch: Partial<SongPart>) => {
@@ -199,7 +199,7 @@ export function SongFormPage() {
     setDirtyLyrics(true);
     setPasteBuffer('');
     setPasteOpen(false);
-    showToast(`Split into ${parsed.length} ${parsed.length === 1 ? 'part' : 'parts'}`);
+    showToast(`Split into ${parsed.length} parts`);
   };
 
   const hasLyrics = parts.some((p) => p.lyrics.trim().length > 0);
@@ -208,7 +208,7 @@ export function SongFormPage() {
   const generate = () => {
     setError(null);
     if (!hasLyrics) {
-      setError('Add lyrics to at least one part so Aria can read the song.');
+      setError('Add lyrics to at least one part.');
       return;
     }
     const result = analyzeLyrics(parts);
@@ -218,16 +218,16 @@ export function SongFormPage() {
       setTempo(result.suggestedTempo);
     }
     setDirtyLyrics(false);
-    showToast(`Classified as ${result.theme}`);
+    showToast(result.theme);
   };
 
   const submit = async () => {
     setError(null);
-    if (!title.trim()) return setError('Give the song a title.');
+    if (!title.trim()) return setError('Enter a song title.');
     const filled = parts.filter((p) => p.lyrics.trim().length > 0);
     if (filled.length === 0) return setError('Add lyrics to at least one part.');
     if (!analysis || dirtyLyrics) {
-      return setError('Generate the song class and message from your lyrics first.');
+      return setError('Classify the lyrics before saving.');
     }
 
     setBusy(true);
@@ -259,72 +259,69 @@ export function SongFormPage() {
 
   return (
     <div className="stack">
-      <BackBar onBack={() => navigate(editing && existing ? `/songs/${existing.id}` : '/')} />
+      <BackBar
+        onBack={() => navigate(editing && existing ? `/songs/${existing.id}` : '/')}
+        right={
+          <Button onClick={() => setPasteOpen(true)}>
+            <Icon name="paste" size={14} /> Paste lyrics
+          </Button>
+        }
+      />
 
-      <div className="page-head-row">
-        <div className="page-head">
-          <span className="eyebrow">{editing ? 'Edit Song' : 'New Song'}</span>
-          <h1>{editing ? 'Update song' : 'Add a song'}</h1>
-          <p>Structure sections cleanly, classify the message, and set the tempo.</p>
-        </div>
-        <Button onClick={() => setPasteOpen(true)}>
-          <Icon name="paste" size={16} /> Paste full lyrics
-        </Button>
+      <div className="page-head">
+        <h1>{editing ? 'Edit song' : 'New song'}</h1>
       </div>
 
-      {/* Step 1 — Details & Tempo */}
       <div className="card stack">
         <div className="field">
-          <label htmlFor="song-title">Song title</label>
+          <label htmlFor="song-title">Title</label>
           <input
             id="song-title"
             className="input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Morning Anthem"
+            placeholder="Song title"
           />
         </div>
 
-        <div className="form-grid-2">
-          <div className="field">
-            <label htmlFor="song-artist">Artist / Writer</label>
-            <input
-              id="song-artist"
-              className="input"
-              value={artist}
-              onChange={(e) => setArtist(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
+        <div className="field">
+          <label htmlFor="song-artist">Artist</label>
+          <input
+            id="song-artist"
+            className="input"
+            value={artist}
+            onChange={(e) => setArtist(e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
 
-          <div className="field">
-            <span className="label">Tempo</span>
-            <div className="seg" role="radiogroup" aria-label="Song tempo">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={tempo === 'slow'}
-                className={tempo === 'slow' ? 'active' : ''}
-                onClick={() => {
-                  setTempo('slow');
-                  setTempoTouched(true);
-                }}
-              >
-                <Icon name="slow" size={14} /> Slow
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={tempo === 'fast'}
-                className={tempo === 'fast' ? 'active' : ''}
-                onClick={() => {
-                  setTempo('fast');
-                  setTempoTouched(true);
-                }}
-              >
-                <Icon name="fast" size={14} /> Fast
-              </button>
-            </div>
+        <div className="field">
+          <span className="label">Tempo</span>
+          <div className="seg" role="radiogroup" aria-label="Song tempo">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={tempo === 'slow'}
+              className={tempo === 'slow' ? 'active' : ''}
+              onClick={() => {
+                setTempo('slow');
+                setTempoTouched(true);
+              }}
+            >
+              Slow
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={tempo === 'fast'}
+              className={tempo === 'fast' ? 'active' : ''}
+              onClick={() => {
+                setTempo('fast');
+                setTempoTouched(true);
+              }}
+            >
+              Fast
+            </button>
           </div>
         </div>
 
@@ -337,10 +334,10 @@ export function SongFormPage() {
               value={teamId}
               onChange={(e) => setTeamId(e.target.value)}
             >
-              <option value="">Personal — only me</option>
+              <option value="">Personal</option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
-                  Shared with {t.name}
+                  {t.name}
                 </option>
               ))}
             </select>
@@ -348,21 +345,15 @@ export function SongFormPage() {
         )}
       </div>
 
-      {/* Step 2 — Lyrics by part */}
       <div className="stack-sm">
-        <div className="row-between">
-          <span className="label">Song parts ({parts.length})</span>
-          <span className="tiny">Chorus &amp; bridge lines carry extra weight in analysis</span>
-        </div>
+        <span className="label">Parts ({parts.length})</span>
 
         {parts.map((part, i) => (
           <div key={part.id} className="part-block">
             <div className="part-head">
-              <span className="seq-index">{i + 1}</span>
               <select
                 aria-label="Part type"
-                className="select"
-                style={{ width: 'auto', minHeight: 34, padding: '5px 10px', fontSize: 13 }}
+                className="select part-select"
                 value={part.kind}
                 onChange={(e) => {
                   const kind = e.target.value as PartKind;
@@ -378,13 +369,12 @@ export function SongFormPage() {
               </select>
               <input
                 aria-label="Part label"
-                className="input"
-                style={{ minHeight: 34, padding: '5px 10px', fontSize: 13, flex: 1 }}
+                className="input part-label-input"
                 value={part.label}
                 onChange={(e) => updatePart(i, { label: e.target.value })}
               />
               <div className="seq-toolbar">
-                <IconButton label="Duplicate part" onClick={() => duplicatePart(i)}>
+                <IconButton label="Duplicate" onClick={() => duplicatePart(i)}>
                   <Icon name="copy" size={14} />
                 </IconButton>
                 <IconButton label="Move up" onClick={() => movePart(i, -1)} disabled={i === 0}>
@@ -398,7 +388,7 @@ export function SongFormPage() {
                   <Icon name="arrowDown" size={14} />
                 </IconButton>
                 <IconButton
-                  label="Remove part"
+                  label="Remove"
                   onClick={() => removePart(i)}
                   disabled={parts.length <= 1}
                 >
@@ -410,7 +400,7 @@ export function SongFormPage() {
               <textarea
                 className="textarea"
                 rows={4}
-                placeholder={`Write or paste ${part.label.toLowerCase()} lyrics…`}
+                placeholder={`${part.label} lyrics…`}
                 value={part.lyrics}
                 onChange={(e) => updatePart(i, { lyrics: e.target.value })}
               />
@@ -418,31 +408,24 @@ export function SongFormPage() {
           </div>
         ))}
 
-        <div className="card-subtle stack-xs">
-          <span className="tiny">Add another section</span>
-          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-            {PART_KINDS.map((k) => (
-              <Button
-                key={k.kind}
-                onClick={() => addPart(k.kind)}
-                style={{ padding: '7px 12px', minHeight: 34, fontSize: 12.5 }}
-              >
-                <Icon name="add" size={12} /> {k.label}
-              </Button>
-            ))}
-          </div>
+        <div className="filter-row">
+          {PART_KINDS.slice(0, 6).map((k) => (
+            <button
+              key={k.kind}
+              type="button"
+              className="filter-pill"
+              onClick={() => addPart(k.kind)}
+            >
+              <Icon name="add" size={12} /> {k.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Step 3 — Generate class & message */}
       <div className="card stack">
-        <div>
-          <div className="label">Lyric classification</div>
-          <p className="small">
-            {analysis && !dirtyLyrics
-              ? 'Review the detected class and message below, or adjust if needed.'
-              : 'Analyze your lyrics to detect the primary class and emotional summary.'}
-          </p>
+        <div className="row-between">
+          <span className="label">Classification</span>
+          {dirtyLyrics && analysis && <span className="tiny">Outdated</span>}
         </div>
 
         <Button
@@ -451,25 +434,15 @@ export function SongFormPage() {
           disabled={!hasLyrics}
           onClick={generate}
         >
-          <Icon name="sparkle" />
-          {analysis
-            ? dirtyLyrics
-              ? 'Re-analyze updated lyrics'
-              : 'Re-run lyric analysis'
-            : 'Generate class & message'}
+          <Icon name="sparkle" size={14} />
+          {analysis ? (dirtyLyrics ? 'Re-classify lyrics' : 'Refresh analysis') : 'Classify lyrics'}
         </Button>
 
         {analysis && (
           <>
-            {dirtyLyrics && (
-              <div className="alert alert-warn">
-                Lyrics changed since the last scan — re-analyze above before saving.
-              </div>
-            )}
             <AnalysisCard analysis={analysis} />
-
             <div className="field">
-              <label htmlFor="song-class">Song class (override if needed)</label>
+              <label htmlFor="song-class">Class</label>
               <select
                 id="song-class"
                 className="select"
@@ -507,33 +480,27 @@ export function SongFormPage() {
           disabled={busy || !canSave}
           style={{ flex: 2 }}
         >
-          <Icon name="check" size={16} />
-          {busy ? 'Saving…' : editing ? 'Save changes' : 'Save song'}
+          {busy ? 'Saving…' : 'Save'}
         </Button>
       </div>
 
       <Sheet
         open={pasteOpen}
         onClose={() => setPasteOpen(false)}
-        title="Paste full lyrics"
-        subtitle="Include section headers like [Verse 1] or [Chorus], or separate stanzas with blank lines."
+        title="Paste lyrics"
+        subtitle="Use [Verse] / [Chorus] headers or blank lines between sections."
       >
         <div className="stack">
           <textarea
             className="textarea"
-            rows={10}
-            placeholder={`[Verse 1]\nWrite your opening lines here…\n\n[Chorus]\nWrite your chorus lines here…`}
+            rows={9}
+            placeholder={`[Verse 1]\nOpening lines…\n\n[Chorus]\nChorus lines…`}
             value={pasteBuffer}
             onChange={(e) => setPasteBuffer(e.target.value)}
           />
-          <div className="row" style={{ gap: 8 }}>
-            <Button onClick={() => setPasteOpen(false)} style={{ flex: 1 }}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={applyPastedLyrics} style={{ flex: 2 }}>
-              <Icon name="sparkle" size={16} /> Split into parts
-            </Button>
-          </div>
+          <Button variant="primary" block onClick={applyPastedLyrics}>
+            Split into parts
+          </Button>
         </div>
       </Sheet>
 

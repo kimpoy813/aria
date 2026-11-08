@@ -24,18 +24,19 @@ const emailOk = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.tr
 function Shell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useStore();
   return (
-    <div className="app auth-surface">
+    <div className="app">
       <div className="auth">
         <div className="auth-top">
-          <Wordmark size={26} subtitle="Setlist Studio" />
+          <Wordmark size={24} />
           <IconButton
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="icon-btn-ghost"
             onClick={toggleTheme}
           >
             {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
           </IconButton>
         </div>
-        <div className="auth-card">{children}</div>
+        <div className="auth-main">{children}</div>
       </div>
     </div>
   );
@@ -121,7 +122,7 @@ function GoogleButton({
         }
       }}
     >
-      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true">
         <path
           fill="#4285F4"
           d="M45.1 24.5c0-1.6-.1-2.8-.4-4H24v7.9h12c-.2 2-1.5 5-4.4 7l6.7 5.2c4-3.7 6.8-9.1 6.8-16.1Z"
@@ -139,7 +140,7 @@ function GoogleButton({
           d="M24 10.1c4.1 0 7.5 1.4 9.9 3.7l6-6C36 4 30.9 2 24 2 15.4 2 8.1 6.9 4.4 14.1l7.1 5.5C13.3 13.9 18.2 10.1 24 10.1Z"
         />
       </svg>
-      <span>{busy ? 'Connecting to Google…' : 'Continue with Google'}</span>
+      <span>{busy ? 'Connecting…' : 'Continue with Google'}</span>
     </button>
   );
 }
@@ -183,10 +184,10 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
       if (!password) return setError('Enter your password.');
     }
     if (mode === 'register') {
-      if (!name.trim()) return setError('Tell us what to call you.');
+      if (!name.trim()) return setError('Enter your name.');
       if (!emailOk(email)) return setError('Enter a valid email address.');
       if (password.length < 8) return setError('Use at least 8 characters.');
-      if (password !== confirm) return setError('Those passwords do not match.');
+      if (password !== confirm) return setError('Passwords do not match.');
     }
     if (mode === 'forgot' && !emailOk(email)) {
       return setError('Enter a valid email address.');
@@ -219,25 +220,22 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
     return (
       <Shell>
         <div className="auth-head">
-          <LogoHero size={56} />
+          <LogoHero size={48} />
           <h1 className="auth-title">Check your inbox</h1>
           <p className="auth-sub">
-            We sent a confirmation link to <strong>{email}</strong>. Open it, then return here to
-            sign in.
+            Open the confirmation link sent to <strong>{email}</strong>, then sign in.
           </p>
         </div>
-        <div className="auth-body">
-          <Button
-            variant="primary"
-            block
-            onClick={() => {
-              setNeedsConfirm(false);
-              navigate('/login');
-            }}
-          >
-            Go to sign in
-          </Button>
-        </div>
+        <Button
+          variant="primary"
+          block
+          onClick={() => {
+            setNeedsConfirm(false);
+            navigate('/login');
+          }}
+        >
+          Back to sign in
+        </Button>
       </Shell>
     );
   }
@@ -246,23 +244,20 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
     return (
       <Shell>
         <div className="auth-head">
-          <LogoHero size={56} />
+          <LogoHero size={48} />
           <h1 className="auth-title">Check your email</h1>
           <p className="auth-sub">
-            If an account exists for <strong>{email}</strong>, a reset link is on its way and
-            expires in {config.resetMinutes} minutes.
+            If an account exists for <strong>{email}</strong>, a reset link expires in{' '}
+            {config.resetMinutes} minutes.
           </p>
         </div>
 
-        <div className="auth-body">
+        <div className="stack-sm">
           {resetLink ? (
             <div className="card stack-sm">
               <div className="label">Local recovery link</div>
-              <p className="hint">
-                Open this single-use link to choose a new password right away.
-              </p>
               <Button variant="primary" block onClick={() => navigate(resetLink)}>
-                <Icon name="link" /> Open reset link
+                Open reset link
               </Button>
             </div>
           ) : null}
@@ -276,23 +271,20 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
   }
 
   const title = isLoginView
-    ? 'Welcome to Aria'
+    ? 'Sign in to Aria'
     : mode === 'register'
-      ? 'Create your studio'
+      ? 'Create your account'
       : 'Reset password';
   const subtitle = isLoginView
-    ? 'Read the lyric, find the message, and shape balanced lineups.'
+    ? 'Your songs, lyric insights, and setlists.'
     : mode === 'register'
-      ? 'Start with a clean personal library and collaborate with your team.'
-      : "Enter your email and we'll send a recovery link.";
+      ? 'Start with a clean personal library.'
+      : 'Enter your email to receive a reset link.';
 
   return (
     <Shell>
       <div className="auth-head">
-        <LogoHero size={58} />
-        <span className="auth-pill">
-          <Icon name="sparkle" size={12} /> Lyric-aware music studio
-        </span>
+        <LogoHero size={48} />
         <h1 className="auth-title">{title}</h1>
         <p className="auth-sub">{subtitle}</p>
       </div>
@@ -315,7 +307,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
             className={mode === 'register' ? 'active' : ''}
             onClick={() => switchMode('register')}
           >
-            Create account
+            Sign up
           </button>
         </div>
       )}
@@ -327,11 +319,11 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
               onError={setError}
               onUnavailable={() => {
                 switchMode('login');
-                setNotice('Google sign-in is available when Supabase Auth is connected.');
+                setNotice('Google sign-in requires Supabase Auth.');
               }}
             />
             <div className="or-divider">
-              <span>or continue with email</span>
+              <span>or</span>
             </div>
           </>
         ) : null}
@@ -339,13 +331,13 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
         <form className="stack" onSubmit={submit}>
           {mode === 'register' ? (
             <div className="field">
-              <label htmlFor="name">Your name</label>
+              <label htmlFor="name">Name</label>
               <input
                 id="name"
                 className="input"
                 value={name}
                 autoComplete="name"
-                placeholder="e.g. Alex Rivera"
+                placeholder="Your name"
                 onChange={(e) => {
                   setName(e.target.value);
                   resetErrors();
@@ -355,7 +347,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
           ) : null}
 
           <div className="field">
-            <label htmlFor="email">{mode === 'forgot' ? 'Email address' : 'Email'}</label>
+            <label htmlFor="email">Email</label>
             <input
               id="email"
               className="input"
@@ -378,10 +370,10 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
                 {isLoginView ? (
                   <button
                     type="button"
-                    className="link-button"
+                    className="link-button tiny"
                     onClick={() => switchMode('forgot')}
                   >
-                    Forgot password?
+                    Forgot?
                   </button>
                 ) : null}
               </div>
@@ -389,7 +381,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
                 id="password"
                 autoComplete={isLoginView ? 'current-password' : 'new-password'}
                 value={password}
-                placeholder={mode === 'register' ? 'At least 8 characters' : 'Enter your password'}
+                placeholder={mode === 'register' ? '8+ characters' : 'Password'}
                 onChange={(v) => {
                   setPassword(v);
                   resetErrors();
@@ -405,7 +397,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
                 id="confirm"
                 autoComplete="new-password"
                 value={confirm}
-                placeholder="Repeat your password"
+                placeholder="Repeat password"
                 onChange={(v) => {
                   setConfirm(v);
                   resetErrors();
@@ -475,18 +467,14 @@ export function GooglePopupStartPage() {
   return (
     <Shell>
       <div className="auth-head">
-        <LogoHero size={56} />
-        <h1 className="auth-title">{error ? 'Sign-in issue' : 'Connecting to Google…'}</h1>
-        <p className="auth-sub">
-          {error || 'Redirecting to Google to sign in to your Aria account.'}
-        </p>
+        <LogoHero size={48} />
+        <h1 className="auth-title">{error ? 'Sign-in issue' : 'Connecting…'}</h1>
+        <p className="auth-sub">{error || 'Redirecting to Google.'}</p>
       </div>
       {error ? (
-        <div className="auth-body">
-          <Button variant="quiet" block onClick={() => window.close()}>
-            Close window
-          </Button>
-        </div>
+        <Button variant="quiet" block onClick={() => window.close()}>
+          Close window
+        </Button>
       ) : null}
     </Shell>
   );
@@ -499,24 +487,20 @@ export function PopupStatusPage() {
   return (
     <Shell>
       <div className="auth-head">
-        <LogoHero size={56} />
-        <h1 className="auth-title">{ok ? 'Signed in' : 'Sign-in did not finish'}</h1>
+        <LogoHero size={48} />
+        <h1 className="auth-title">{ok ? 'Signed in' : 'Sign-in incomplete'}</h1>
         <p className="auth-sub">
-          {ok
-            ? 'You are signed in to Aria. You can close this window.'
-            : error || 'Return to Aria and try again.'}
+          {ok ? 'You can close this window.' : error || 'Return to Aria and try again.'}
         </p>
       </div>
-      <div className="auth-body">
-        <Button variant="primary" block onClick={() => window.close()}>
-          Close window
-        </Button>
-      </div>
+      <Button variant="primary" block onClick={() => window.close()}>
+        Close window
+      </Button>
     </Shell>
   );
 }
 
-/** Landing at /reset?token=… — outside the auth shell so it works signed in too. */
+/** Landing at /reset?token=… */
 export function ResetPasswordPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -538,14 +522,14 @@ export function ResetPasswordPage() {
     event.preventDefault();
     setError(null);
     if (password.length < 8) return setError('Use at least 8 characters.');
-    if (password !== confirm) return setError('Those passwords do not match.');
+    if (password !== confirm) return setError('Passwords do not match.');
     setBusy(true);
     try {
       const account = await resetPassword(password, token);
       if (account) await signInWithAccount(account);
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not reset the password.');
+      setError(err instanceof Error ? err.message : 'Could not reset password.');
     } finally {
       setBusy(false);
     }
@@ -555,17 +539,13 @@ export function ResetPasswordPage() {
     return (
       <Shell>
         <div className="auth-head">
-          <LogoHero size={56} />
+          <LogoHero size={48} />
           <h1 className="auth-title">Password updated</h1>
-          <p className="auth-sub">
-            You are signed in{user ? ` as ${user.name}` : ''}. Your old password no longer works.
-          </p>
+          <p className="auth-sub">Signed in{user ? ` as ${user.name}` : ''}.</p>
         </div>
-        <div className="auth-body">
-          <Button variant="primary" block onClick={() => navigate('/')}>
-            Go to my songs
-          </Button>
-        </div>
+        <Button variant="primary" block onClick={() => navigate('/')}>
+          Continue
+        </Button>
       </Shell>
     );
   }
@@ -573,56 +553,54 @@ export function ResetPasswordPage() {
   return (
     <Shell>
       <div className="auth-head">
-        <LogoHero size={56} />
-        <h1 className="auth-title">Choose a new password</h1>
+        <LogoHero size={48} />
+        <h1 className="auth-title">New password</h1>
         <p className="auth-sub">
           {driver === 'demo' && !token
-            ? 'Open the reset link from the previous step, or request a new one.'
-            : 'Pick something strong that you have not used before.'}
+            ? 'Open the reset link from the previous step.'
+            : 'Choose a password of at least 8 characters.'}
         </p>
       </div>
 
-      <div className="auth-body">
-        <form className="stack" onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="new-password">New password</label>
-            <PasswordInput
-              id="new-password"
-              autoComplete="new-password"
-              value={password}
-              placeholder="At least 8 characters"
-              onChange={(v) => {
-                setPassword(v);
-                setError(null);
-              }}
-            />
+      <form className="stack" onSubmit={submit}>
+        <div className="field">
+          <label htmlFor="new-password">New password</label>
+          <PasswordInput
+            id="new-password"
+            autoComplete="new-password"
+            value={password}
+            placeholder="8+ characters"
+            onChange={(v) => {
+              setPassword(v);
+              setError(null);
+            }}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="confirm-password">Confirm password</label>
+          <PasswordInput
+            id="confirm-password"
+            autoComplete="new-password"
+            value={confirm}
+            placeholder="Repeat password"
+            onChange={(v) => {
+              setConfirm(v);
+              setError(null);
+            }}
+          />
+        </div>
+        {error ? (
+          <div className="alert alert-danger" role="alert">
+            {error}
           </div>
-          <div className="field">
-            <label htmlFor="confirm-password">Confirm password</label>
-            <PasswordInput
-              id="confirm-password"
-              autoComplete="new-password"
-              value={confirm}
-              placeholder="Repeat your new password"
-              onChange={(v) => {
-                setConfirm(v);
-                setError(null);
-              }}
-            />
-          </div>
-          {error ? (
-            <div className="alert alert-danger" role="alert">
-              {error}
-            </div>
-          ) : null}
-          <Button type="submit" variant="primary" block disabled={busy}>
-            {busy ? 'Saving…' : 'Save new password'}
-          </Button>
-          <Button variant="quiet" block onClick={() => navigate('/forgot')}>
-            Request a new link
-          </Button>
-        </form>
-      </div>
+        ) : null}
+        <Button type="submit" variant="primary" block disabled={busy}>
+          {busy ? 'Saving…' : 'Save password'}
+        </Button>
+        <Button variant="quiet" block onClick={() => navigate('/forgot')}>
+          Request a new link
+        </Button>
+      </form>
     </Shell>
   );
 }
