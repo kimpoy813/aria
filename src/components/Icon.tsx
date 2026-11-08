@@ -13,6 +13,7 @@ import type { CSSProperties } from 'react';
 
 export type IconName =
   | 'home'
+  | 'shield'
   | 'songs'
   | 'lineup'
   | 'teams'
@@ -61,6 +62,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M4 10.6 12 4l8 6.6v8.2a1.4 1.4 0 0 1-1.4 1.4H5.4A1.4 1.4 0 0 1 4 18.8Z" />
       <path d="M9.6 20.2v-5.6h4.8v5.6" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="M12 3.5 5 6.4v5.2c0 4.6 3 7.8 7 9.1 4-1.3 7-4.5 7-9.1V6.4Z" />
+      <path d="m9.5 12.2 1.8 1.8 3.4-3.6" />
     </>
   ),
   songs: (

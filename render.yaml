@@ -40,6 +40,13 @@ services:
         value: app.aria.lineups
       - key: ANDROID_SHA256_FINGERPRINTS
         sync: false
+      # System Administrator account & optional comma-separated Google/Supabase admin emails:
+      - key: ADMIN_EMAIL
+        value: admin@aria.app
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
       # Optional fallback when you would rather not use Supabase at all:
       # write the JSON store to a mounted disk (paid plans only).
       # - key: ARIA_DATA_DIR

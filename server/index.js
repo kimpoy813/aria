@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createStore } from './storage.js';
+import { createStore, defaultSettings } from './storage.js';
 import {
+  createAdminGate,
   createAuth,
   loadDotEnv,
   normaliseEmail,
@@ -30,7 +31,8 @@ const clean = (value, max = 400) =>
 
 let store = null;
 let auth = null;
-let db = { users: [], teams: [], songs: [], lineups: [] };
+let adminGate = null;
+let db = { users: [], teams: [], songs: [], lineups: [], settings: defaultSettings() };
 let saveTimer = null;
 let saveChain = Promise.resolve();
 let saveWarning = null;
@@ -89,7 +91,9 @@ function purgeLegacyDemoData() {
 async function boot() {
   store = await createStore({ log: (line) => console.log(line) });
   auth = await createAuth({ log: (line) => console.log(line) });
+  adminGate = createAdminGate();
   db = await store.load();
+  if (!db.settings) db.settings = defaultSettings();
   purgeLegacyDemoData();
   return store;
 }
@@ -322,24 +326,62 @@ app.use(express.json({ limit: '2mb' }));
 
 /* ------------------------------------------------------------- identity */
 
+function isAdminUser(user) {
+  if (!user) return false;
+  if (user.id === 'user_admin' || user.role === 'admin') return true;
+  if (adminGate && user.email && adminGate.isConfiguredAdminEmail(user.email)) return true;
+  return false;
+}
+
+function publicUserView(user) {
+  if (!user) return null;
+  const admin = isAdminUser(user);
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: admin ? 'admin' : 'user',
+    isAdmin: admin,
+    suspended: admin ? false : Boolean(user.suspended),
+    createdAt: user.createdAt,
+  };
+}
+
 /** Ensure a data record exists for this authenticated identity. */
 function ensureUserRecord(identity) {
   let user = getUser(identity.id);
+  const shouldBeAdmin =
+    identity.id === 'user_admin' ||
+    identity.role === 'admin' ||
+    Boolean(adminGate && identity.email && adminGate.isConfiguredAdminEmail(identity.email));
+
   if (!user) {
     user = {
       id: identity.id,
       name: identity.name,
       email: identity.email,
+      role: shouldBeAdmin ? 'admin' : 'user',
+      suspended: false,
       createdAt: now(),
     };
     db.users.push(user);
     save();
   } else {
-    if (identity.email && !user.email) user.email = identity.email;
+    let dirty = false;
+    if (identity.email && !user.email) {
+      user.email = identity.email;
+      dirty = true;
+    }
     if (identity.name && (!user.name || user.name === 'Listener')) {
       user.name = identity.name;
-      save();
+      dirty = true;
     }
+    if (shouldBeAdmin && user.role !== 'admin') {
+      user.role = 'admin';
+      user.suspended = false;
+      dirty = true;
+    }
+    if (dirty) save();
   }
   return user;
 }
@@ -354,7 +396,19 @@ function bearer(req) {
 async function resolveIdentity(req, _res, next) {
   try {
     const value = bearer(req);
-    if (!value || !auth) return next();
+    if (!value) return next();
+
+    if (adminGate && value.startsWith('adm.')) {
+      const adminIdentity = adminGate.verifySession(value);
+      if (adminIdentity) {
+        req.authId = adminIdentity.id;
+        req.identity = adminIdentity;
+        req.adminSessionToken = value;
+      }
+      return next();
+    }
+
+    if (!auth) return next();
     if (auth.driver === 'demo') {
       const user = auth.sessionUser(value);
       if (user) {
@@ -377,23 +431,97 @@ async function resolveIdentity(req, _res, next) {
 
 /**
  * Guard for data routes. Returns true when the request may continue; when it
- * returns false it has already answered (401), so the caller must stop.
- * Deliberately does not call next(): these routes store their handler in a
- * variable that calls the guard inside the handler body.
+ * returns false it has already answered (401/403), so the caller must stop.
  */
 function requireUser(req, res) {
   if (req.identity) {
-    req.user = ensureUserRecord(req.identity);
+    const user = ensureUserRecord(req.identity);
+    if (user.suspended && !isAdminUser(user)) {
+      res.status(403).json({
+        error: 'Your account has been suspended by an administrator.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+      return false;
+    }
+    req.user = user;
     return true;
   }
   res.status(401).json({ error: 'Please sign in to continue.' });
   return false;
 }
 
+function requireAdmin(req, res) {
+  if (!requireUser(req, res)) return false;
+  if (!isAdminUser(req.user)) {
+    res.status(403).json({ error: 'Administrator access required.' });
+    return false;
+  }
+  return true;
+}
+
+function checkMaintenanceWrite(req, res) {
+  if (isAdminUser(req.user)) return true;
+  const m = db.settings?.maintenance;
+  if (m?.enabled && m?.mode === 'maintenance') {
+    res.status(503).json({
+      error: m.title || 'Aria is currently undergoing scheduled maintenance.',
+      code: 'MAINTENANCE_MODE',
+    });
+    return false;
+  }
+  return true;
+}
+
+function purgeUserContent(userId) {
+  const deletedSongIds = new Set(
+    db.songs.filter((s) => s.ownerId === userId).map((s) => s.id),
+  );
+  db.songs = db.songs.filter((s) => s.ownerId !== userId);
+  db.lineups = db.lineups.filter((l) => l.ownerId !== userId);
+
+  for (const l of db.lineups) {
+    if (!Array.isArray(l.items)) continue;
+    l.items = l.items.filter((i) => !deletedSongIds.has(i.songId) || Boolean(i.lyrics));
+  }
+
+  const emptyTeamIds = new Set();
+  for (const team of db.teams) {
+    if (!Array.isArray(team.members)) continue;
+    const hadUser = team.members.some((m) => m.userId === userId);
+    if (!hadUser) continue;
+    team.members = team.members.filter((m) => m.userId !== userId);
+    if (team.members.length === 0) {
+      emptyTeamIds.add(team.id);
+    } else if (team.ownerId === userId) {
+      team.ownerId = team.members[0].userId;
+      team.members[0].role = 'owner';
+    }
+  }
+  if (emptyTeamIds.size > 0) {
+    db.teams = db.teams.filter((t) => !emptyTeamIds.has(t.id));
+    db.songs.forEach((s) => {
+      if (s.teamId && emptyTeamIds.has(s.teamId)) s.teamId = null;
+    });
+    db.lineups.forEach((l) => {
+      if (l.teamId && emptyTeamIds.has(l.teamId)) l.teamId = null;
+    });
+  }
+
+  db.users = db.users.filter((u) => u.id !== userId);
+}
+
 const api = express.Router();
 api.use(resolveIdentity);
 
 api.get('/health', (_req, res) => res.json({ ok: true }));
+
+api.get('/system/status', (_req, res) => {
+  const settings = db.settings || defaultSettings();
+  res.json({
+    maintenance: settings.maintenance,
+    allowRegistration: settings.allowRegistration !== false,
+  });
+});
 
 /* ---------------------------------------------------------------- auth */
 
@@ -469,10 +597,40 @@ api.get('/auth/relay/:nonce', (req, res) => {
 api.get('/auth/session', (req, res) => {
   if (!req.identity) return res.json({ user: null });
   const user = ensureUserRecord(req.identity);
-  res.json({ user });
+  if (user.suspended && !isAdminUser(user)) {
+    return res.status(403).json({
+      error: 'Your account has been suspended by an administrator.',
+      code: 'ACCOUNT_SUSPENDED',
+    });
+  }
+  res.json({ user: publicUserView(user) });
+});
+
+/**
+ * Built-in system administrator login — works regardless of whether the regular
+ * auth driver is Supabase or Demo.
+ */
+api.post('/auth/admin-login', (req, res) => {
+  const email = normaliseEmail(req.body?.email);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!adminGate || !adminGate.matchesAdminEmail(email)) {
+    return res.json({ matched: false });
+  }
+  const identity = adminGate.authenticate(email, password);
+  if (!identity) {
+    return res.status(401).json({ error: 'Email or password is incorrect.' });
+  }
+  const user = ensureUserRecord(identity);
+  const session = adminGate.createSession();
+  res.json({ matched: true, token: session, user: publicUserView(user) });
 });
 
 api.post('/auth/register', (req, res) => {
+  if (db.settings?.allowRegistration === false) {
+    return res
+      .status(403)
+      .json({ error: 'New account registration is currently paused by the administrator.' });
+  }
   if (!auth || auth.driver !== 'demo') {
     return res.status(400).json({ error: 'Registration is handled by Supabase in this deployment.' });
   }
@@ -484,6 +642,9 @@ api.post('/auth/register', (req, res) => {
   if (emailIssue) return res.status(400).json({ error: emailIssue });
   const passwordIssue = passwordProblem(password);
   if (passwordIssue) return res.status(400).json({ error: passwordIssue });
+  if (adminGate && adminGate.matchesAdminEmail(email)) {
+    return res.status(409).json({ error: 'An account with that email already exists.' });
+  }
 
   try {
     const account = auth.register({ name, email, password });
@@ -493,33 +654,51 @@ api.post('/auth/register', (req, res) => {
       name: account.name,
       email: account.email,
     });
-    res.json({ token: session, user });
+    res.json({ token: session, user: publicUserView(user) });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }
 });
 
 api.post('/auth/login', (req, res) => {
+  const email = normaliseEmail(req.body?.email);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (adminGate && adminGate.matchesAdminEmail(email)) {
+    const identity = adminGate.authenticate(email, password);
+    if (!identity) {
+      return res.status(401).json({ error: 'Email or password is incorrect.' });
+    }
+    const user = ensureUserRecord(identity);
+    const session = adminGate.createSession();
+    return res.json({ token: session, user: publicUserView(user) });
+  }
+
   if (!auth || auth.driver !== 'demo') {
     return res.status(400).json({ error: 'Sign-in is handled by Supabase in this deployment.' });
   }
-  const email = normaliseEmail(req.body?.email);
-  const password = typeof req.body?.password === 'string' ? req.body.password : '';
   try {
     const account = auth.authenticate(email, password);
-    const session = auth.createSession(account);
     const user = ensureUserRecord({
       id: account.id,
       name: account.name,
       email: account.email,
     });
-    res.json({ token: session, user });
+    if (user.suspended && !isAdminUser(user)) {
+      return res.status(403).json({
+        error: 'Your account has been suspended by an administrator.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
+    const session = auth.createSession(account);
+    res.json({ token: session, user: publicUserView(user) });
   } catch (err) {
     res.status(err.status || 401).json({ error: err.message });
   }
 });
 
 api.post('/auth/logout', (req, res) => {
+  if (req.adminSessionToken && adminGate) adminGate.revokeSession(req.adminSessionToken);
   if (auth?.driver === 'demo' && req.sessionToken) auth.destroySession(req.sessionToken);
   res.json({ ok: true });
 });
@@ -593,57 +772,19 @@ api.delete('/auth/account', async (req, res) => {
   if (!requireUser(req, res)) return;
   const userId = req.user.id;
   const authId = req.authId;
+  if (userId === 'user_admin') {
+    return res.status(400).json({ error: 'The built-in system admin account cannot be deleted.' });
+  }
 
   try {
-    const deletedSongIds = new Set(
-      db.songs.filter((s) => s.ownerId === userId).map((s) => s.id),
-    );
+    purgeUserContent(userId);
 
-    // 1. Delete all songs and lineups owned by this user
-    db.songs = db.songs.filter((s) => s.ownerId !== userId);
-    db.lineups = db.lineups.filter((l) => l.ownerId !== userId);
-
-    // Clean up deleted song references in any remaining lineups without losing snapshot lyrics
-    for (const l of db.lineups) {
-      if (!Array.isArray(l.items)) continue;
-      l.items = l.items.filter((i) => !deletedSongIds.has(i.songId) || Boolean(i.lyrics));
-    }
-
-    // 2. Remove user from teams; transfer ownership or remove empty teams
-    const emptyTeamIds = new Set();
-    for (const team of db.teams) {
-      if (!Array.isArray(team.members)) continue;
-      const hadUser = team.members.some((m) => m.userId === userId);
-      if (!hadUser) continue;
-      team.members = team.members.filter((m) => m.userId !== userId);
-      if (team.members.length === 0) {
-        emptyTeamIds.add(team.id);
-      } else if (team.ownerId === userId) {
-        team.ownerId = team.members[0].userId;
-        team.members[0].role = 'owner';
-      }
-    }
-    if (emptyTeamIds.size > 0) {
-      db.teams = db.teams.filter((t) => !emptyTeamIds.has(t.id));
-      db.songs.forEach((s) => {
-        if (s.teamId && emptyTeamIds.has(s.teamId)) s.teamId = null;
-      });
-      db.lineups.forEach((l) => {
-        if (l.teamId && emptyTeamIds.has(l.teamId)) l.teamId = null;
-      });
-    }
-
-    // 3. Remove user profile row
-    db.users = db.users.filter((u) => u.id !== userId);
-
-    // 4. Persist state deletion immediately
     clearTimeout(saveTimer);
     if (store) {
       saveChain = saveChain.then(() => store.persist(db));
       await saveChain;
     }
 
-    // 5. Remove credentials / auth identity
     if (auth?.driver === 'demo') {
       auth.deleteAccount(userId);
     } else if (auth?.deleteAccount) {
@@ -666,18 +807,399 @@ api.get('/state', (req, res) => {
     lineups.flatMap((l) => (Array.isArray(l.items) ? l.items.map((i) => i.songId) : [])),
   );
   const songs = db.songs.filter((s) => canView(s, userId) || referencedSongIds.has(s.id));
+  const settings = db.settings || defaultSettings();
   res.json({
-    user,
+    user: publicUserView(user),
     teams: teams.map((t) => teamView(t, userId)),
     songs,
     lineups,
+    system: {
+      maintenance: settings.maintenance,
+      allowRegistration: settings.allowRegistration !== false,
+    },
   });
+});
+
+/* ----------------------------------------------------------------- admin */
+
+api.get('/admin/overview', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  // Merge db.users with any DemoAuth accounts and the built-in admin account
+  const userMap = new Map();
+  for (const u of db.users) {
+    userMap.set(u.id, { ...u });
+  }
+  if (auth?.driver === 'demo' && typeof auth.listAccounts === 'function') {
+    for (const acc of auth.listAccounts()) {
+      const existing = userMap.get(acc.id);
+      if (existing) {
+        if (!existing.email && acc.email) existing.email = acc.email;
+      } else {
+        userMap.set(acc.id, {
+          id: acc.id,
+          name: acc.name,
+          email: acc.email,
+          role: 'user',
+          suspended: false,
+          createdAt: acc.createdAt,
+        });
+      }
+    }
+  }
+  if (adminGate && !userMap.has('user_admin')) {
+    const adm = adminGate.identity();
+    userMap.set('user_admin', {
+      id: adm.id,
+      name: adm.name,
+      email: adm.email,
+      role: 'admin',
+      suspended: false,
+      createdAt: 0,
+    });
+  }
+
+  const songsByOwner = new Map();
+  for (const s of db.songs) {
+    songsByOwner.set(s.ownerId, (songsByOwner.get(s.ownerId) || 0) + 1);
+  }
+  const lineupsByOwner = new Map();
+  for (const l of db.lineups) {
+    lineupsByOwner.set(l.ownerId, (lineupsByOwner.get(l.ownerId) || 0) + 1);
+  }
+  const teamsByMember = new Map();
+  for (const t of db.teams) {
+    for (const m of t.members || []) {
+      teamsByMember.set(m.userId, (teamsByMember.get(m.userId) || 0) + 1);
+    }
+  }
+
+  const users = Array.from(userMap.values())
+    .map((u) => {
+      const pub = publicUserView(u);
+      return {
+        ...pub,
+        isBuiltInAdmin: u.id === 'user_admin',
+        songsCount: songsByOwner.get(u.id) || 0,
+        lineupsCount: lineupsByOwner.get(u.id) || 0,
+        teamsCount: teamsByMember.get(u.id) || 0,
+      };
+    })
+    .sort((a, b) => {
+      if (a.isBuiltInAdmin !== b.isBuiltInAdmin) return a.isBuiltInAdmin ? -1 : 1;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+
+  const themeCounts = new Map();
+  let fastSongs = 0;
+  let sharedSongs = 0;
+  for (const s of db.songs) {
+    if (s.tempo === 'fast') fastSongs++;
+    if (s.teamId) sharedSongs++;
+    if (s.theme) themeCounts.set(s.theme, (themeCounts.get(s.theme) || 0) + 1);
+  }
+  const topThemes = Array.from(themeCounts.entries())
+    .map(([theme, count]) => ({ theme, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  let sharedLineups = 0;
+  let usedLineups = 0;
+  let totalLineupUses = 0;
+  for (const l of db.lineups) {
+    if (l.teamId) sharedLineups++;
+    if (l.lastUsedAt) usedLineups++;
+    totalLineupUses += Number(l.useCount || 0);
+  }
+
+  const totalTeamMemberships = db.teams.reduce(
+    (sum, t) => sum + (Array.isArray(t.members) ? t.members.length : 0),
+    0,
+  );
+
+  const settings = db.settings || defaultSettings();
+
+  res.json({
+    stats: {
+      totalUsers: users.length,
+      activeUsers: users.filter((u) => !u.suspended).length,
+      suspendedUsers: users.filter((u) => u.suspended).length,
+      adminUsers: users.filter((u) => u.isAdmin).length,
+      totalSongs: db.songs.length,
+      fastSongs,
+      slowSongs: db.songs.length - fastSongs,
+      sharedSongs,
+      topThemes,
+      totalLineups: db.lineups.length,
+      sharedLineups,
+      usedLineups,
+      totalLineupUses,
+      totalTeams: db.teams.length,
+      totalTeamMemberships,
+      storageDriver: store?.driver || 'file',
+      authDriver: auth?.driver || 'demo',
+    },
+    settings: {
+      maintenance: settings.maintenance,
+      allowRegistration: settings.allowRegistration !== false,
+    },
+    adminEmail: adminGate?.email || 'admin@aria.app',
+    users,
+    songs: [...db.songs]
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        artist: s.artist,
+        tempo: s.tempo,
+        theme: s.theme,
+        ownerId: s.ownerId,
+        ownerName: s.ownerName,
+        teamId: s.teamId,
+        partsCount: Array.isArray(s.parts) ? s.parts.length : 0,
+        createdAt: s.createdAt,
+      })),
+    lineups: [...db.lineups]
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .map((l) => ({
+        id: l.id,
+        name: l.name,
+        theme: l.theme,
+        ownerId: l.ownerId,
+        ownerName: l.ownerName,
+        teamId: l.teamId,
+        partsCount: Array.isArray(l.items) ? l.items.length : 0,
+        useCount: l.useCount || 0,
+        lastUsedAt: l.lastUsedAt,
+        shareToken: l.shareToken,
+        createdAt: l.createdAt,
+      })),
+    teams: [...db.teams]
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        code: t.code,
+        ownerId: t.ownerId,
+        membersCount: Array.isArray(t.members) ? t.members.length : 0,
+        members: t.members || [],
+        createdAt: t.createdAt,
+      })),
+  });
+});
+
+api.patch('/admin/settings', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  if (!db.settings) db.settings = defaultSettings();
+
+  const body = req.body || {};
+  if (body.maintenance && typeof body.maintenance === 'object') {
+    const m = body.maintenance;
+    const cur = db.settings.maintenance || defaultSettings().maintenance;
+    db.settings.maintenance = {
+      enabled: m.enabled === undefined ? cur.enabled : Boolean(m.enabled),
+      mode: m.mode === 'maintenance' ? 'maintenance' : m.mode === 'info' ? 'info' : cur.mode,
+      title: m.title !== undefined ? clean(m.title, 100) || 'System Notice' : cur.title,
+      message: m.message !== undefined ? clean(m.message, 600) : cur.message,
+      eta: m.eta !== undefined ? clean(m.eta, 80) : cur.eta,
+      updatedAt: now(),
+      updatedBy: req.user.name || 'Admin',
+    };
+  }
+  if (body.allowRegistration !== undefined) {
+    db.settings.allowRegistration = Boolean(body.allowRegistration);
+  }
+
+  save();
+  res.json({
+    settings: {
+      maintenance: db.settings.maintenance,
+      allowRegistration: db.settings.allowRegistration !== false,
+    },
+  });
+});
+
+api.post('/admin/users', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const name = clean(req.body?.name, 40);
+  const email = normaliseEmail(req.body?.email);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const role = req.body?.role === 'admin' ? 'admin' : 'user';
+
+  const emailIssue = emailProblem(email);
+  if (emailIssue) return res.status(400).json({ error: emailIssue });
+  if (adminGate && adminGate.matchesAdminEmail(email)) {
+    return res.status(409).json({ error: 'That email belongs to the built-in admin account.' });
+  }
+  if (db.users.some((u) => normaliseEmail(u.email || '') === email)) {
+    return res.status(409).json({ error: 'A user with that email already exists.' });
+  }
+
+  if (auth?.driver === 'demo') {
+    const pwIssue = passwordProblem(password);
+    if (pwIssue) return res.status(400).json({ error: pwIssue });
+    try {
+      const account = auth.register({ name, email, password });
+      const user = ensureUserRecord({
+        id: account.id,
+        name: account.name,
+        email: account.email,
+        role,
+      });
+      user.role = role;
+      save();
+      return res.json({ user: publicUserView(user) });
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+  }
+
+  // In Supabase mode, pre-register/authorize user record by email & role
+  const user = {
+    id: uid('user'),
+    name: name || email.split('@')[0],
+    email,
+    role,
+    suspended: false,
+    createdAt: now(),
+  };
+  db.users.push(user);
+  save();
+  res.json({ user: publicUserView(user) });
+});
+
+api.patch('/admin/users/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const targetId = req.params.id;
+  if (targetId === 'user_admin') {
+    return res.status(400).json({ error: 'The built-in admin account cannot be modified here.' });
+  }
+
+  let target = getUser(targetId);
+  if (!target && auth?.driver === 'demo') {
+    const demoAcc = auth.findById(targetId);
+    if (demoAcc) {
+      target = ensureUserRecord({
+        id: demoAcc.id,
+        name: demoAcc.name,
+        email: demoAcc.email,
+      });
+    }
+  }
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+
+  const body = req.body || {};
+  if (target.id === req.user.id) {
+    if (body.suspended === true) {
+      return res.status(400).json({ error: 'You cannot suspend your own admin account.' });
+    }
+    if (body.role && body.role !== 'admin') {
+      return res.status(400).json({ error: 'You cannot revoke your own admin role.' });
+    }
+  }
+
+  if (body.name !== undefined) {
+    const nextName = clean(body.name, 40);
+    if (nextName) {
+      target.name = nextName;
+      if (auth?.driver === 'demo') auth.rename(target.id, nextName);
+    }
+  }
+  if (body.role === 'admin' || body.role === 'user') {
+    target.role = body.role;
+    if (body.role === 'admin') target.suspended = false;
+  }
+  if (body.suspended !== undefined && target.role !== 'admin') {
+    target.suspended = Boolean(body.suspended);
+    if (target.suspended && auth?.driver === 'demo' && typeof auth.revokeUserSessions === 'function') {
+      auth.revokeUserSessions(target.id);
+    }
+  }
+
+  save();
+  res.json({ user: publicUserView(target) });
+});
+
+api.delete('/admin/users/:id', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const targetId = req.params.id;
+  if (targetId === 'user_admin') {
+    return res.status(400).json({ error: 'The built-in admin account cannot be deleted.' });
+  }
+  if (targetId === req.user.id) {
+    return res.status(400).json({ error: 'You cannot delete your currently active admin account.' });
+  }
+
+  try {
+    purgeUserContent(targetId);
+    clearTimeout(saveTimer);
+    if (store) {
+      saveChain = saveChain.then(() => store.persist(db));
+      await saveChain;
+    }
+    if (auth?.driver === 'demo') {
+      auth.deleteAccount(targetId);
+    } else if (auth?.deleteAccount && targetId.startsWith('sb_')) {
+      await auth.deleteAccount(targetId.slice(3));
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Could not delete user.' });
+  }
+});
+
+api.post('/admin/password', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const newPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+  const issue = passwordProblem(newPassword);
+  if (issue) return res.status(400).json({ error: issue });
+  if (!adminGate) return res.status(500).json({ error: 'Admin gate unavailable.' });
+  adminGate.setPassword(newPassword);
+  const freshSession = req.user.id === 'user_admin' ? adminGate.createSession() : null;
+  res.json({ ok: true, token: freshSession });
+});
+
+api.delete('/admin/songs/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const song = db.songs.find((s) => s.id === req.params.id);
+  if (!song) return res.status(404).json({ error: 'Song not found.' });
+  db.songs = db.songs.filter((s) => s.id !== song.id);
+  db.lineups.forEach((l) => {
+    l.items = l.items.filter((i) => i.songId !== song.id || Boolean(i.lyrics));
+  });
+  save();
+  res.json({ ok: true });
+});
+
+api.delete('/admin/lineups/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const lineup = db.lineups.find((l) => l.id === req.params.id);
+  if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
+  db.lineups = db.lineups.filter((l) => l.id !== lineup.id);
+  save();
+  res.json({ ok: true });
+});
+
+api.delete('/admin/teams/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const team = getTeam(req.params.id);
+  if (!team) return res.status(404).json({ error: 'Team not found.' });
+  db.teams = db.teams.filter((t) => t.id !== team.id);
+  db.songs.forEach((s) => {
+    if (s.teamId === team.id) s.teamId = null;
+  });
+  db.lineups.forEach((l) => {
+    if (l.teamId === team.id) l.teamId = null;
+  });
+  save();
+  res.json({ ok: true });
 });
 
 /* teams */
 
 api.post('/teams', (req, res) => {
   if (!requireUser(req, res)) return;
+  if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const name = clean(req.body?.name, 50);
   if (!name) return res.status(400).json({ error: 'Give your team a name.' });
@@ -702,6 +1224,7 @@ api.post('/teams', (req, res) => {
 
 api.post('/teams/join', (req, res) => {
   if (!requireUser(req, res)) return;
+  if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const code = clean(req.body?.code, 20).toUpperCase();
   const team = db.teams.find((t) => t.code.toUpperCase() === code);
@@ -748,6 +1271,7 @@ api.post('/teams/:id/leave', (req, res) => {
 
 api.post('/songs', (req, res) => {
   if (!requireUser(req, res)) return;
+  if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const body = req.body || {};
   const title = clean(body.title, 80);
@@ -790,6 +1314,7 @@ api.post('/songs', (req, res) => {
 
 api.patch('/songs/:id', (req, res) => {
   if (!requireUser(req, res)) return;
+  if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const song = db.songs.find((s) => s.id === req.params.id);
   if (!song) return res.status(404).json({ error: 'Song not found.' });
@@ -913,6 +1438,7 @@ api.post('/songs/:id/copy', (req, res) => {
 
 api.post('/lineups', (req, res) => {
   if (!requireUser(req, res)) return;
+  if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const body = req.body || {};
   const name = clean(body.name, 80);
@@ -955,6 +1481,7 @@ api.post('/lineups', (req, res) => {
 
 api.patch('/lineups/:id', (req, res) => {
   if (!requireUser(req, res)) return;
+  if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });

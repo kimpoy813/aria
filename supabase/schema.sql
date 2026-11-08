@@ -18,10 +18,17 @@
 create table if not exists public.users (
   id          text primary key,
   name        text not null,
+  email       text,
+  role        text not null default 'user',
+  suspended   boolean not null default false,
   is_demo     boolean not null default false,
   created_at  bigint not null default (extract(epoch from now()) * 1000)::bigint,
   updated_at  bigint not null default (extract(epoch from now()) * 1000)::bigint
 );
+
+alter table public.users add column if not exists email text;
+alter table public.users add column if not exists role text not null default 'user';
+alter table public.users add column if not exists suspended boolean not null default false;
 
 -- ---------------------------------------------------------------- teams
 
@@ -85,12 +92,21 @@ create index if not exists lineups_team_idx on public.lineups (team_id);
 create index if not exists lineups_share_token_idx on public.lineups (share_token);
 create index if not exists lineups_last_used_idx on public.lineups (last_used_at);
 
+-- ---------------------------------------------------------------- system_settings
+
+create table if not exists public.system_settings (
+  id          text primary key,
+  data        jsonb not null default '{}'::jsonb,
+  updated_at  bigint not null default (extract(epoch from now()) * 1000)::bigint
+);
+
 -- ---------------------------------------------------------------- RLS
 
-alter table public.users   enable row level security;
-alter table public.teams   enable row level security;
-alter table public.songs   enable row level security;
-alter table public.lineups enable row level security;
+alter table public.users           enable row level security;
+alter table public.teams           enable row level security;
+alter table public.songs           enable row level security;
+alter table public.lineups         enable row level security;
+alter table public.system_settings enable row level security;
 
 -- No policies are defined on purpose. The anon and authenticated keys therefore
 -- cannot read or write anything; only the service role (which bypasses RLS) can.

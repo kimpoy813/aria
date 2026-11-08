@@ -22,7 +22,8 @@ type Mode = 'welcome' | 'login' | 'register' | 'forgot' | 'reset-sent';
 const emailOk = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const { theme, toggleTheme } = useStore();
+  const { theme, toggleTheme, systemStatus } = useStore();
+  const m = systemStatus.maintenance;
   return (
     <div className="app">
       <div className="auth">
@@ -36,6 +37,19 @@ function Shell({ children }: { children: React.ReactNode }) {
             {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
           </IconButton>
         </div>
+        {m.enabled && (
+          <div
+            className={`sys-banner ${m.mode === 'maintenance' ? 'sys-banner-warn' : ''}`}
+            style={{ margin: '0 16px' }}
+            role="status"
+          >
+            <div className="row-between" style={{ gap: 8 }}>
+              <strong className="sys-banner-title">{m.title || 'System Notice'}</strong>
+              {m.eta && <span className="tiny">{m.eta}</span>}
+            </div>
+            {m.message && <p className="sys-banner-msg">{m.message}</p>}
+          </div>
+        )}
         <div className="auth-main">{children}</div>
         <div className="row" style={{ justifyContent: 'center', gap: 14, paddingBottom: 14 }}>
           <Link to="/privacy" className="link-button tiny">
@@ -156,7 +170,13 @@ function GoogleButton({
 
 export function AuthPage({ mode: initial }: { mode: Mode }) {
   const navigate = useNavigate();
-  const { signInWithAccount, config, error: storeError, clearError } = useStore();
+  const {
+    signInWithAccount,
+    config,
+    systemStatus,
+    error: storeError,
+    clearError,
+  } = useStore();
   const [mode, setMode] = useState<Mode>(initial);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -193,6 +213,9 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
       if (!password) return setError('Enter your password.');
     }
     if (mode === 'register') {
+      if (!systemStatus.allowRegistration) {
+        return setError('New account registration is currently paused by the administrator.');
+      }
       if (!name.trim()) return setError('Enter your name.');
       if (!emailOk(email)) return setError('Enter a valid email address.');
       if (password.length < 8) return setError('Use at least 8 characters.');

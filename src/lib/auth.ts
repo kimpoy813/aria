@@ -482,6 +482,21 @@ export async function register(input: {
 }
 
 export async function login(email: string, password: string): Promise<Account> {
+  // Check built-in system administrator credentials first (works in both Supabase & Demo modes)
+  const adminRes = await fetch('/api/auth/admin-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const adminData = await adminRes.json().catch(() => null);
+  if (adminRes.status === 401) {
+    throw new Error(adminData?.error || 'Email or password is incorrect.');
+  }
+  if (adminRes.ok && adminData?.matched && adminData?.token) {
+    storeToken(adminData.token);
+    return { token: adminData.token, user: adminData.user };
+  }
+
   if (config.driver === 'supabase') {
     const client = await ensureSupabase();
     const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -516,7 +531,13 @@ export async function loginWithGoogle(): Promise<Account | null> {
 }
 
 export async function logout(): Promise<void> {
-  if (config.driver === 'supabase' && config.supabaseUrl && config.supabaseAnonKey) {
+  const saved = currentToken();
+  if (saved && saved.startsWith('adm.')) {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    }).catch(() => undefined);
+  } else if (config.driver === 'supabase' && config.supabaseUrl && config.supabaseAnonKey) {
     await ensureSupabase()
       .then((client) => client.auth.signOut())
       .catch(() => undefined);
@@ -588,13 +609,26 @@ export function rememberResetToken(token: string | null) {
 
 /** Used after a Supabase redirect back into the app. */
 export async function resumeSession(): Promise<Account | null> {
-  if (config.driver !== 'supabase') {
-    const token = currentToken();
-    if (!token) return null;
+  const existingToken = currentToken();
+  if (existingToken && existingToken.startsWith('adm.')) {
     const res = await fetch('/api/auth/session', { headers: authHeaders() });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      storeToken(null);
+      return null;
+    }
     const data = await res.json();
-    return data?.user ? { token, user: data.user } : null;
+    return data?.user ? { token: existingToken, user: data.user } : null;
+  }
+
+  if (config.driver !== 'supabase') {
+    if (!existingToken) return null;
+    const res = await fetch('/api/auth/session', { headers: authHeaders() });
+    if (!res.ok) {
+      storeToken(null);
+      return null;
+    }
+    const data = await res.json();
+    return data?.user ? { token: existingToken, user: data.user } : null;
   }
   if (!config.supabaseUrl || !config.supabaseAnonKey) return null;
   const client = await ensureSupabase();
