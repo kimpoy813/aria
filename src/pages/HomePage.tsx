@@ -173,11 +173,7 @@ export function HomePage() {
         <Empty
           icon="lineup"
           title="No lineups yet"
-          body={
-            canBuildLineup
-              ? 'Create a lineup to start your rotation.'
-              : 'Add one fast and one slow song to build your first lineup.'
-          }
+          body={canBuildLineup ? 'Create your first lineup.' : 'Add songs first.'}
           action={
             canBuildLineup ? (
               <Button variant="primary" onClick={() => navigate('/lineups/new')}>

@@ -64,7 +64,7 @@ export function SongsPage() {
         <Empty
           icon="songs"
           title="No songs yet"
-          body="Add your first song to classify its lyrics and build balanced lineups."
+          body="Add your first song."
           action={
             <Button variant="primary" onClick={() => navigate('/songs/new')}>
               <Icon name="add" size={16} /> Add song

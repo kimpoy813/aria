@@ -506,15 +506,9 @@ export function SongFormPage() {
             className="link-button tiny"
             onClick={() => setPasteOpen(true)}
           >
-            Auto-split full lyrics
+            Paste full lyrics
           </button>
         </div>
-
-        {!hasLyrics && (
-          <div className="tiny">
-            Paste full song lyrics into any box below — Aria automatically splits Verses, Chorus, and Bridge.
-          </div>
-        )}
 
         {parts.map((part, i) => (
           <div key={part.id} className="part-block">
@@ -570,7 +564,7 @@ export function SongFormPage() {
                 rows={4}
                 placeholder={
                   i === 0 && !hasLyrics
-                    ? 'Paste full song lyrics here (auto-splits Verse, Chorus, Bridge…) or type Verse 1…'
+                    ? 'Paste full lyrics or type here…'
                     : `${part.label} lyrics…`
                 }
                 value={part.lyrics}
@@ -654,7 +648,7 @@ export function SongFormPage() {
         </div>
 
         <div className="field">
-          <label htmlFor="song-message">Classified message</label>
+          <label htmlFor="song-message">Song message</label>
           <textarea
             id="song-message"
             className="textarea"
@@ -664,15 +658,8 @@ export function SongFormPage() {
               setMessageDraft(e.target.value);
               setMessageTouched(true);
             }}
-            placeholder={
-              hasLyrics
-                ? 'Edit the worship message if you know what this song is about…'
-                : 'Auto-filled once lyrics are added — or type your own song message here…'
-            }
+            placeholder="Song message…"
           />
-          <span className="hint">
-            You can edit this message anytime if the automatic classification isn’t exact.
-          </span>
         </div>
       </div>
 
@@ -702,12 +689,10 @@ export function SongFormPage() {
       <Sheet
         open={pasteOpen}
         onClose={() => setPasteOpen(false)}
-        title="Paste full lyrics"
-        subtitle="No manual formatting needed — Aria detects Verses, Chorus, Bridge, and more."
+        title="Paste lyrics"
       >
         <div className="stack">
-          <div className="row-between">
-            <span className="tiny">Supports raw lyrics or [Verse] / [Chorus] tags</span>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button
               type="button"
               className="link-button tiny"
@@ -720,7 +705,7 @@ export function SongFormPage() {
           <textarea
             className="textarea"
             rows={8}
-            placeholder={`Paste entire song lyrics here…\n\nStanzas separated by blank lines or [Verse] / [Chorus] headers are split automatically.`}
+            placeholder="Paste song lyrics…"
             value={pasteBuffer}
             onChange={(e) => setPasteBuffer(e.target.value)}
           />
@@ -731,7 +716,7 @@ export function SongFormPage() {
               checked={collapseRepeats}
               onChange={(e) => setCollapseRepeats(e.target.checked)}
             />
-            <span className="small">Merge identical repeated choruses</span>
+            <span className="small">Merge repeated choruses</span>
           </label>
 
           {pastePreview && pastePreview.parts.length > 0 && (
