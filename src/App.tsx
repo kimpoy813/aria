@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BrowserRouter,
   Navigate,
@@ -8,9 +8,9 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { StoreProvider, useStore } from './lib/store';
-import { Icon, IconButton } from './components/ui';
+import { Button, Icon, IconButton, Sheet } from './components/ui';
 import { LogoHero, Wordmark } from './components/Logo';
-import { Landing } from './pages/Landing';
+import { AuthPage, ResetPasswordPage } from './pages/AuthPage';
 import { SongsPage } from './pages/SongsPage';
 import { SongFormPage } from './pages/SongFormPage';
 import { SongDetailPage } from './pages/SongDetailPage';
@@ -21,21 +21,57 @@ import { LineupViewPage } from './pages/LineupViewPage';
 import { SharedPage } from './pages/SharedPage';
 
 function TopBar() {
-  const { theme, toggleTheme, user } = useStore();
+  const { theme, toggleTheme, user, signOut, config } = useStore();
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="topbar">
       <div className="topbar-inner">
         <Wordmark />
         <div className="push" />
-        {user ? (
-          <span className="chip" title={user.name} style={{ maxWidth: 120 }}>
-            <span className="truncate">{user.name}</span>
-          </span>
-        ) : null}
-        <IconButton label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={toggleTheme}>
+        <IconButton
+          label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={toggleTheme}
+        >
           {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
         </IconButton>
+        {user ? (
+          <button
+            type="button"
+            className="avatar-button"
+            aria-label="Account"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(true)}
+          >
+            {user.name.slice(0, 1).toUpperCase()}
+          </button>
+        ) : null}
       </div>
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={user?.name || 'Account'}>
+        <div className="stack-sm">
+          {user?.email ? (
+            <div className="field">
+              <span className="label">Signed in as</span>
+              <div className="account-email">{user.email}</div>
+            </div>
+          ) : null}
+          <div className="row" style={{ gap: 8 }}>
+            <span className="chip brand">{config.driver === 'supabase' ? 'Supabase' : 'Local account'}</span>
+          </div>
+          <Button block onClick={() => setMenuOpen(false)}>
+            Keep browsing
+          </Button>
+          <Button
+            variant="danger"
+            block
+            onClick={async () => {
+              setMenuOpen(false);
+              await signOut();
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
+      </Sheet>
     </header>
   );
 }
@@ -85,6 +121,17 @@ function Shell() {
   const { loading, user } = useStore();
   const { pathname } = useLocation();
 
+  // Password recovery works whether or not a session exists.
+  if (pathname === '/reset') {
+    return (
+      <div className="app">
+        <Routes>
+          <Route path="/reset" element={<ResetPasswordPage />} />
+        </Routes>
+      </div>
+    );
+  }
+
   // Public share links open for anyone, signed in or not.
   if (pathname.startsWith('/s/')) {
     return (
@@ -109,7 +156,16 @@ function Shell() {
     );
   }
 
-  if (!user) return <Landing />;
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route path="/forgot" element={<AuthPage mode="forgot" />} />
+        <Route path="/login" element={<AuthPage mode="login" />} />
+        <Route path="*" element={<AuthPage mode="welcome" />} />
+      </Routes>
+    );
+  }
 
   return (
     <div className="app">

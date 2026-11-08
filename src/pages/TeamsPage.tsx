@@ -85,7 +85,7 @@ export function TeamsPage() {
     if (!user) return;
     setBusy(true);
     try {
-      await api.copySong(songId, user.id, activeTeam?.id ?? null);
+      await api.copySong(songId, activeTeam?.id ?? null);
       await refresh();
       flash('Song copied to your library');
     } catch (err) {
@@ -99,7 +99,7 @@ export function TeamsPage() {
     if (!user) return;
     setBusy(true);
     try {
-      const { lineup } = await api.copyLineup(lineupId, user.id, activeTeam?.id ?? null);
+      const { lineup } = await api.copyLineup(lineupId, activeTeam?.id ?? null);
       await refresh();
       flash('Lineup copied — including the songs it needs');
       navigate(`/lineups/${lineup.id}`);

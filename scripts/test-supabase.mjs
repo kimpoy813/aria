@@ -161,10 +161,15 @@ async function waitForApi(port, logs) {
   return false;
 }
 
+let TOKEN = null;
+
 async function api(port, method, route, body) {
   const res = await fetch(`http://127.0.0.1:${port}${route}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   return { status: res.status, data: await res.json().catch(() => null) };
@@ -222,11 +227,29 @@ console.log('\n2. Schema is re-runnable and constraints hold');
 // 2. drive the real API against it
 console.log('\n3. Real API with the Supabase storage driver');
 const shim = makeShim(pg);
+// The API also verifies identity with this client, so give it a user endpoint.
+shim.auth = {
+  async getUser(accessToken) {
+    return accessToken === 'token-tester'
+      ? {
+          data: {
+            user: {
+              id: 'uuid-tester',
+              email: 'tester@example.com',
+              user_metadata: { full_name: 'Supabase Tester' },
+            },
+          },
+          error: null,
+        }
+      : { data: { user: null }, error: { message: 'invalid jwt' } };
+  },
+};
 globalThis.__ariaSupabaseClient = shim;
 const port = await freePort();
 const env = {
   PORT: String(port),
   ARIA_STORAGE: 'supabase',
+  ARIA_AUTH: 'supabase',
   SUPABASE_URL: 'http://pglite.local',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
   ARIA_DATA_DIR: dataDir,
@@ -254,15 +277,18 @@ let lineupId = null;
 let shareToken = null;
 
 {
-  const created = await api(port, 'POST', '/api/users', { name: 'Supabase Tester' });
+  // Sign in the way the browser would: the token is verified by the server.
+  TOKEN = 'token-tester';
+
+  const created = await api(port, 'GET', '/api/auth/session');
   userId = created.data?.user?.id;
-  check('creates a user', created.status === 200 && Boolean(userId));
+  check('signs in with a verified token', created.status === 200 && Boolean(userId));
 
   await settle();
   const rows = await pg.query('select count(*)::int as n from public.users');
   check('user row is in Postgres', rows.rows[0].n >= 2, `users=${rows.rows[0].n}`);
 
-  const state = await api(port, 'GET', `/api/state?userId=${userId}`);
+  const state = await api(port, 'GET', '/api/state');
   check('starter library is created', state.data?.songs?.length >= 4, `songs=${state.data?.songs?.length}`);
 
   await settle();
@@ -273,7 +299,6 @@ let shareToken = null;
 console.log('\n4. Song, lineup, share and the LRU clock');
 {
   const created = await api(port, 'POST', '/api/songs', {
-    userId,
     title: 'Postgres Lullaby',
     artist: 'Tester',
     tempo: 'fast',
@@ -292,12 +317,11 @@ console.log('\n4. Song, lineup, share and the LRU clock');
   const parts = await pg.query('select parts from public.songs where id = $1', [songId]);
   check('parts are stored as jsonb', Array.isArray(parts.rows[0]?.parts) && parts.rows[0].parts.length === 2);
 
-  const state = await api(port, 'GET', `/api/state?userId=${userId}`);
+  const state = await api(port, 'GET', '/api/state');
   const mySong = state.data?.songs?.find((song) => song.id === songId);
   const slowSong = state.data?.songs?.find((song) => song.tempo === 'slow' && song.ownerId === userId);
 
   const built = await api(port, 'POST', '/api/lineups', {
-    userId,
     name: 'Postgres Set',
     theme: 'Hope',
     teamId: null,
@@ -313,7 +337,7 @@ console.log('\n4. Song, lineup, share and the LRU clock');
   const before = await pg.query('select last_used_at from public.lineups where id = $1', [lineupId]);
   check('a new lineup has never been used', before.rows[0].last_used_at === null);
 
-  const shared = await api(port, 'POST', `/api/lineups/${lineupId}/share`, { userId, channel: 'link' });
+  const shared = await api(port, 'POST', `/api/lineups/${lineupId}/share`, { channel: 'link' });
   shareToken = shared.data?.lineup?.shareToken;
   check('sharing returns a share token', shared.status === 200 && Boolean(shareToken));
 
@@ -328,7 +352,6 @@ console.log('\n4. Song, lineup, share and the LRU clock');
 
   // A second lineup that is never shared must outrank the one just used.
   const second = await api(port, 'POST', '/api/lineups', {
-    userId,
     name: 'Never Shared Set',
     theme: 'Hope',
     teamId: null,
@@ -339,7 +362,7 @@ console.log('\n4. Song, lineup, share and the LRU clock');
   });
   check('creates a second lineup', second.status === 200, second.data?.error);
 
-  const lru = await api(port, 'GET', `/api/lru?userId=${userId}`);
+  const lru = await api(port, 'GET', '/api/lru');
   check(
     'LRU suggests the never-used lineup over the one just shared',
     lru.data?.suggested?.id === second.data?.lineup?.id,
@@ -369,6 +392,7 @@ console.log('\n5. Data survives a restart');
   const reloaded = await fresh.load();
 
   check('users reload from Postgres', reloaded.users.some((user) => user.id === userId));
+  check('ids are namespaced for Supabase', userId === 'sb_uuid-tester', String(userId));
   check(
     'songs reload with their parts',
     Boolean(reloaded.songs.find((song) => song.id === songId && song.parts.length === 2)),

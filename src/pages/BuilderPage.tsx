@@ -304,7 +304,6 @@ export function BuilderPage() {
     const owned = editing && isOwner ? editing : createdCopy.current;
     if (owned) {
       const { lineup } = await api.updateLineup(owned.id, {
-        userId: user.id,
         name: name.trim() || owned.name,
         theme,
         items: payloadItems,
@@ -314,7 +313,6 @@ export function BuilderPage() {
       return lineup;
     }
     const { lineup } = await api.createLineup({
-      userId: user.id,
       name:
         name.trim() ||
         (editing ? `${editing.name} (my copy)` : `Lineup ${new Date().toLocaleDateString()}`),
@@ -347,7 +345,7 @@ export function BuilderPage() {
       const saved = await persist({ keepOpen: true });
       const target = saved ?? editing;
       if (!target) return;
-      await api.shareLineup(target.id, user.id, 'team', shareTeam);
+      await api.shareLineup(target.id, 'team', shareTeam);
       setTeamId(shareTeam);
       await refresh();
       setSheetOpen(null);
@@ -366,7 +364,7 @@ export function BuilderPage() {
       const saved = await persist({ keepOpen: true });
       const target = saved ?? editing;
       if (!target) return;
-      await api.shareLineup(target.id, user.id, 'link');
+      await api.shareLineup(target.id, 'link');
       const url = `${window.location.origin}/s/${target.shareToken}`;
       setShareLink(url);
       await refresh();

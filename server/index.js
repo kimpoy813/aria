@@ -4,6 +4,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './storage.js';
+import {
+  createAuth,
+  normaliseEmail,
+  emailProblem,
+  passwordProblem,
+  SESSION_TTL_DAYS,
+  RESET_TTL_MINUTES,
+} from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, '..', 'dist');
@@ -18,6 +26,7 @@ const clean = (value, max = 400) =>
 /* ------------------------------------------------------------------ store */
 
 let store = null;
+let auth = null;
 let db = { users: [], teams: [], songs: [], lineups: [] };
 let saveTimer = null;
 let saveChain = Promise.resolve();
@@ -370,6 +379,7 @@ function seed() {
 
 async function boot() {
   store = await createStore({ log: (line) => console.log(line) });
+  auth = await createAuth({ log: (line) => console.log(line) });
   db = await store.load();
   seed();
   return store;
@@ -559,58 +569,214 @@ function copyLineup(lineup, user, teamId = null) {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
+/* ------------------------------------------------------------- identity */
+
+/** Ensure a data record exists for this authenticated identity. */
+function ensureUserRecord(identity) {
+  let user = getUser(identity.id);
+  if (!user) {
+    user = {
+      id: identity.id,
+      name: identity.name,
+      email: identity.email,
+      createdAt: now(),
+    };
+    db.users.push(user);
+    const starter = STARTER_SONGS.slice(0, 4).map((song) =>
+      makeSong({ ...song, sourceSongId: null }, user.id, user.name, null),
+    );
+    db.songs.push(...starter);
+    save();
+  }
+  return user;
+}
+
+function bearer(req) {
+  const header = req.get('authorization') || '';
+  if (!header.toLowerCase().startsWith('bearer ')) return '';
+  return header.slice(7).trim();
+}
+
+/** Attaches req.user when the request carries valid credentials. */
+async function resolveIdentity(req, _res, next) {
+  try {
+    const value = bearer(req);
+    if (!value || !auth) return next();
+    if (auth.driver === 'demo') {
+      const user = auth.sessionUser(value);
+      if (user) {
+        req.authId = user.id;
+        req.identity = { id: user.id, name: user.name, email: user.email };
+        req.sessionToken = value;
+      }
+    } else {
+      const identity = await auth.verify(value);
+      if (identity) {
+        req.authId = identity.authId;
+        req.identity = identity;
+      }
+    }
+  } catch (err) {
+    console.error('[aria] identity lookup failed:', err.message);
+  }
+  return next();
+}
+
+/**
+ * Guard for data routes. Returns true when the request may continue; when it
+ * returns false it has already answered (401), so the caller must stop.
+ * Deliberately does not call next(): these routes store their handler in a
+ * variable that calls the guard inside the handler body.
+ */
+function requireUser(req, res) {
+  if (req.identity) {
+    req.user = ensureUserRecord(req.identity);
+    return true;
+  }
+  res.status(401).json({ error: 'Please sign in to continue.' });
+  return false;
+}
+
 const api = express.Router();
+api.use(resolveIdentity);
 
 api.get('/health', (_req, res) => res.json({ ok: true }));
 
-api.post('/users', (req, res) => {
-  const name = clean(req.body?.name, 40);
-  if (!name) return res.status(400).json({ error: 'Add your name first.' });
-  const user = { id: uid('user'), name, createdAt: now() };
-  db.users.push(user);
+/* ---------------------------------------------------------------- auth */
 
-  // Give every new person a starter library so the builder is never empty.
-  const starter = STARTER_SONGS.slice(0, 4).map((song) =>
-    makeSong(
-      {
-        ...song,
-        sourceSongId: null,
-      },
-      user.id,
-      user.name,
-      null,
-    ),
-  );
-  db.songs.push(...starter);
-  save();
+api.get('/auth/config', (_req, res) => {
+  res.json({
+    driver: auth?.driver || 'demo',
+    supabaseUrl: auth?.driver === 'supabase' ? process.env.SUPABASE_URL : null,
+    supabaseAnonKey: auth?.driver === 'supabase' ? process.env.SUPABASE_ANON_KEY || null : null,
+    sessionDays: SESSION_TTL_DAYS,
+    resetMinutes: RESET_TTL_MINUTES,
+  });
+});
+
+api.get('/auth/session', (req, res) => {
+  if (!req.identity) return res.json({ user: null });
+  const user = ensureUserRecord(req.identity);
   res.json({ user });
 });
 
-api.patch('/users/:id', (req, res) => {
-  const user = getUser(req.params.id);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
+api.post('/auth/register', (req, res) => {
+  if (!auth || auth.driver !== 'demo') {
+    return res.status(400).json({ error: 'Registration is handled by Supabase in this deployment.' });
+  }
   const name = clean(req.body?.name, 40);
-  if (!name) return res.status(400).json({ error: 'Name cannot be empty.' });
-  user.name = name;
-  db.songs.forEach((s) => {
-    if (s.ownerId === user.id) s.ownerName = name;
-  });
-  db.lineups.forEach((l) => {
-    if (l.ownerId === user.id) l.ownerName = name;
-  });
-  db.teams.forEach((t) => {
-    t.members.forEach((m) => {
-      if (m.userId === user.id) m.name = name;
+  const email = normaliseEmail(req.body?.email);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  const emailIssue = emailProblem(email);
+  if (emailIssue) return res.status(400).json({ error: emailIssue });
+  const passwordIssue = passwordProblem(password);
+  if (passwordIssue) return res.status(400).json({ error: passwordIssue });
+
+  try {
+    const account = auth.register({ name, email, password });
+    const session = auth.createSession(account);
+    const user = ensureUserRecord({
+      id: account.id,
+      name: account.name,
+      email: account.email,
     });
+    res.json({ token: session, user });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+api.post('/auth/login', (req, res) => {
+  if (!auth || auth.driver !== 'demo') {
+    return res.status(400).json({ error: 'Sign-in is handled by Supabase in this deployment.' });
+  }
+  const email = normaliseEmail(req.body?.email);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  try {
+    const account = auth.authenticate(email, password);
+    const session = auth.createSession(account);
+    const user = ensureUserRecord({
+      id: account.id,
+      name: account.name,
+      email: account.email,
+    });
+    res.json({ token: session, user });
+  } catch (err) {
+    res.status(err.status || 401).json({ error: err.message });
+  }
+});
+
+api.post('/auth/logout', (req, res) => {
+  if (auth?.driver === 'demo' && req.sessionToken) auth.destroySession(req.sessionToken);
+  res.json({ ok: true });
+});
+
+/** Step one of a reset: ask for a link. Always the same answer. */
+api.post('/auth/forgot', (req, res) => {
+  if (!auth || auth.driver !== 'demo') {
+    return res.status(400).json({ error: 'Password reset is handled by Supabase in this deployment.' });
+  }
+  const email = normaliseEmail(req.body?.email);
+  const issue = emailProblem(email);
+  if (issue) return res.status(400).json({ error: issue });
+
+  const reset = auth.createReset(email);
+  if (!reset) {
+    // No such account: say nothing that reveals it.
+    return res.json({ ok: true, delivered: false });
+  }
+  res.json({
+    ok: true,
+    delivered: false,
+    // Demo mode has no mail server, so the link is returned once for the UI.
+    resetPath: `/reset?token=${reset.token}`,
+    email,
   });
-  save();
-  res.json({ user });
+});
+
+/** Step two: set a new password with the token. */
+api.post('/auth/reset', (req, res) => {
+  if (!auth || auth.driver !== 'demo') {
+    return res.status(400).json({ error: 'Password reset is handled by Supabase in this deployment.' });
+  }
+  const value = clean(req.body?.token, 200);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const issue = passwordProblem(password);
+  if (issue) return res.status(400).json({ error: issue });
+  try {
+    const account = auth.consumeReset(value, password);
+    const session = auth.createSession(account);
+    const user = ensureUserRecord({
+      id: account.id,
+      name: account.name,
+      email: account.email,
+    });
+    res.json({ token: session, user });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+/** Signed-in password change (Supabase driver: the UI calls Supabase directly). */
+api.post('/auth/password', (req, res) => {
+  if (!requireUser(req, res)) return;
+  if (!auth || auth.driver !== 'demo') {
+    return res.status(400).json({ error: 'Use Supabase to change your password.' });
+  }
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const issue = passwordProblem(password);
+  if (issue) return res.status(400).json({ error: issue });
+  const account = auth.findById(req.user.id);
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  auth.setPassword(req.user.id, password);
+  res.json({ ok: true });
 });
 
 api.get('/state', (req, res) => {
-  const userId = clean(req.query.userId, 60);
-  const user = getUser(userId);
-  if (!user) return res.status(401).json({ error: 'Unknown user.' });
+  if (!requireUser(req, res)) return;
+  const user = req.user;
+  const userId = user.id;
   const teams = myTeams(userId);
   res.json({
     user,
@@ -624,8 +790,8 @@ api.get('/state', (req, res) => {
 /* teams */
 
 api.post('/teams', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
-  if (!user) return res.status(401).json({ error: 'Unknown user.' });
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const name = clean(req.body?.name, 50);
   if (!name) return res.status(400).json({ error: 'Give your team a name.' });
 
@@ -648,8 +814,8 @@ api.post('/teams', (req, res) => {
 });
 
 api.post('/teams/join', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
-  if (!user) return res.status(401).json({ error: 'Unknown user.' });
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const code = clean(req.body?.code, 20).toUpperCase();
   const team = db.teams.find((t) => t.code.toUpperCase() === code);
   if (!team) return res.status(404).json({ error: 'That code does not match a team.' });
@@ -662,7 +828,8 @@ api.post('/teams/join', (req, res) => {
 });
 
 api.get('/teams/:id', (req, res) => {
-  const userId = clean(req.query.userId, 60);
+  if (!requireUser(req, res)) return;
+  const userId = req.user.id;
   const team = getTeam(req.params.id);
   if (!team) return res.status(404).json({ error: 'Team not found.' });
   if (!team.members.some((m) => m.userId === userId)) {
@@ -672,7 +839,8 @@ api.get('/teams/:id', (req, res) => {
 });
 
 api.post('/teams/:id/leave', (req, res) => {
-  const userId = clean(req.body?.userId, 60);
+  if (!requireUser(req, res)) return;
+  const userId = req.user.id;
   const team = getTeam(req.params.id);
   if (!team) return res.status(404).json({ error: 'Team not found.' });
   team.members = team.members.filter((m) => m.userId !== userId);
@@ -692,8 +860,8 @@ api.post('/teams/:id/leave', (req, res) => {
 /* songs */
 
 api.post('/songs', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
-  if (!user) return res.status(401).json({ error: 'Unknown user.' });
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const body = req.body || {};
   const title = clean(body.title, 80);
   if (!title) return res.status(400).json({ error: 'A song needs a title.' });
@@ -734,7 +902,8 @@ api.post('/songs', (req, res) => {
 });
 
 api.patch('/songs/:id', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const song = db.songs.find((s) => s.id === req.params.id);
   if (!song) return res.status(404).json({ error: 'Song not found.' });
   if (!user || song.ownerId !== user.id) {
@@ -766,7 +935,8 @@ api.patch('/songs/:id', (req, res) => {
 });
 
 api.delete('/songs/:id', (req, res) => {
-  const userId = clean(req.query.userId, 60);
+  if (!requireUser(req, res)) return;
+  const userId = req.user.id;
   const song = db.songs.find((s) => s.id === req.params.id);
   if (!song) return res.status(404).json({ error: 'Song not found.' });
   if (song.ownerId !== userId) {
@@ -781,7 +951,8 @@ api.delete('/songs/:id', (req, res) => {
 });
 
 api.post('/songs/:id/share', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const song = db.songs.find((s) => s.id === req.params.id);
   if (!song) return res.status(404).json({ error: 'Song not found.' });
   if (!user || song.ownerId !== user.id) {
@@ -801,7 +972,8 @@ api.post('/songs/:id/share', (req, res) => {
 });
 
 api.post('/songs/:id/copy', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const song = db.songs.find((s) => s.id === req.params.id);
   if (!song) return res.status(404).json({ error: 'Song not found.' });
   if (!user || !canView(song, user.id)) {
@@ -814,8 +986,8 @@ api.post('/songs/:id/copy', (req, res) => {
 /* lineups */
 
 api.post('/lineups', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
-  if (!user) return res.status(401).json({ error: 'Unknown user.' });
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const body = req.body || {};
   const name = clean(body.name, 80);
   if (!name) return res.status(400).json({ error: 'Give this lineup a name.' });
@@ -856,7 +1028,8 @@ api.post('/lineups', (req, res) => {
 });
 
 api.patch('/lineups/:id', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
   if (!user || lineup.ownerId !== user.id) {
@@ -885,7 +1058,8 @@ api.patch('/lineups/:id', (req, res) => {
 });
 
 api.delete('/lineups/:id', (req, res) => {
-  const userId = clean(req.query.userId, 60);
+  if (!requireUser(req, res)) return;
+  const userId = req.user.id;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
   if (lineup.ownerId !== userId) {
@@ -901,7 +1075,8 @@ api.delete('/lineups/:id', (req, res) => {
  * channel: 'link' (public share link copied/shared) or 'team' (shared into a team).
  */
 api.post('/lineups/:id/share', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
   // The owner can always share; teammates can pass on a lineup shared with them.
@@ -927,7 +1102,8 @@ api.post('/lineups/:id/share', (req, res) => {
 });
 
 api.post('/lineups/:id/copy', (req, res) => {
-  const user = getUser(clean(req.body?.userId, 60));
+  if (!requireUser(req, res)) return;
+  const user = req.user;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
   if (!user || !canView(lineup, user.id)) {
@@ -938,9 +1114,9 @@ api.post('/lineups/:id/copy', (req, res) => {
 });
 
 api.get('/lru', (req, res) => {
-  const userId = clean(req.query.userId, 60);
+  if (!requireUser(req, res)) return;
+  const userId = req.user.id;
   const theme = clean(req.query.theme, 40);
-  if (!getUser(userId)) return res.status(401).json({ error: 'Unknown user.' });
   const pool = visibleRecords(db.lineups, userId).filter(
     (l) => !theme || l.theme.toLowerCase() === theme.toLowerCase(),
   );
