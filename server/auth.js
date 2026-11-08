@@ -296,6 +296,13 @@ export class DemoAuth {
     user.name = String(name || '').trim().slice(0, 40) || user.name;
     this.save();
   }
+
+  deleteAccount(userId) {
+    this.data.users = this.data.users.filter((u) => u.id !== userId);
+    this.data.sessions = this.data.sessions.filter((s) => s.userId !== userId);
+    this.data.resets = this.data.resets.filter((r) => r.userId !== userId);
+    this.save();
+  }
 }
 
 /* --------------------------------------------------------- supabase driver */
@@ -395,6 +402,22 @@ export class SupabaseAuth {
 
   async rename(_authId) {
     /* the display name lives in Supabase user metadata, nothing to do here */
+  }
+
+  async deleteAccount(authId) {
+    if (!authId) return;
+    try {
+      const { serviceRoleKey } = resolveSupabaseConfig();
+      const client = await this.connect();
+      if (
+        client?.auth?.admin?.deleteUser &&
+        (serviceRoleKey || globalThis.__ariaSupabaseClient)
+      ) {
+        await client.auth.admin.deleteUser(authId);
+      }
+    } catch (err) {
+      console.error('[aria] could not delete Supabase auth user:', err.message);
+    }
   }
 }
 

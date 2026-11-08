@@ -13,7 +13,9 @@
     "start": "node server/index.js",
     "test:supabase": "node scripts/test-supabase.mjs",
     "test:auth": "node scripts/test-auth.mjs",
-    "test:lyrics": "node scripts/test-lyrics-and-sharing.mjs"
+    "test:lyrics": "node scripts/test-lyrics-and-sharing.mjs",
+    "test:playstore": "node scripts/test-playstore.mjs",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

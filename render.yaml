@@ -33,6 +33,13 @@ services:
       # Service role key — server-side only. Never expose it to the browser.
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # Google Play Trusted Web Activity (TWA) full-screen verification:
+      # Fill in your Android package ID and comma-separated SHA-256 certificate
+      # fingerprints (PWABuilder key + Play Console App Signing key).
+      - key: ANDROID_PACKAGE_NAME
+        value: app.aria.lineups
+      - key: ANDROID_SHA256_FINGERPRINTS
+        sync: false
       # Optional fallback when you would rather not use Supabase at all:
       # write the JSON store to a mounted disk (paid plans only).
       # - key: ARIA_DATA_DIR

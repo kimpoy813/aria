@@ -27,6 +27,8 @@ import { TeamsPage } from './pages/TeamsPage';
 import { LineupViewPage } from './pages/LineupViewPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { SharedPage } from './pages/SharedPage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { DeleteAccountPage } from './pages/DeleteAccountPage';
 
 const TABS: { to: string; label: string; icon: IconName }[] = [
   { to: '/', label: 'Home', icon: 'home' },
@@ -144,7 +146,15 @@ function TopBar() {
               How Aria works
             </Button>
             <Button
-              variant="danger"
+              block
+              onClick={() => {
+                setMenuOpen(false);
+                navigate('/privacy');
+              }}
+            >
+              Privacy policy
+            </Button>
+            <Button
               block
               onClick={async () => {
                 setMenuOpen(false);
@@ -152,6 +162,16 @@ function TopBar() {
               }}
             >
               Sign out
+            </Button>
+            <Button
+              variant="danger"
+              block
+              onClick={() => {
+                setMenuOpen(false);
+                navigate('/delete-account');
+              }}
+            >
+              Delete account
             </Button>
           </div>
         </div>
@@ -226,6 +246,26 @@ function Shell() {
       <div className="app">
         <Routes>
           <Route path="/s/:token" element={<SharedPage />} />
+        </Routes>
+      </div>
+    );
+  }
+
+  if (pathname === '/privacy') {
+    return (
+      <div className="app">
+        <Routes>
+          <Route path="/privacy" element={<PrivacyPage />} />
+        </Routes>
+      </div>
+    );
+  }
+
+  if (pathname === '/delete-account') {
+    return (
+      <div className="app">
+        <Routes>
+          <Route path="/delete-account" element={<DeleteAccountPage />} />
         </Routes>
       </div>
     );
