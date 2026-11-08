@@ -9,7 +9,7 @@ import {
   IconButton,
   Sheet,
   Switch,
-  Toast,
+  type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
 import { storeToken } from '../lib/auth';
@@ -22,14 +22,13 @@ type ContentKind = 'songs' | 'lineups' | 'teams';
 type UserFilter = 'all' | 'admins' | 'suspended';
 
 export function AdminPage() {
-  const { user, refresh, refreshSystemStatus } = useStore();
+  const { user, refresh, refreshSystemStatus, notify } = useStore();
   const navigate = useNavigate();
 
   const [tab, setTab] = useState<AdminTab>('stats');
   const [data, setData] = useState<AdminOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Announcement / maintenance form state
@@ -62,9 +61,8 @@ export function AdminPage() {
   const [contentKind, setContentKind] = useState<ContentKind>('songs');
   const [contentQuery, setContentQuery] = useState('');
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2200);
+  const showToast = (msg: string, tone: ToastTone = 'success') => {
+    notify(msg, tone);
   };
 
   const loadOverview = useCallback(async () => {
@@ -163,9 +161,9 @@ export function AdminPage() {
         setData({ ...data, settings: res.settings });
       }
       await refreshSystemStatus();
-      showToast(mEnabled ? 'Announcement published' : 'Announcement turned off');
+      showToast(mEnabled ? 'Announcement published' : 'Announcement turned off', 'success');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not save settings');
+      showToast(err instanceof Error ? err.message : 'Could not save settings', 'error');
     } finally {
       setBusy(false);
     }
@@ -177,10 +175,10 @@ export function AdminPage() {
       const res = await api.adminUpdateSettings({ allowRegistration: next });
       if (data) setData({ ...data, settings: res.settings });
       await refreshSystemStatus();
-      showToast(next ? 'Registrations enabled' : 'Registrations paused');
+      showToast(next ? 'Registrations enabled' : 'Registrations paused', 'info');
     } catch (err) {
       setAllowReg(!next);
-      showToast(err instanceof Error ? err.message : 'Could not update setting');
+      showToast(err instanceof Error ? err.message : 'Could not update setting', 'error');
     }
   };
 
@@ -205,9 +203,9 @@ export function AdminPage() {
             }
           : prev,
       );
-      showToast('User access updated');
+      showToast('User access updated', 'success');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not update user');
+      showToast(err instanceof Error ? err.message : 'Could not update user', 'error');
     } finally {
       setBusy(false);
     }
@@ -221,9 +219,9 @@ export function AdminPage() {
       setSelectedUser(null);
       await loadOverview();
       await refresh();
-      showToast('User deleted');
+      showToast('User deleted', 'info');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not delete user');
+      showToast(err instanceof Error ? err.message : 'Could not delete user', 'error');
     } finally {
       setBusy(false);
     }
@@ -245,9 +243,9 @@ export function AdminPage() {
       setNewRole('user');
       setCreateOpen(false);
       await loadOverview();
-      showToast('Account added');
+      showToast('Account added', 'success');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not create user');
+      showToast(err instanceof Error ? err.message : 'Could not create user', 'error');
     } finally {
       setBusy(false);
     }
@@ -256,11 +254,11 @@ export function AdminPage() {
   const handleChangeAdminPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPw.length < 8) {
-      showToast('Use at least 8 characters');
+      showToast('Use at least 8 characters', 'error');
       return;
     }
     if (adminPw !== adminPwConfirm) {
-      showToast('Passwords do not match');
+      showToast('Passwords do not match', 'error');
       return;
     }
     setBusy(true);
@@ -272,9 +270,9 @@ export function AdminPage() {
       setAdminPw('');
       setAdminPwConfirm('');
       setPwOpen(false);
-      showToast('Admin password updated');
+      showToast('Admin password updated', 'success');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not update password');
+      showToast(err instanceof Error ? err.message : 'Could not update password', 'error');
     } finally {
       setBusy(false);
     }
@@ -288,9 +286,9 @@ export function AdminPage() {
       if (kind === 'teams') await api.adminDeleteTeam(id);
       await loadOverview();
       await refresh();
-      showToast('Removed');
+      showToast('Removed', 'info');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not remove item');
+      showToast(err instanceof Error ? err.message : 'Could not remove item', 'error');
     } finally {
       setBusy(false);
     }
@@ -1081,8 +1079,6 @@ export function AdminPage() {
           </Button>
         </form>
       </Sheet>
-
-      <Toast message={toast} />
     </div>
   );
 }

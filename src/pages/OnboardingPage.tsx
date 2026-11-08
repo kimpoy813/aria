@@ -17,8 +17,8 @@ const STEPS: Step[] = [
     art: 'lyrics',
   },
   {
-    title: 'Lyric intelligence',
-    body: 'Aria reads your lyrics to classify the song’s theme and summarize its core message.',
+    title: 'Worship lyric intelligence',
+    body: 'Aria reads your lyrics to classify each song’s Christian worship theme and summarize its Biblical message for your church service.',
     art: 'classify',
   },
   {
@@ -38,14 +38,14 @@ function Art({ kind }: { kind: Step['art'] }) {
     return (
       <div className="onb-art" aria-hidden="true">
         <div className="row-between">
-          <span className="chip brand">Hope</span>
-          <span className="tiny">84% match</span>
+          <span className="chip brand">Grace &amp; Salvation</span>
+          <span className="tiny">91% match</span>
         </div>
         <div className="onb-bars">
-          <span style={{ width: '84%' }} />
-          <span style={{ width: '46%' }} />
+          <span style={{ width: '91%' }} />
+          <span style={{ width: '54%' }} />
         </div>
-        <p className="onb-quote">“Morning breaks across the quiet ridge”</p>
+        <p className="onb-quote">“Christ alone, Cornerstone — weak made strong in the Savior’s love”</p>
       </div>
     );
   }
@@ -104,7 +104,7 @@ function Art({ kind }: { kind: Step['art'] }) {
 }
 
 export function OnboardingPage({ replay = false }: { replay?: boolean }) {
-  const { completeOnboarding, theme, toggleTheme } = useStore();
+  const { completeOnboarding, theme, toggleTheme, notify } = useStore();
   const navigate = useNavigate();
   const [index, setIndex] = useState(0);
 
@@ -113,6 +113,7 @@ export function OnboardingPage({ replay = false }: { replay?: boolean }) {
 
   const finish = (destination = '/') => {
     completeOnboarding();
+    if (!replay) notify('All set — ready to add your worship songs!', 'success');
     navigate(destination, { replace: true });
   };
 

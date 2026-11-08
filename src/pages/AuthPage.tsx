@@ -55,10 +55,6 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link to="/privacy" className="link-button tiny">
             Privacy Policy
           </Link>
-          <span className="tiny">·</span>
-          <Link to="/delete-account" className="link-button tiny">
-            Delete Account
-          </Link>
         </div>
       </div>
     </div>
@@ -174,6 +170,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
     signInWithAccount,
     config,
     systemStatus,
+    notify,
     error: storeError,
     clearError,
   } = useStore();
@@ -233,6 +230,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
         const result = await register({ name, email, password });
         if (result.needsEmailConfirm) {
           setNeedsConfirm(true);
+          notify('Confirmation link sent to your email', 'info');
         } else if (result.account) {
           await signInWithAccount(result.account);
         }
@@ -240,9 +238,12 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
         const { resetPath } = await forgotPassword(email);
         setResetLink(resetPath || null);
         setMode('reset-sent');
+        notify('Password reset instructions ready', 'info');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      const msg = err instanceof Error ? err.message : 'Something went wrong.';
+      setError(msg);
+      notify(msg, 'error');
     } finally {
       setBusy(false);
     }

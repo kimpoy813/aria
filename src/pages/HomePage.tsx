@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Chip, Empty, Icon, Toast } from '../components/ui';
+import { Button, Chip, Empty, Icon, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
 import {
   lineupTempoMix,
@@ -12,15 +12,13 @@ import {
 import { useStore } from '../lib/store';
 
 export function HomePage() {
-  const { lineups, songs, teams, user, refresh } = useStore();
+  const { lineups, songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
   const [themeFilter, setThemeFilter] = useState<string>('all');
   const [sharing, setSharing] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+  const showToast = (msg: string, tone: ToastTone = 'success') => {
+    notify(msg, tone);
   };
 
   const themes = useMemo(() => {
@@ -268,8 +266,6 @@ export function HomePage() {
           <span>Teams</span>
         </button>
       </div>
-
-      <Toast message={toast} />
     </div>
   );
 }

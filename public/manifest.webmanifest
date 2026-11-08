@@ -9,8 +9,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b0c10",
-  "theme_color": "#0b0c10",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "categories": ["music", "productivity", "utilities"],
   "prefer_related_applications": false,
   "icons": [

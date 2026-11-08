@@ -10,7 +10,7 @@ import {
   Icon,
   IconButton,
   Sheet,
-  Toast,
+  type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
 import { analyzeLyrics } from '../lib/nlp';
@@ -18,9 +18,8 @@ import { useStore } from '../lib/store';
 
 export function SongDetailPage() {
   const { id } = useParams();
-  const { songs, teams, user, refresh } = useStore();
+  const { songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
-  const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -37,9 +36,8 @@ export function SongDetailPage() {
   const mine = song.ownerId === user?.id;
   const team = song.teamId ? teams.find((t) => t.id === song.teamId) : null;
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+  const showToast = (msg: string, tone: ToastTone = 'success') => {
+    notify(msg, tone);
   };
 
   const copyToMine = async () => {
@@ -47,10 +45,10 @@ export function SongDetailPage() {
     try {
       const res = await api.copySong(song.id);
       await refresh();
-      showToast('Saved to your library');
+      showToast('Saved to your library', 'success');
       navigate(`/songs/${res.song.id}`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Could not copy');
+      showToast(e instanceof Error ? e.message : 'Could not copy', 'error');
     } finally {
       setBusy(false);
     }
@@ -59,24 +57,24 @@ export function SongDetailPage() {
   const copyPartLyrics = async (label: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      showToast(`Copied ${label}`);
+      showToast(`Copied ${label}`, 'success');
     } catch {
-      showToast('Clipboard unavailable');
+      showToast('Clipboard unavailable', 'error');
     }
   };
 
   const analyzeNow = async () => {
     setBusy(true);
     try {
-      const analysis = analyzeLyrics(song.parts);
+      const analysis = analyzeLyrics(song.parts, song.title);
       await api.updateSong(song.id, {
         analysis,
         theme: song.theme || analysis.theme,
       });
       await refresh();
-      showToast(analysis.theme);
+      showToast(`Classified: ${analysis.theme}`, 'success');
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Could not analyze');
+      showToast(e instanceof Error ? e.message : 'Could not analyze', 'error');
     } finally {
       setBusy(false);
     }
@@ -87,9 +85,10 @@ export function SongDetailPage() {
     try {
       await api.deleteSong(song.id);
       await refresh();
+      showToast(`Deleted “${song.title}”`, 'info');
       navigate('/songs');
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Could not delete');
+      showToast(e instanceof Error ? e.message : 'Could not delete', 'error');
       setBusy(false);
     }
   };
@@ -176,8 +175,6 @@ export function SongDetailPage() {
           </Button>
         </div>
       </Sheet>
-
-      <Toast message={toast} />
     </div>
   );
 }

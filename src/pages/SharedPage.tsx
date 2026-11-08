@@ -2,19 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { LyricView } from '../components/LyricView';
 import { Wordmark } from '../components/Logo';
-import { Button, Chip, Empty, Icon, IconButton, Toast } from '../components/ui';
+import { Button, Chip, Empty, Icon, IconButton, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
 
 export function SharedPage() {
   const { token } = useParams();
-  const { theme, toggleTheme } = useStore();
+  const { theme, toggleTheme, notify } = useStore();
   const [lineup, setLineup] = useState<SharedLineup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [largeText, setLargeText] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -29,9 +28,8 @@ export function SharedPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+  const showToast = (msg: string, tone: ToastTone = 'success') => {
+    notify(msg, tone);
   };
 
   const tempoCounts = useMemo(() => {
@@ -43,9 +41,9 @@ export function SharedPage() {
   const copyUrl = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
-      showToast('Link copied');
+      showToast('Link copied', 'success');
     } catch {
-      showToast('Could not copy link');
+      showToast('Could not copy link', 'error');
     }
   };
 
@@ -65,9 +63,9 @@ export function SharedPage() {
 
     try {
       await navigator.clipboard.writeText(formatted);
-      showToast('Lyrics copied');
+      showToast('Lyrics copied', 'success');
     } catch {
-      showToast('Could not copy lyrics');
+      showToast('Could not copy lyrics', 'error');
     }
   };
 
@@ -187,7 +185,6 @@ export function SharedPage() {
           </div>
         )}
       </main>
-      <Toast message={toast} />
     </div>
   );
 }

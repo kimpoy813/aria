@@ -75,23 +75,26 @@ export function PrivacyPage() {
             </p>
           </div>
 
-          <div className="card stack-sm">
+          <div id="account-deletion" className="card stack-sm">
             <h2>5. Account &amp; Data Deletion</h2>
             <p className="small">
               You may permanently delete your account and all songs, lyrics, lineups, and
-              team memberships owned by you at any time — either inside the app
-              (<strong>Account → Delete account</strong>) or online through our dedicated
-              deletion page. Deleted data is erased immediately and cannot be recovered.
+              team memberships owned by you at any time by signing in to your account and
+              tapping your top-right account avatar (<strong>Account → Delete account</strong>).
+              Deleted data is erased immediately with no retention period and cannot be
+              recovered.
             </p>
-            <div>
-              <Link
-                to="/delete-account"
-                className="btn"
-                style={{ textDecoration: 'none', marginTop: 4 }}
-              >
-                Account &amp; data deletion
-              </Link>
-            </div>
+            {user && user.id !== 'user_admin' && (
+              <div>
+                <Link
+                  to="/delete-account"
+                  className="btn"
+                  style={{ textDecoration: 'none', marginTop: 4 }}
+                >
+                  Delete account
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="card stack-sm">

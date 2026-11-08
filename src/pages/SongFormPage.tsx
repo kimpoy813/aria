@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ClipboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnalysisCard } from '../components/AnalysisCard';
-import { BackBar, Button, Chip, Icon, IconButton, Sheet, Toast } from '../components/ui';
+import { BackBar, Button, Chip, Icon, IconButton, Sheet, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
 import {
   defaultPartLabel,
@@ -23,7 +23,7 @@ function newPart(kind: PartKind, existing: SongPart[]): SongPart {
 
 export function SongFormPage() {
   const { id } = useParams();
-  const { songs, teams, refresh, user } = useStore();
+  const { songs, teams, refresh, user, notify } = useStore();
   const navigate = useNavigate();
 
   const existing = id ? songs.find((s) => s.id === id) : undefined;
@@ -49,7 +49,6 @@ export function SongFormPage() {
   const [collapseRepeats, setCollapseRepeats] = useState(true);
 
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,14 +57,13 @@ export function SongFormPage() {
     }
   }, [existing, user?.id, navigate]);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
+  const showToast = (msg: string, tone: ToastTone = 'success') => {
+    notify(msg, tone);
   };
 
   const runAutoClassify = (nextParts: SongPart[]) => {
     if (!nextParts.some((p) => p.lyrics.trim().length > 0)) return;
-    const result = analyzeLyrics(nextParts);
+    const result = analyzeLyrics(nextParts, title);
     setAnalysis(result);
     setTheme((prev) => prev || result.theme);
     if (!tempoTouched && result.suggestedTempo) {
@@ -241,23 +239,30 @@ export function SongFormPage() {
       setError('Add lyrics to at least one part.');
       return;
     }
-    const result = analyzeLyrics(parts);
+    const result = analyzeLyrics(parts, title);
     setAnalysis(result);
     setTheme(result.theme);
     if (!tempoTouched && result.suggestedTempo) {
       setTempo(result.suggestedTempo);
     }
     setDirtyLyrics(false);
-    showToast(result.theme);
+    showToast(`Classified: ${result.theme}`, 'success');
   };
 
   const submit = async () => {
     setError(null);
-    if (!title.trim()) return setError('Enter a song title.');
+    if (!title.trim()) {
+      setError('Enter a song title.');
+      return showToast('Enter a song title', 'error');
+    }
     const filled = parts.filter((p) => p.lyrics.trim().length > 0);
-    if (filled.length === 0) return setError('Add lyrics to at least one part.');
+    if (filled.length === 0) {
+      setError('Add lyrics to at least one part.');
+      return showToast('Add lyrics to at least one part', 'error');
+    }
     if (!analysis || dirtyLyrics) {
-      return setError('Classify the lyrics before saving.');
+      setError('Classify the lyrics before saving.');
+      return showToast('Tap Classify lyrics before saving', 'info');
     }
 
     setBusy(true);
@@ -274,14 +279,18 @@ export function SongFormPage() {
       if (editing && existing) {
         await api.updateSong(existing.id, payload);
         await refresh();
+        showToast('Song updated', 'success');
         navigate(`/songs/${existing.id}`);
       } else {
         const res = await api.createSong(payload);
         await refresh();
+        showToast(`Added “${payload.title}”`, 'success');
         navigate(`/songs/${res.song.id}`);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save song.');
+      const msg = e instanceof Error ? e.message : 'Could not save song.';
+      setError(msg);
+      showToast(msg, 'error');
     } finally {
       setBusy(false);
     }
@@ -500,12 +509,14 @@ export function SongFormPage() {
                 value={theme || analysis.theme}
                 onChange={(e) => setTheme(e.target.value)}
               >
-                {THEME_LIST.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                    {c === analysis.theme ? ' (detected)' : ''}
-                  </option>
-                ))}
+                {(theme && !THEME_LIST.includes(theme) ? [theme, ...THEME_LIST] : THEME_LIST).map(
+                  (c) => (
+                    <option key={c} value={c}>
+                      {c}
+                      {c === analysis.theme ? ' (detected)' : ''}
+                    </option>
+                  ),
+                )}
               </select>
             </div>
           </>
@@ -606,8 +617,6 @@ export function SongFormPage() {
           </Button>
         </div>
       </Sheet>
-
-      <Toast message={toast} />
     </div>
   );
 }

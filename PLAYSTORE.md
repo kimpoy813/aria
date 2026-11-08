@@ -13,10 +13,10 @@ Once Aria is deployed over HTTPS (for example `https://your-aria.onrender.com`):
 | **Web App Manifest** | `https://<your-domain>/manifest.webmanifest` |
 | **Service Worker** | `https://<your-domain>/sw.js` |
 | **Privacy Policy URL** | `https://<your-domain>/privacy` |
-| **Account & Data Deletion URL** | `https://<your-domain>/delete-account` |
+| **Account Deletion Instructions URL** | `https://<your-domain>/privacy#account-deletion` |
 | **Digital Asset Links** | `https://<your-domain>/.well-known/assetlinks.json` |
 | **512×512 Store Listing App Icon** | `public/icons/playstore-icon-512.png` |
-| **In-App Account Deletion** | **Top-right Avatar → Delete account** |
+| **In-App Account Deletion** | **Sign in → Top-right Avatar → Delete account** (`/delete-account`) |
 
 ---
 
@@ -60,4 +60,4 @@ Verify at `https://<your-domain>/.well-known/assetlinks.json`.
   - **Personal info**: Name, Email address *(Collected, App functionality & Account management, Not shared with third parties)*
   - **App activity / User content**: Songs, lyrics, lineups *(Collected, App functionality)*
   - **Encrypted in transit**: *Yes*
-  - **Account deletion URL**: `https://<your-domain>/delete-account`
+  - **Account deletion URL**: `https://<your-domain>/privacy#account-deletion` *(in-app deletion is inside **Account → Delete account** once signed in)*

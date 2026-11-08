@@ -29,7 +29,9 @@ export function AnalysisCard({
       <p className="analysis-message">{analysis.message}</p>
 
       {!compact && analysis.evidence && analysis.evidence.length > 0 && (
-        <blockquote className="analysis-quote">“{analysis.evidence[0]}”</blockquote>
+        <blockquote className="analysis-quote">
+          “{analysis.evidence[0].replace(/^["“”]+|["“”]+$/g, '')}”
+        </blockquote>
       )}
     </div>
   );

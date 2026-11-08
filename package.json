@@ -16,6 +16,7 @@
     "test:lyrics": "node scripts/test-lyrics-and-sharing.mjs",
     "test:playstore": "node scripts/test-playstore.mjs",
     "test:admin": "node scripts/test-admin.mjs",
+    "test:classifier": "node scripts/test-classifier.mjs",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {

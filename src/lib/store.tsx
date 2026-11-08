@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api } from './api';
+import { ToastStack, type ToastItem, type ToastTone } from '../components/ui';
 import type { AppState, Lineup, Song, SystemStatus, Team, User } from './types';
 import {
   completePopupRelay,
@@ -57,6 +58,7 @@ interface StoreValue {
   themePreference: ThemePreference;
   config: AuthConfig;
   onboarded: boolean;
+  notify: (message: string, tone?: ToastTone) => void;
   clearError: () => void;
   toggleTheme: () => void;
   setThemePreference: (pref: ThemePreference) => void;
@@ -78,7 +80,7 @@ const StoreContext = createContext<StoreValue | null>(null);
 function readThemePreference(): ThemePreference {
   const saved = localStorage.getItem(THEME_KEY);
   if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
-  return 'system';
+  return 'light';
 }
 
 function resolveSystemTheme(): ThemeMode {
@@ -104,29 +106,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   });
   const bootstrapped = useRef(false);
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDING_KEY) === '1');
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastSeq = useRef(0);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const notify = useCallback((message: string, tone: ToastTone = 'success') => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    const id = ++toastSeq.current;
+    setToasts((prev) => [...prev.filter((t) => t.message !== trimmed).slice(-1), { id, message: trimmed, tone }]);
+    const duration = tone === 'error' ? 3400 : 2500;
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, duration);
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (!mq) return;
     const onChange = () => setSystemTheme(mq.matches ? 'dark' : 'light');
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
+    if (mq.addEventListener) {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+    mq.addListener?.(onChange);
+    return () => mq.removeListener?.(onChange);
   }, []);
 
   useEffect(() => {
+    const isDark = theme === 'dark';
     document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = isDark ? 'dark' : 'only light';
+    if (document.body) {
+      document.body.dataset.theme = theme;
+      document.body.style.backgroundColor = isDark ? '#0b0c10' : '#ffffff';
+    }
     localStorage.setItem(THEME_KEY, themePreference);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b0c10' : '#f8f9fb');
+    if (meta) meta.setAttribute('content', isDark ? '#0b0c10' : '#ffffff');
+    const cs = document.querySelector('meta[name="color-scheme"]');
+    if (cs) cs.setAttribute('content', isDark ? 'dark' : 'only light');
   }, [theme, themePreference]);
 
-  const setThemePreference = useCallback((pref: ThemePreference) => {
-    setThemePrefState(pref);
-  }, []);
+  const setThemePreference = useCallback(
+    (pref: ThemePreference) => {
+      setThemePrefState(pref);
+      const label =
+        pref === 'system'
+          ? 'Appearance: Auto'
+          : pref === 'dark'
+            ? 'Dark mode enabled'
+            : 'Light mode enabled';
+      notify(label, 'info');
+    },
+    [notify],
+  );
 
   const toggleTheme = useCallback(() => {
-    setThemePrefState(theme === 'dark' ? 'light' : 'dark');
-  }, [theme]);
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setThemePrefState(next);
+    notify(next === 'dark' ? 'Dark mode enabled' : 'Light mode enabled', 'info');
+  }, [theme, notify]);
 
   const refreshSystemStatus = useCallback(async () => {
     try {
@@ -153,11 +196,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await authLogout().catch(() => undefined);
         setState(null);
         setError(message);
+        notify(message, 'error');
       } else {
         setError(message);
       }
     }
-  }, []);
+  }, [notify]);
 
   const adoptAccount = useCallback(
     async (account: Account | null) => {
@@ -175,25 +219,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       try {
         await adoptAccount(account);
+        const firstName = account.user?.name?.trim().split(/\s+/)[0];
+        notify(firstName ? `Welcome, ${firstName}!` : 'Signed in', 'success');
       } finally {
         setLoading(false);
       }
     },
-    [adoptAccount],
+    [adoptAccount, notify],
   );
 
   const signOut = useCallback(async () => {
     await authLogout();
     setState(null);
     setError(null);
-  }, []);
+    notify('Signed out', 'info');
+  }, [notify]);
 
   const deleteAccount = useCallback(async () => {
     await api.deleteAccount();
     await authLogout();
     setState(null);
     setError(null);
-  }, []);
+    notify('Your account has been permanently deleted', 'info');
+  }, [notify]);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -324,6 +372,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       themePreference,
       config,
       onboarded: onboarded || Boolean(state?.user?.isAdmin),
+      notify,
       clearError,
       toggleTheme,
       setThemePreference,
@@ -349,6 +398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       themePreference,
       config,
       onboarded,
+      notify,
       clearError,
       toggleTheme,
       setThemePreference,
@@ -366,7 +416,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={value}>
+      {children}
+      <ToastStack items={toasts} onDismiss={dismissToast} />
+    </StoreContext.Provider>
+  );
 }
 
 export function useStore() {
