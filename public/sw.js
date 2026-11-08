@@ -1,11 +1,12 @@
 /**
  * Aria Service Worker — PWA & Google Play Trusted Web Activity (TWA) shell cache.
  *
- * - Never intercepts /api/*, /auth/*, or /.well-known/* requests.
- * - Uses network-first for HTML navigations and stale-while-revalidate for static assets.
+ * - Never intercepts /api/*, /auth/*, /.well-known/*, or OAuth callback navigations.
+ * - Uses network-first for HTML navigations (caching only HTTP 200 OK responses)
+ *   and stale-while-revalidate for static assets.
  */
 
-const CACHE_NAME = 'aria-shell-v9';
+const CACHE_NAME = 'aria-shell-v10';
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',
@@ -55,24 +56,36 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache API, OAuth popup, service worker script, or Digital Asset Links responses
+  // Never cache API, OAuth routes/callbacks, service worker script, or Digital Asset Links
   if (
     url.pathname === '/sw.js' ||
     url.pathname === '/manifest.webmanifest' ||
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/auth/') ||
-    url.pathname.startsWith('/.well-known/')
+    url.pathname.startsWith('/.well-known/') ||
+    url.searchParams.has('code') ||
+    url.searchParams.has('relay') ||
+    url.searchParams.has('error') ||
+    url.searchParams.has('error_description')
   ) {
     return;
   }
 
-  // Network-first (bypassing browser HTTP cache) for HTML navigations so deploys appear immediately
+  // Network-first (bypassing browser HTTP cache) for HTML navigations so deploys appear immediately.
+  // Only cache HTTP 200 OK HTML responses so transient 502/503 deploy pages never poison the cache.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request, { cache: 'no-store' })
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('/', clone));
+        .then(async (response) => {
+          if (response && response.ok && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/', clone));
+            return response;
+          }
+          if (response && response.status >= 500) {
+            const cached = await caches.match('/');
+            if (cached) return cached;
+          }
           return response;
         })
         .catch(() => caches.match('/') || caches.match(request)),

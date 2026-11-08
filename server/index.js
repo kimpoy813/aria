@@ -580,7 +580,7 @@ api.get('/system/status', (_req, res) => {
 /* ---------------------------------------------------------------- auth */
 
 const oauthRelay = new Map();
-const OAUTH_RELAY_TTL_MS = 2 * 60 * 1000;
+const OAUTH_RELAY_TTL_MS = 10 * 60 * 1000;
 const validRelayNonce = (value) =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value);
 
@@ -592,6 +592,7 @@ function pruneOAuthRelay() {
 }
 
 api.get('/auth/config', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.json({
     driver: auth?.driver || 'demo',
     supabaseUrl: auth?.driver === 'supabase' ? auth.supabaseUrl : null,
@@ -602,11 +603,12 @@ api.get('/auth/config', (_req, res) => {
 });
 
 /**
- * Short-lived single-use relay for Google OAuth popups opened from inside an
- * iframe (where accounts.google.com blocks framing via X-Frame-Options and
- * COOP / storage partitioning can isolate the popup from the iframe).
+ * Short-lived single-use relay for Google OAuth popups & standalone PWA Custom Tabs
+ * (where accounts.google.com blocks framing via X-Frame-Options and COOP / Custom Tab
+ * storage partitioning isolates the OAuth tab from the opener or installed app).
  */
 api.post('/auth/relay', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   pruneOAuthRelay();
   const nonce = clean(req.body?.nonce, 128);
   if (!validRelayNonce(nonce)) {
@@ -632,6 +634,7 @@ api.post('/auth/relay', (req, res) => {
 });
 
 api.get('/auth/relay/:nonce', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   pruneOAuthRelay();
   const nonce = clean(req.params.nonce, 128);
   if (!validRelayNonce(nonce)) {
@@ -649,6 +652,7 @@ api.get('/auth/relay/:nonce', (req, res) => {
 });
 
 api.get('/auth/session', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   if (!req.identity) return res.json({ user: null });
   const user = ensureUserRecord(req.identity);
   if (user.suspended && !isAdminUser(user)) {

@@ -516,6 +516,32 @@ function decodeSandboxJwtIdentity(accessToken, supabaseUrl) {
   }
 }
 
+const VERIFIED_TOKEN_TTL_MS = 30 * 1000;
+
+function isRetryableAuthError(err) {
+  if (!err) return false;
+  const status = Number(err.status || 0);
+  if (status === 0 || status === 408 || status === 429 || status >= 500) return true;
+  if (err.name === 'AuthRetryableFetchError') return true;
+  const msg = String(err.message || '');
+  return /fetch failed|network|socket|timeout|econnreset|etimedout/i.test(msg);
+}
+
+function tokenCacheKey(accessToken) {
+  return crypto.createHash('sha256').update(String(accessToken)).digest('hex');
+}
+
+function jwtExpiryMs(accessToken) {
+  try {
+    const parts = String(accessToken || '').split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload?.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
 export class SupabaseAuth {
   driver = 'supabase';
 
@@ -525,6 +551,7 @@ export class SupabaseAuth {
     this.supabaseUrl = url;
     this.supabaseAnonKey = anonKey;
     this.client = null;
+    this.verifiedCache = new Map();
   }
 
   async connect() {
@@ -544,20 +571,63 @@ export class SupabaseAuth {
   /** Verify a Supabase access token and return the identity behind it. */
   async verify(accessToken) {
     if (!accessToken) return null;
+    const expMs = jwtExpiryMs(accessToken);
+    if (expMs !== null && expMs <= Date.now()) {
+      return null;
+    }
+
+    const useCache = !globalThis.__ariaSupabaseClient;
+    const cacheKey = useCache ? tokenCacheKey(accessToken) : '';
+    if (useCache) {
+      const hit = this.verifiedCache.get(cacheKey);
+      if (hit && hit.expiresAt > Date.now()) {
+        return hit.identity;
+      }
+      if (hit) this.verifiedCache.delete(cacheKey);
+    }
+
     try {
       const client = await this.connect();
-      const { data, error } = await client.auth.getUser(accessToken);
-      if (!error && data?.user) {
-        return identityFromUser(data.user);
+      let lastError = null;
+      const maxAttempts = globalThis.__ariaSupabaseClient ? 1 : 3;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        try {
+          const { data, error } = await client.auth.getUser(accessToken);
+          if (!error && data?.user) {
+            const identity = identityFromUser(data.user);
+            if (useCache) {
+              if (this.verifiedCache.size >= 250) {
+                const oldest = this.verifiedCache.keys().next().value;
+                if (oldest) this.verifiedCache.delete(oldest);
+              }
+              const ttlEnd = Date.now() + VERIFIED_TOKEN_TTL_MS;
+              this.verifiedCache.set(cacheKey, {
+                identity,
+                expiresAt: expMs !== null ? Math.min(ttlEnd, expMs) : ttlEnd,
+              });
+            }
+            return identity;
+          }
+          lastError = error;
+          if (!isRetryableAuthError(error) || attempt + 1 >= maxAttempts) {
+            break;
+          }
+        } catch (callErr) {
+          lastError = callErr;
+          if (!isRetryableAuthError(callErr) || attempt + 1 >= maxAttempts) {
+            break;
+          }
+        }
+        await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
       }
+
       const isNetworkOffline =
         !globalThis.__ariaSupabaseClient &&
         process.env.NODE_ENV !== 'production' &&
         !process.env.RENDER &&
-        error &&
-        (error.status === 0 ||
-          error.name === 'AuthRetryableFetchError' ||
-          /fetch failed/i.test(error.message || ''));
+        lastError &&
+        isRetryableAuthError(lastError);
       if (isNetworkOffline) {
         return decodeSandboxJwtIdentity(accessToken, this.url);
       }
@@ -574,6 +644,7 @@ export class SupabaseAuth {
 
   async deleteAccount(authId) {
     if (!authId) return;
+    this.verifiedCache.clear();
     try {
       const { serviceRoleKey } = resolveSupabaseConfig();
       const client = await this.connect();

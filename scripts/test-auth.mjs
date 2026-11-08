@@ -458,7 +458,62 @@ console.log('\n3. Google OAuth config, anon-only boot & popup relay');
     'production/Render never accepts unverified JWT when offline',
     (await sbAuth.verify(validJwt)) === null,
   );
+
+  // Verify transient upstream socket reset (AuthRetryableFetchError) retries cleanly on Render
+  const flakyAuth = new SupabaseAuth({
+    url: DEFAULT_SUPABASE_URL,
+    key: DEFAULT_SUPABASE_ANON_KEY,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+  });
+  let getUserCalls = 0;
+  flakyAuth.client = {
+    auth: {
+      getUser: async () => {
+        getUserCalls += 1;
+        if (getUserCalls === 1) {
+          const err = new Error('TypeError: fetch failed');
+          err.name = 'AuthRetryableFetchError';
+          err.status = 0;
+          return { data: { user: null }, error: err };
+        }
+        return {
+          data: {
+            user: {
+              id: '11111111-2222-3333-4444-555555555555',
+              email: 'googleuser@gmail.com',
+              user_metadata: { full_name: 'Google User' },
+            },
+          },
+          error: null,
+        };
+      },
+    },
+  };
+  const recovered = await flakyAuth.verify(validJwt);
+  check(
+    'SupabaseAuth.verify retries transient fetch failure on Render and verifies Google session',
+    recovered?.id === 'sb_11111111-2222-3333-4444-555555555555' && getUserCalls === 2,
+  );
+  const cachedHit = await flakyAuth.verify(validJwt);
+  check(
+    'SupabaseAuth.verify caches verified token briefly to avoid GoTrue rate limits',
+    cachedHit?.email === 'googleuser@gmail.com' && getUserCalls === 2,
+  );
   delete process.env.RENDER;
+
+  const authConfigHeaders = await fetch(`http://127.0.0.1:${port}/api/auth/config`);
+  check(
+    '/api/auth/config sets Cache-Control: no-store',
+    (authConfigHeaders.headers.get('cache-control') || '').includes('no-store'),
+  );
+
+  const swSource = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+  check(
+    'service worker skips OAuth ?relay= / ?code= callbacks and only caches 200 OK navigations',
+    swSource.includes("url.searchParams.has('relay')") &&
+      swSource.includes("url.searchParams.has('code')") &&
+      swSource.includes('response.ok && response.status === 200'),
+  );
 
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
