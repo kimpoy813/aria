@@ -1,773 +1,842 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  DndContext,
-  DragOverlay,
-  MouseSensor,
-  TouchSensor,
-  closestCenter,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { useStore } from '../lib/store';
+  BackBar,
+  Button,
+  Chip,
+  Empty,
+  Icon,
+  IconButton,
+  Sheet,
+  Toast,
+} from '../components/ui';
 import { api } from '../lib/api';
-import { effectiveAnalysis, THEME_LIST } from '../lib/nlp';
-import { orderByLRU, resolveSequence, timeAgo, reasonLabel } from '../lib/lru';
-import type { LineupItem, Song } from '../lib/types';
-import { BackBar, Button, Chip, Empty, Icon, Sheet, Toast } from '../components/ui';
+import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
+import { useStore } from '../lib/store';
+import type { LineupItem, Song, SongPart, Tempo } from '../lib/types';
 
-const uid = (prefix = 'tmp') => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-const kindLabel = (kind: string) => (kind === 'prechorus' ? 'pre-chorus' : kind);
-
-interface DraftItem extends LineupItem {
-  key: string;
+function makeSlot(songId: string, partId: string): LineupItem {
+  return {
+    id: `slot_${Math.random().toString(36).slice(2, 9)}`,
+    songId,
+    partId,
+  };
 }
 
-const toDraft = (items: LineupItem[]): DraftItem[] =>
-  items.map((item) => ({ ...item, key: uid('slot') }));
-
-/* ----------------------------------------------------------- palette part */
-
-function PartRow({
-  song,
-  part,
-  onAdd,
-}: {
-  song: Song;
-  part: Song['parts'][number];
-  onAdd: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `part_${part.id}`,
-    data: { type: 'part', songId: song.id, partId: part.id, label: part.label, title: song.title },
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      className="part-chip"
-      style={{ opacity: isDragging ? 0.4 : 1 }}
-      onClick={onAdd}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onAdd();
-        }
-      }}
-      {...attributes}
-      {...listeners}
-    >
-      <span className="kind">{kindLabel(part.kind)}</span>
-      <span className="excerpt grow">{part.lyrics.split('\n')[0] || part.label}</span>
-      <span className="part-add" aria-hidden>
-        <Icon name="add" size={14} />
-      </span>
-    </div>
-  );
+interface TouchDragState {
+  source:
+    | { type: 'slot'; index: number; label: string }
+    | { type: 'part'; songId: string; partId: string; label: string };
+  x: number;
+  y: number;
 }
-
-/* ------------------------------------------------------------- seq item */
-
-function SequenceRow({
-  item,
-  song,
-  partLabel,
-  lyrics,
-  index,
-  total,
-  onMove,
-  onRemove,
-  onDuplicate,
-}: {
-  item: DraftItem;
-  song: Song;
-  partLabel: string;
-  lyrics: string;
-  index: number;
-  total: number;
-  onMove: (dir: -1 | 1) => void;
-  onRemove: () => void;
-  onDuplicate: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: item.key,
-    data: { type: 'seq' },
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`seq-item ${isDragging ? 'dragging' : ''}`}
-    >
-      <button
-        type="button"
-        className="seq-handle"
-        {...attributes}
-        {...listeners}
-        aria-label={`Drag to reorder ${partLabel} of ${song.title}`}
-      >
-        <Icon name="drag" />
-      </button>
-      <div className="seq-body">
-        <div className="seq-title">
-          <span className="seq-index">{index + 1}</span>
-          <span className="chip brand" style={{ fontSize: 10.5 }}>
-            {partLabel}
-          </span>
-          <span className="truncate">{song.title}</span>
-          <span className={`chip ${song.tempo}`} style={{ fontSize: 10, padding: '2px 7px' }}>
-            {song.tempo === 'fast' ? <Icon name="fast" size={10} /> : <Icon name="slow" size={10} />}
-            {song.tempo}
-          </span>
-        </div>
-        <div className="lyric-line" style={{ fontSize: 12.5, lineHeight: 1.85, color: 'var(--muted)' }}>
-          {lyrics.split('\n')[0] || '—'}
-        </div>
-      </div>
-      <div className="seq-toolbar">
-        <button type="button" className="icon-btn" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Move up">
-          <Icon name="arrowUp" size={14} />
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={() => onMove(1)}
-          disabled={index === total - 1}
-          aria-label="Move down"
-        >
-          <Icon name="arrowDown" size={14} />
-        </button>
-        <button type="button" className="icon-btn" onClick={onDuplicate} aria-label="Repeat this part">
-          <Icon name="copy" size={14} />
-        </button>
-        <button type="button" className="icon-btn" onClick={onRemove} aria-label="Remove from lineup">
-          <Icon name="close" size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------- page */
 
 export function BuilderPage() {
   const { id } = useParams();
+  const { lineups, songs, teams, user, refresh } = useStore();
   const navigate = useNavigate();
-  const { songs, lineups, teams, user, refresh } = useStore();
-  const editing = lineups.find((l) => l.id === id) || null;
-  const isOwner = !editing || editing.ownerId === user?.id;
 
-  const [name, setName] = useState(editing?.name ?? '');
-  const [theme, setTheme] = useState(editing?.theme ?? '');
-  const [teamId, setTeamId] = useState(editing?.teamId ?? '');
-  const [items, setItems] = useState<DraftItem[]>(editing ? toDraft(editing.items) : []);
-  const [query, setQuery] = useState('');
-  const [classFilter, setClassFilter] = useState('');
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [activeLabel, setActiveLabel] = useState<string | null>(null);
-  const [sheetOpen, setSheetOpen] = useState<null | 'share' | 'library'>(null);
-  const [shareLink, setShareLink] = useState<string | null>(null);
-  const [shareTeam, setShareTeam] = useState(teams[0]?.id ?? '');
-  const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const lastDropAt = useRef(0);
-  // A teammate's first save creates their own copy; later saves update that copy
-  // instead of piling up duplicates.
-  const createdCopy = useRef<{ id: string; name: string; shareToken: string } | null>(null);
+  const existing = id ? lineups.find((l) => l.id === id) : undefined;
+  const editing = Boolean(existing);
 
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 130, tolerance: 9 } }),
+  const [name, setName] = useState(existing?.name ?? '');
+  const [theme, setTheme] = useState(existing?.theme ?? '');
+  const [teamId, setTeamId] = useState<string>(existing?.teamId ?? '');
+  const [items, setItems] = useState<LineupItem[]>(() =>
+    existing ? existing.items.map((x) => ({ ...x })) : [],
   );
 
-  const flash = (message: string) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 2200);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    songs.slice(0, 4).forEach((s) => {
+      initial[s.id] = true;
+    });
+    return initial;
+  });
+  const [search, setSearch] = useState('');
+  const [libTheme, setLibTheme] = useState<string>('all');
+  const [libTempo, setLibTempo] = useState<'all' | Tempo>('all');
+
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [dropActive, setDropActive] = useState(false);
+
+  const [touchDrag, setTouchDrag] = useState<TouchDragState | null>(null);
+  const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const dropzoneRef = useRef<HTMLDivElement | null>(null);
+
+  const [previewSlot, setPreviewSlot] = useState<{ song: Song; part: SongPart } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (existing && existing.ownerId !== user?.id) {
+      navigate(`/lineups/${existing.id}`, { replace: true });
+    }
+  }, [existing, user?.id, navigate]);
+
+  const showToast = (m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 1900);
   };
 
-  const { setNodeRef: setEndRef, isOver: isOverEnd } = useDroppable({ id: 'sequence-end' });
+  const resolved = useMemo(() => {
+    return items
+      .map((it) => {
+        const song = songs.find((s) => s.id === it.songId);
+        const part = song?.parts.find((p) => p.id === it.partId);
+        return song && part ? { item: it, song, part } : null;
+      })
+      .filter((x): x is { item: LineupItem; song: Song; part: SongPart } => Boolean(x));
+  }, [items, songs]);
 
-  const resolved = useMemo(
-    () =>
-      items.flatMap((item) => {
-        const song = songs.find((s) => s.id === item.songId);
-        if (!song) return [];
-        const part = song.parts.find((p) => p.id === item.partId);
-        if (!part) return [];
-        return [{ item, song, part }];
-      }),
-    [items, songs],
+  const suggestedTheme = useMemo(() => {
+    if (resolved.length === 0) return '';
+    return analyzeLyrics(resolved.map((r) => r.part)).theme;
+  }, [resolved]);
+
+  const fastCount = useMemo(
+    () => resolved.filter((r) => r.song.tempo === 'fast').length,
+    [resolved],
+  );
+  const slowCount = useMemo(
+    () => resolved.filter((r) => r.song.tempo === 'slow').length,
+    [resolved],
+  );
+  const songCount = useMemo(
+    () => new Set(resolved.map((r) => r.song.id)).size,
+    [resolved],
   );
 
-  const fastCount = resolved.filter((r) => r.song.tempo === 'fast').length;
-  const slowCount = resolved.length - fastCount;
-  const songCount = new Set(resolved.map((r) => r.song.id)).size;
-  const ready = resolved.length >= 2 && fastCount > 0 && slowCount > 0 && songCount >= 2;
+  const checks = {
+    parts: resolved.length >= 2,
+    songs: songCount >= 2,
+    fast: fastCount >= 1,
+    slow: slowCount >= 1,
+  };
+  const balanced = checks.parts && checks.songs && checks.fast && checks.slow;
 
-  const classes = useMemo(() => {
-    const set = new Set(songs.map((s) => effectiveAnalysis(s).theme));
-    return [...THEME_LIST.filter((t) => set.has(t)), ...[...set].filter((t) => !THEME_LIST.includes(t))];
+  /* ---- sequence mutations ---- */
+
+  const insertPart = (songId: string, partId: string, at?: number) => {
+    const slot = makeSlot(songId, partId);
+    setItems((prev) => {
+      if (at === undefined || at < 0 || at >= prev.length) return [...prev, slot];
+      const copy = [...prev];
+      copy.splice(at, 0, slot);
+      return copy;
+    });
+    const song = songs.find((s) => s.id === songId);
+    const part = song?.parts.find((p) => p.id === partId);
+    if (song && part) showToast(`Added ${song.title} · ${part.label}`);
+  };
+
+  const moveSlot = (from: number, to: number) => {
+    if (from === to) return;
+    setItems((prev) => {
+      if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+      const copy = [...prev];
+      const [m] = copy.splice(from, 1);
+      copy.splice(to, 0, m);
+      return copy;
+    });
+  };
+
+  const duplicateSlot = (index: number) => {
+    setItems((prev) => {
+      const target = prev[index];
+      if (!target) return prev;
+      const copy = [...prev];
+      copy.splice(index + 1, 0, makeSlot(target.songId, target.partId));
+      return copy;
+    });
+  };
+
+  const removeSlot = (index: number) => {
+    setItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  /* ---- HTML5 drag & drop ---- */
+
+  const onSlotDragStart = (e: React.DragEvent, index: number) => {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-aria-slot', String(index));
+  };
+
+  const onPartDragStart = (e: React.DragEvent, songId: string, partId: string) => {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/x-aria-part', JSON.stringify({ songId, partId }));
+  };
+
+  const onSlotDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (overIndex !== index) setOverIndex(index);
+  };
+
+  const onSlotDrop = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    const slotRaw = e.dataTransfer.getData('application/x-aria-slot');
+    const partRaw = e.dataTransfer.getData('application/x-aria-part');
+    if (slotRaw !== '') {
+      moveSlot(Number(slotRaw), index);
+    } else if (partRaw) {
+      try {
+        const { songId, partId } = JSON.parse(partRaw);
+        insertPart(songId, partId, index);
+      } catch {
+        /* ignore */
+      }
+    }
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  const onZoneDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropActive(false);
+    const partRaw = e.dataTransfer.getData('application/x-aria-part');
+    const slotRaw = e.dataTransfer.getData('application/x-aria-slot');
+    if (partRaw) {
+      try {
+        const { songId, partId } = JSON.parse(partRaw);
+        insertPart(songId, partId);
+      } catch {
+        /* ignore */
+      }
+    } else if (slotRaw !== '') {
+      moveSlot(Number(slotRaw), items.length - 1);
+    }
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  /* ---- Touch / pointer drag ---- */
+
+  const hitTestIndex = (clientY: number): number | 'zone' | null => {
+    for (let i = 0; i < slotRefs.current.length; i++) {
+      const el = slotRefs.current[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) return i;
+    }
+    const z = dropzoneRef.current?.getBoundingClientRect();
+    if (z && clientY >= z.top && clientY <= z.bottom) return 'zone';
+    return null;
+  };
+
+  useEffect(() => {
+    if (!touchDrag) return;
+    const onMove = (e: PointerEvent) => {
+      setTouchDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
+      const hit = hitTestIndex(e.clientY);
+      if (typeof hit === 'number') {
+        setOverIndex(hit);
+        setDropActive(false);
+      } else if (hit === 'zone') {
+        setOverIndex(null);
+        setDropActive(true);
+      } else {
+        setOverIndex(null);
+        setDropActive(false);
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      const hit = hitTestIndex(e.clientY);
+      if (touchDrag.source.type === 'slot') {
+        if (typeof hit === 'number') moveSlot(touchDrag.source.index, hit);
+        else if (hit === 'zone') moveSlot(touchDrag.source.index, items.length - 1);
+      } else {
+        const { songId, partId } = touchDrag.source;
+        if (typeof hit === 'number') insertPart(songId, partId, hit);
+        else if (hit === 'zone') insertPart(songId, partId);
+      }
+      setTouchDrag(null);
+      setOverIndex(null);
+      setDropActive(false);
+      setDragIndex(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+    window.addEventListener('pointercancel', onUp, { once: true });
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [touchDrag]);
+
+  const startTouchSlot = (e: React.PointerEvent, index: number, label: string) => {
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    setDragIndex(index);
+    setTouchDrag({ source: { type: 'slot', index, label }, x: e.clientX, y: e.clientY });
+  };
+
+  const startTouchPart = (
+    e: React.PointerEvent,
+    songId: string,
+    partId: string,
+    label: string,
+  ) => {
+    if (e.pointerType === 'mouse') return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 8) {
+        moved = true;
+        cleanup();
+        setTouchDrag({
+          source: { type: 'part', songId, partId, label },
+          x: ev.clientX,
+          y: ev.clientY,
+        });
+      }
+    };
+    const up = () => {
+      cleanup();
+      if (!moved) insertPart(songId, partId);
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  /* ---- library filtering ---- */
+
+  const libraryThemes = useMemo(() => {
+    const s = new Set<string>();
+    songs.forEach((song) => {
+      if (song.theme) s.add(song.theme);
+    });
+    return Array.from(s).sort();
   }, [songs]);
 
-  const library = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return songs
-      .map((song) => ({ song, analysis: effectiveAnalysis(song) }))
-      .filter(({ song, analysis }) => {
-        if (classFilter && analysis.theme !== classFilter) return false;
-        if (!q) return true;
-        return (
-          song.title.toLowerCase().includes(q) ||
-          song.artist.toLowerCase().includes(q) ||
-          analysis.theme.toLowerCase().includes(q) ||
-          analysis.keywords.some((k) => k.includes(q)) ||
-          song.parts.some((p) => p.lyrics.toLowerCase().includes(q))
-        );
-      })
-      .sort((a, b) =>
-        classFilter ? a.analysis.theme.localeCompare(b.analysis.theme) : b.song.updatedAt - a.song.updatedAt,
-      );
-  }, [songs, query, classFilter]);
-
-  const ownedPool = useMemo(
-    () => orderByLRU(lineups.filter((l) => l.ownerId === user?.id && l.id !== editing?.id)),
-    [lineups, user?.id, editing?.id],
-  );
-  const suggestion = ownedPool[0] || null;
-
-  const addPart = (song: Song, part: Song['parts'][number], atIndex?: number) => {
-    const next: DraftItem = { id: uid('item'), songId: song.id, partId: part.id, key: uid('slot') };
-    setItems((prev) => {
-      const index = atIndex === undefined ? prev.length : atIndex;
-      return [...prev.slice(0, index), next, ...prev.slice(index)];
+  const librarySongs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return songs.filter((s) => {
+      if (libTempo !== 'all' && s.tempo !== libTempo) return false;
+      if (libTheme !== 'all' && s.theme !== libTheme) return false;
+      if (!q) return true;
+      return `${s.title} ${s.artist} ${s.theme} ${s.parts.map((p) => p.lyrics).join(' ')}`
+        .toLowerCase()
+        .includes(q);
     });
-    flash(`Added ${part.label} of ${song.title}`);
-  };
+  }, [songs, search, libTheme, libTempo]);
 
-  const addSong = (song: Song) => {
-    setItems((prev) => [
-      ...prev,
-      ...song.parts.map((part) => ({
-        id: uid('item'),
-        songId: song.id,
-        partId: part.id,
-        key: uid('slot'),
-      })),
-    ]);
-    flash(`Added all ${song.parts.length} parts of ${song.title}`);
-  };
+  const allExpanded =
+    librarySongs.length > 0 && librarySongs.every((s) => Boolean(expanded[s.id]));
 
-  const loadSuggestion = () => {
-    if (!suggestion) return;
-    const sequence = resolveSequence(suggestion, songs);
-    setItems(
-      sequence.map((entry) => ({
-        id: uid('item'),
-        songId: entry.song.id,
-        partId: entry.partId,
-        key: uid('slot'),
-      })),
-    );
-    if (!name) setName(`${suggestion.name} · remix`);
-    if (!theme) setTheme(suggestion.theme);
-    flash('Loaded the least recently used sequence');
-  };
-
-  const persist = async (options: { keepOpen?: boolean } = {}) => {
-    if (!user) return null;
-    if (resolved.length < 2) {
-      flash('Add at least 2 parts to the sequence');
-      return null;
-    }
-    if (fastCount === 0 || slowCount === 0) {
-      flash('Include at least one fast and one slow track');
-      return null;
-    }
-    if (songCount < 2) {
-      flash('Use parts from at least 2 different songs');
-      return null;
-    }
-    // Build from resolvable parts only, so deleted songs can never break a save.
-    const payloadItems = resolved.map(({ song, part }) => ({ songId: song.id, partId: part.id }));
-    const owned = editing && isOwner ? editing : createdCopy.current;
-    if (owned) {
-      const { lineup } = await api.updateLineup(owned.id, {
-        name: name.trim() || owned.name,
-        theme,
-        items: payloadItems,
-        teamId: teamId || null,
+  const toggleExpandAll = () => {
+    if (allExpanded) {
+      setExpanded({});
+    } else {
+      const next: Record<string, boolean> = { ...expanded };
+      librarySongs.forEach((s) => {
+        next[s.id] = true;
       });
-      await refresh();
-      return lineup;
+      setExpanded(next);
     }
-    const { lineup } = await api.createLineup({
-      name:
-        name.trim() ||
-        (editing ? `${editing.name} (my copy)` : `Lineup ${new Date().toLocaleDateString()}`),
-      theme,
-      items: payloadItems,
-      teamId: teamId || null,
-    });
-    createdCopy.current = { id: lineup.id, name: lineup.name, shareToken: lineup.shareToken };
-    await refresh();
-    if (!options.keepOpen) navigate(`/lineups/${lineup.id}`, { replace: true });
-    return lineup;
   };
+
+  /* ---- save ---- */
 
   const save = async () => {
-    setBusy(true);
-    try {
-      const saved = await persist();
-      if (saved) flash('Lineup saved');
-    } catch (err) {
-      flash(err instanceof Error ? err.message : 'Could not save the lineup');
-    } finally {
-      setBusy(false);
+    setError(null);
+    if (!name.trim()) return setError('Name this lineup.');
+    if (resolved.length < 2) return setError('Add at least two song parts to the sequence.');
+    if (songCount < 2) {
+      return setError('Include parts from at least two different songs.');
     }
-  };
-
-  const shareToTeam = async () => {
-    if (!user || !shareTeam) return;
-    setBusy(true);
-    try {
-      const saved = await persist({ keepOpen: true });
-      const target = saved ?? editing;
-      if (!target) return;
-      await api.shareLineup(target.id, 'team', shareTeam);
-      setTeamId(shareTeam);
-      await refresh();
-      setSheetOpen(null);
-      flash('Shared with your team — marked as used');
-    } catch (err) {
-      flash(err instanceof Error ? err.message : 'Could not share');
-    } finally {
-      setBusy(false);
+    if (fastCount === 0 || slowCount === 0) {
+      return setError(
+        fastCount === 0
+          ? 'This lineup only has slow songs — add at least one fast song part.'
+          : 'This lineup only has fast songs — add at least one slow song part.',
+      );
     }
-  };
-
-  const buildLink = async () => {
-    if (!user) return;
     setBusy(true);
     try {
-      const saved = await persist({ keepOpen: true });
-      const target = saved ?? editing;
-      if (!target) return;
-      await api.shareLineup(target.id, 'link');
-      const url = `${window.location.origin}/s/${target.shareToken}`;
-      setShareLink(url);
-      await refresh();
-      await navigator.clipboard.writeText(url).catch(() => undefined);
-      if (navigator.share) {
-        await navigator
-          .share({ title: target.name, text: 'An Aria lineup', url })
-          .catch(() => undefined);
+      const payload = {
+        name: name.trim(),
+        theme: theme || suggestedTheme || '',
+        teamId: teamId || null,
+        items: resolved.map((r) => r.item),
+      };
+      if (editing && existing) {
+        const res = await api.updateLineup(existing.id, payload);
+        await refresh();
+        navigate(`/lineups/${res.lineup.id}`);
+      } else {
+        const res = await api.createLineup(payload);
+        await refresh();
+        navigate(`/lineups/${res.lineup.id}`);
       }
-      flash('Link ready — lineup marked as used');
-    } catch (err) {
-      flash(err instanceof Error ? err.message : 'Could not create a link');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save lineup.');
     } finally {
       setBusy(false);
     }
-  };
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const data = event.active.data.current;
-    if (data?.type === 'part') setActiveLabel(`${data.label} · ${data.title}`);
-    else setActiveLabel('Reorder');
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveLabel(null);
-    const { active, over } = event;
-    if (!over) return;
-    const data = active.data.current;
-
-    if (data?.type === 'part') {
-      lastDropAt.current = Date.now();
-      const song = songs.find((s) => s.id === data.songId);
-      const part = song?.parts.find((p) => p.id === data.partId);
-      if (!song || !part) return;
-      const targetIndex =
-        over.data.current?.type === 'seq'
-          ? items.findIndex((i) => i.key === over.id)
-          : items.length;
-      addPart(song, part, targetIndex < 0 ? items.length : targetIndex);
-      return;
-    }
-
-    if (active.id !== over.id) {
-      setItems((prev) => {
-        const from = prev.findIndex((i) => i.key === active.id);
-        const to = prev.findIndex((i) => i.key === over.id);
-        if (from < 0 || to < 0) return prev;
-        return arrayMove(prev, from, to);
-      });
-    }
-  };
-
-  const move = (index: number, dir: -1 | 1) => {
-    setItems((prev) => {
-      const target = index + dir;
-      if (target < 0 || target >= prev.length) return prev;
-      return arrayMove(prev, index, target);
-    });
   };
 
   return (
     <div className="stack">
       <BackBar
-        onBack={() => navigate(editing ? `/lineups/${editing.id}` : '/lineups')}
-        title={editing ? 'Edit lineup' : 'New lineup'}
-        right={
-          <Button size="sm" variant="quiet" onClick={() => setSheetOpen('share')}>
-            <Icon name="share" size={14} />
-          </Button>
-        }
+        onBack={() => navigate(editing && existing ? `/lineups/${existing.id}` : '/lineups')}
+        label={editing ? 'Lineup' : 'Lineups'}
       />
 
-      <div>
+      <div className="page-head">
+        <span className="eyebrow">{editing ? 'Edit Lineup' : 'Sequence Studio'}</span>
         <input
-          className="input title-input"
-          value={name}
-          placeholder="Name this lineup…"
           aria-label="Lineup name"
+          className="input title-input"
+          placeholder="Untitled lineup…"
+          value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <p className="small muted" style={{ marginTop: 2 }}>
-          Tap a part to add it. Hold and drag to place it, or drag the handle to reorder.
-        </p>
       </div>
 
-      <div className="chip-scroll">
-        <Chip active={!theme} onClick={() => setTheme('')}>
-          No class
-        </Chip>
-        {classes.map((t) => (
-          <Chip key={t} active={theme === t} onClick={() => setTheme(theme === t ? '' : t)}>
-            {t}
-          </Chip>
-        ))}
+      {/* Live Guardrail Checklist */}
+      <div className="guardrail-bar" aria-label="Lineup balance requirements">
+        <span className={`guardrail-pill ${checks.parts ? 'ok' : ''}`}>
+          <Icon name={checks.parts ? 'check' : 'lineup'} size={12} />
+          {resolved.length}/2+ parts
+        </span>
+        <span className={`guardrail-pill ${checks.songs ? 'ok' : ''}`}>
+          <Icon name={checks.songs ? 'check' : 'songs'} size={12} />
+          {songCount}/2+ songs
+        </span>
+        <button
+          type="button"
+          className={`guardrail-pill guardrail-btn ${checks.fast ? 'ok' : ''}`}
+          onClick={() => setLibTempo(libTempo === 'fast' ? 'all' : 'fast')}
+          title="Filter library to fast songs"
+        >
+          <Icon name={checks.fast ? 'check' : 'fast'} size={12} />
+          {fastCount} fast
+        </button>
+        <button
+          type="button"
+          className={`guardrail-pill guardrail-btn ${checks.slow ? 'ok' : ''}`}
+          onClick={() => setLibTempo(libTempo === 'slow' ? 'all' : 'slow')}
+          title="Filter library to slow songs"
+        >
+          <Icon name={checks.slow ? 'check' : 'slow'} size={12} />
+          {slowCount} slow
+        </button>
       </div>
 
-      {editing ? (
-        <div className="card tight">
-          <div className="row-between">
-            <span className="badge lru">
-              <Icon name="clock" size={12} /> Last used {timeAgo(editing.lastUsedAt)}
-            </span>
-            <span className="tiny muted">{reasonLabel(editing.lastUsedReason)}</span>
-          </div>
-          <p className="tiny muted" style={{ marginTop: 4 }}>
-            LRU rank {orderByLRU(lineups).findIndex((l) => l.id === editing.id) + 1} of{' '}
-            {lineups.length}
-            {suggestion ? ` · freshest alternative: “${suggestion.name}”` : ''}
-          </p>
-        </div>
-      ) : suggestion ? (
-        <div className="card brand stack-sm">
-          <div className="row-between">
-            <span className="badge lru">
-              <Icon name="clock" size={12} /> Least recently used
-            </span>
-            <span className="tiny muted">{timeAgo(suggestion.lastUsedAt)}</span>
-          </div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>{suggestion.name}</div>
-            <p className="tiny muted" style={{ marginTop: 2 }}>
-              Start from the set used longest ago instead of repeating a recent one.
-            </p>
-          </div>
-          <Button size="sm" variant="soft" onClick={loadSuggestion}>
-            <Icon name="refresh" size={13} /> Use its sequence
-          </Button>
-        </div>
-      ) : null}
-
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveLabel(null)}
-      >
-        <div className="section-label" style={{ marginTop: 6 }}>
-          <h2>Sequence</h2>
-          <span className="tiny muted">
-            {resolved.length} part{resolved.length === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        <div className="mix-row">
-          <span className={`chip ${fastCount > 0 ? 'fast' : ''}`}>
-            <Icon name="fast" size={12} /> {fastCount} fast
-          </span>
-          <span className={`chip ${slowCount > 0 ? 'slow' : ''}`}>
-            <Icon name="slow" size={12} /> {slowCount} slow
-          </span>
-          <span className={`chip ${songCount >= 2 ? 'brand' : ''}`}>
-            <Icon name="songs" size={12} /> {songCount} song{songCount === 1 ? '' : 's'}
-          </span>
-          <span className={`chip ${ready ? 'brand' : 'fast'}`}>
-            {ready ? 'Ready' : 'Needs fast + slow'}
-          </span>
-        </div>
-
-        {resolved.length === 0 ? (
-          <div ref={setEndRef} className={`dropzone ${isOverEnd ? 'active' : ''}`}>
-            {isOverEnd ? 'Drop to add' : 'No parts yet — tap a part below or drag it here.'}
-          </div>
-        ) : (
-          <SortableContext items={items.map((i) => i.key)} strategy={verticalListSortingStrategy}>
-            <div className="seq-list">
-              {resolved.map(({ item, song, part }, index) => (
-                <SequenceRow
-                  key={item.key}
-                  item={item}
-                  song={song}
-                  partLabel={part.label}
-                  lyrics={part.lyrics}
-                  index={index}
-                  total={resolved.length}
-                  onMove={(dir) => move(index, dir)}
-                  onRemove={() => setItems((prev) => prev.filter((i) => i.key !== item.key))}
-                  onDuplicate={() =>
-                    setItems((prev) => {
-                      const at = prev.findIndex((i) => i.key === item.key);
-                      const copy: DraftItem = { ...item, id: uid('item'), key: uid('slot') };
-                      return [...prev.slice(0, at + 1), copy, ...prev.slice(at + 1)];
-                    })
-                  }
-                />
-              ))}
-              <div ref={setEndRef} className={`dropzone ${isOverEnd ? 'active' : ''}`} style={{ padding: 10 }}>
-                {isOverEnd ? 'Drop to add at the end' : 'Drop here to add at the end'}
+      <div className="builder-grid">
+        {/* LEFT COLUMN: Sequence & Settings */}
+        <div className="stack">
+          <div className="card stack-sm">
+            <div className="form-grid-2">
+              <div className="field">
+                <label htmlFor="lineup-class">Class</label>
+                <select
+                  id="lineup-class"
+                  className="select"
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                >
+                  <option value="">
+                    {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto from lyrics'}
+                  </option>
+                  {THEME_LIST.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
-          </SortableContext>
-        )}
-
-        <div className="section-label">
-          <h2>Song library</h2>
-          <span className="tiny muted">tap or drag</span>
-        </div>
-
-        <div className="stack-sm">
-          <div className="search-wrap">
-            <span className="search-icon">
-              <Icon name="search" />
-            </span>
-            <input
-              className="input"
-              placeholder="Search title or lyric…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search song library"
-            />
-          </div>
-          <div className="chip-scroll">
-            <Chip active={!classFilter} onClick={() => setClassFilter('')}>
-              All classes
-            </Chip>
-            {classes.map((t) => (
-              <Chip
-                key={t}
-                active={classFilter === t}
-                onClick={() => setClassFilter(classFilter === t ? '' : t)}
-              >
-                {t}
-              </Chip>
-            ))}
-          </div>
-          {classFilter ? (
-            <p className="tiny muted">
-              {library.length} song{library.length === 1 ? '' : 's'} classed{' '}
-              <strong>{classFilter}</strong> — plenty for a {classFilter.toLowerCase()}-led lineup.
-            </p>
-          ) : null}
-        </div>
-
-        <div className="stack-sm" style={{ marginTop: 8 }}>
-          {library.length === 0 ? (
-            <Empty
-              title="No songs match"
-              body="Clear the class filter, or add a song with different lyrics."
-              action={<Button onClick={() => navigate('/songs/new')}>Add a song</Button>}
-            />
-          ) : (
-            library.map(({ song, analysis }) => {
-              const open = expanded.has(song.id);
-              return (
-                <div className="song-picker" key={song.id}>
-                  <button
-                    type="button"
-                    className="song-picker-head"
-                    aria-expanded={open}
-                    onClick={() =>
-                      setExpanded((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(song.id)) next.delete(song.id);
-                        else next.add(song.id);
-                        return next;
-                      })
-                    }
+              {teams.length > 0 && (
+                <div className="field">
+                  <label htmlFor="lineup-team">Visibility</label>
+                  <select
+                    id="lineup-team"
+                    className="select"
+                    value={teamId}
+                    onChange={(e) => setTeamId(e.target.value)}
                   >
-                    <span className={`tempo-dot ${song.tempo}`} />
-                    <div className="grow" style={{ minWidth: 0 }}>
-                      <h3 className="truncate">{song.title}</h3>
-                      <div className="tiny muted truncate">
-                        {analysis.theme} · {song.parts.length} part
-                        {song.parts.length === 1 ? '' : 's'}
-                        {song.ownerId !== user?.id ? ` · ${song.ownerName}` : ''}
+                    <option value="">Personal</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        Shared · {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="stack-sm">
+            <div className="row-between">
+              <span className="label">Sequence ({resolved.length})</span>
+              {resolved.length > 0 && (
+                <button
+                  type="button"
+                  className="link-button tiny"
+                  onClick={() => setItems([])}
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+
+            {resolved.length > 0 && (
+              <div className="seq-list">
+                {resolved.map(({ item, song, part }, i) => {
+                  const firstLine =
+                    part.lyrics
+                      .split(/\r?\n/)
+                      .map((l) => l.trim())
+                      .find(Boolean) ?? '';
+                  return (
+                    <div
+                      key={item.id}
+                      ref={(el) => {
+                        slotRefs.current[i] = el;
+                      }}
+                      className={[
+                        'seq-item',
+                        dragIndex === i ? 'dragging' : '',
+                        overIndex === i && dragIndex !== i ? 'over' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      draggable
+                      onDragStart={(e) => onSlotDragStart(e, i)}
+                      onDragOver={(e) => onSlotDragOver(e, i)}
+                      onDrop={(e) => onSlotDrop(e, i)}
+                      onDragEnd={() => {
+                        setDragIndex(null);
+                        setOverIndex(null);
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="seq-handle"
+                        aria-label="Drag to reorder"
+                        onPointerDown={(e) =>
+                          startTouchSlot(e, i, `${song.title} · ${part.label}`)
+                        }
+                      >
+                        <Icon name="drag" size={16} />
+                      </button>
+
+                      <span className={`tempo-dot ${song.tempo}`} title={`${song.tempo} tempo`} />
+
+                      <div className="seq-body">
+                        <div className="seq-title">
+                          <span className="seq-index">{i + 1}</span>
+                          <span>{song.title}</span>
+                          <Chip tone={song.tempo}>{part.label}</Chip>
+                        </div>
+                        {firstLine && <div className="lyric-line muted">{firstLine}</div>}
+                      </div>
+
+                      <div className="seq-toolbar">
+                        <IconButton
+                          label="Preview lyrics"
+                          onClick={() => setPreviewSlot({ song, part })}
+                        >
+                          <Icon name="view" size={14} />
+                        </IconButton>
+                        <IconButton label="Duplicate slot" onClick={() => duplicateSlot(i)}>
+                          <Icon name="copy" size={14} />
+                        </IconButton>
+                        <IconButton
+                          label="Move up"
+                          onClick={() => moveSlot(i, i - 1)}
+                          disabled={i === 0}
+                        >
+                          <Icon name="arrowUp" size={14} />
+                        </IconButton>
+                        <IconButton
+                          label="Move down"
+                          onClick={() => moveSlot(i, i + 1)}
+                          disabled={i === resolved.length - 1}
+                        >
+                          <Icon name="arrowDown" size={14} />
+                        </IconButton>
+                        <IconButton label="Remove slot" onClick={() => removeSlot(i)}>
+                          <Icon name="trash" size={14} />
+                        </IconButton>
                       </div>
                     </div>
-                    <span className="picker-chevron" style={{ transform: open ? 'rotate(180deg)' : 'none' }}>
-                      <Icon name="chevronDown" size={16} />
-                    </span>
-                  </button>
-                  {open ? (
-                    <div className="picker-parts">
-                      {song.parts.map((part) => (
-                        <PartRow
-                          key={part.id}
-                          song={song}
-                          part={part}
-                          onAdd={() => {
-                            // A tap that follows a drag should not double-add.
-                            if (Date.now() - lastDropAt.current > 350) addPart(song, part);
-                          }}
-                        />
-                      ))}
-                      {song.parts.length > 1 ? (
-                        <Button size="sm" variant="quiet" onClick={() => addSong(song)}>
-                          <Icon name="add" size={13} /> Add all {song.parts.length} parts
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
+                  );
+                })}
+              </div>
+            )}
+
+            <div
+              ref={dropzoneRef}
+              className={`dropzone ${dropActive ? 'active' : ''}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDropActive(true);
+              }}
+              onDragLeave={() => setDropActive(false)}
+              onDrop={onZoneDrop}
+            >
+              <Icon
+                name="add"
+                size={18}
+                style={{ margin: '0 auto 6px', opacity: 0.7 }}
+              />
+              {resolved.length === 0
+                ? 'Tap or drag parts from your Song Library to start the sequence.'
+                : 'Drop a part here to append it to the end.'}
+            </div>
+          </div>
         </div>
 
-        <DragOverlay dropAnimation={null}>
-          {activeLabel ? (
-            <div
-              className="chip"
-              style={{ background: 'var(--brand)', color: 'var(--brand-ink)', boxShadow: 'var(--shadow-lg)' }}
-            >
-              {activeLabel}
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+        {/* RIGHT COLUMN: Song Library */}
+        <div className="builder-library stack-sm">
+          <div className="row-between">
+            <span className="label">Song library ({librarySongs.length})</span>
+            {librarySongs.length > 0 && (
+              <button type="button" className="link-button tiny" onClick={toggleExpandAll}>
+                {allExpanded ? 'Collapse all' : 'Expand all'}
+              </button>
+            )}
+          </div>
+
+          {songs.length === 0 ? (
+            <Empty
+              icon="songs"
+              title="Your library is empty"
+              body="Add at least two songs — one Fast and one Slow — so you can arrange parts into a lineup."
+              action={
+                <Button variant="primary" onClick={() => navigate('/songs/new')}>
+                  <Icon name="add" size={16} /> Add a song
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              <div className="search">
+                <Icon name="search" size={16} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filter songs or lyrics…"
+                  aria-label="Filter songs"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    className="search-clear"
+                    aria-label="Clear filter"
+                    onClick={() => setSearch('')}
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
+                )}
+              </div>
+
+              <div className="filter-row">
+                <button
+                  type="button"
+                  className={`filter-pill ${libTempo === 'all' && libTheme === 'all' ? 'active' : ''}`}
+                  onClick={() => {
+                    setLibTempo('all');
+                    setLibTheme('all');
+                  }}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill ${libTempo === 'fast' ? 'active' : ''}`}
+                  onClick={() => setLibTempo(libTempo === 'fast' ? 'all' : 'fast')}
+                >
+                  <Icon name="fast" size={12} /> Fast
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill ${libTempo === 'slow' ? 'active' : ''}`}
+                  onClick={() => setLibTempo(libTempo === 'slow' ? 'all' : 'slow')}
+                >
+                  <Icon name="slow" size={12} /> Slow
+                </button>
+                {libraryThemes.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`filter-pill ${libTheme === t ? 'active' : ''}`}
+                    onClick={() => setLibTheme(libTheme === t ? 'all' : t)}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {librarySongs.length === 0 ? (
+                <div className="card-subtle small" style={{ textAlign: 'center', padding: 18 }}>
+                  No songs match that filter.
+                </div>
+              ) : (
+                <div className="stack-xs">
+                  {librarySongs.map((song) => {
+                    const isOpen = Boolean(expanded[song.id]) || Boolean(search.trim());
+                    return (
+                      <div key={song.id} className="song-picker">
+                        <button
+                          type="button"
+                          className="song-picker-head"
+                          aria-expanded={isOpen}
+                          onClick={() =>
+                            setExpanded((prev) => ({ ...prev, [song.id]: !isOpen }))
+                          }
+                        >
+                          <span className={`tempo-dot ${song.tempo}`} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <h3 className="truncate">{song.title}</h3>
+                            <span className="tiny">
+                              {song.tempo === 'fast' ? 'Fast' : 'Slow'}
+                              {song.theme ? ` · ${song.theme}` : ''} · {song.parts.length} parts
+                            </span>
+                          </div>
+                          <span
+                            className="picker-chevron"
+                            style={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
+                          >
+                            <Icon name="chevronDown" size={16} />
+                          </span>
+                        </button>
+
+                        {isOpen && (
+                          <div className="picker-parts">
+                            {song.parts.map((part) => {
+                              const first =
+                                part.lyrics
+                                  .split(/\r?\n/)
+                                  .map((l) => l.trim())
+                                  .find(Boolean) ?? '';
+                              return (
+                                <button
+                                  key={part.id}
+                                  type="button"
+                                  className="part-chip"
+                                  draggable
+                                  onDragStart={(e) => onPartDragStart(e, song.id, part.id)}
+                                  onPointerDown={(e) =>
+                                    startTouchPart(
+                                      e,
+                                      song.id,
+                                      part.id,
+                                      `${song.title} · ${part.label}`,
+                                    )
+                                  }
+                                  onClick={(e) => {
+                                    if (
+                                      (e.nativeEvent as PointerEvent).pointerType &&
+                                      (e.nativeEvent as PointerEvent).pointerType !== 'mouse'
+                                    ) {
+                                      return;
+                                    }
+                                    insertPart(song.id, part.id);
+                                  }}
+                                >
+                                  <span className="kind">{part.label}</span>
+                                  <span className="excerpt">{first || 'Empty part'}</span>
+                                  <span className="push" />
+                                  <span className="part-add" aria-hidden="true">
+                                    <Icon name="add" size={14} />
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="alert alert-danger" role="alert">
+          {error}
+        </div>
+      )}
 
       <div className="sticky-bar">
         <Button
-          variant="quiet"
-          onClick={() => setSheetOpen('library')}
-          ariaLabel="How adding works"
-          className="btn-icon-only"
+          onClick={() => navigate(editing && existing ? `/lineups/${existing.id}` : '/lineups')}
+          style={{ flex: 1 }}
         >
-          <Icon name="lyrics" size={17} />
+          Cancel
         </Button>
-        {isOwner ? (
-          <Button variant="primary" block onClick={save} disabled={busy}>
-            {busy ? 'Saving…' : editing ? 'Save lineup' : 'Save lineup'}
-          </Button>
-        ) : (
-          <Button variant="primary" block onClick={save} disabled={busy}>
-            {busy ? 'Saving…' : 'Save as my copy'}
-          </Button>
-        )}
-        <Button onClick={() => setSheetOpen('share')} ariaLabel="Share lineup">
-          <Icon name="share" />
+        <Button
+          variant="primary"
+          onClick={save}
+          disabled={busy || !balanced || !name.trim()}
+          style={{ flex: 2 }}
+        >
+          <Icon name="check" size={16} />
+          {busy ? 'Saving…' : editing ? 'Save lineup' : 'Create lineup'}
         </Button>
       </div>
 
+      {touchDrag && (
+        <div
+          style={{
+            position: 'fixed',
+            left: touchDrag.x,
+            top: touchDrag.y,
+            transform: 'translate(-50%, -120%)',
+            zIndex: 300,
+            pointerEvents: 'none',
+            background: 'var(--brand)',
+            color: 'var(--brand-ink)',
+            padding: '6px 12px',
+            borderRadius: 999,
+            fontSize: 12,
+            fontWeight: 600,
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          {touchDrag.source.label}
+        </div>
+      )}
+
       <Sheet
-        open={sheetOpen === 'share'}
-        onClose={() => setSheetOpen(null)}
-        title="Share this lineup"
-        subtitle="Sharing counts as use — that keeps LRU honest."
+        open={Boolean(previewSlot)}
+        onClose={() => setPreviewSlot(null)}
+        title={previewSlot ? previewSlot.song.title : ''}
+        subtitle={
+          previewSlot
+            ? `${previewSlot.part.label} · ${previewSlot.song.tempo === 'fast' ? 'Fast' : 'Slow'}`
+            : ''
+        }
       >
-        <div className="stack-sm">
-          <div className="card tight stack-sm" style={{ boxShadow: 'none' }}>
-            <div className="label">View-only link</div>
-            <p className="hint">Anyone can open it. Shows every part with its lyrics.</p>
-            <Button variant="primary" block onClick={buildLink} disabled={busy}>
-              <Icon name="link" /> {shareLink ? 'Copy link again' : 'Create & share link'}
-            </Button>
-            {shareLink ? (
-              <>
-                <input className="input" readOnly value={shareLink} onFocus={(e) => e.currentTarget.select()} />
-                <Button size="sm" block onClick={() => window.open(shareLink, '_blank')}>
-                  <Icon name="view" size={14} /> Open preview
-                </Button>
-              </>
-            ) : null}
+        {previewSlot && (
+          <div className="part-block" style={{ marginTop: 8 }}>
+            <div className="part-body">
+              {previewSlot.part.lyrics.split(/\r?\n/).map((line, i) => (
+                <div key={i} className="lyric-line">
+                  {line || '\u00A0'}
+                </div>
+              ))}
+            </div>
           </div>
-
-          {teams.length > 0 ? (
-            <div className="card tight stack-sm" style={{ boxShadow: 'none' }}>
-              <div className="label">Share with a team</div>
-              <p className="hint">Teammates can open it, copy it, or pass it on.</p>
-              <select
-                className="select"
-                value={shareTeam || teams[0]?.id}
-                onChange={(e) => setShareTeam(e.target.value)}
-              >
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} · {t.members.length} member{t.members.length === 1 ? '' : 's'}
-                  </option>
-                ))}
-              </select>
-              <Button block onClick={shareToTeam} disabled={busy}>
-                <Icon name="teams" size={15} /> Send to team
-              </Button>
-            </div>
-          ) : (
-            <div className="card tight">
-              <div className="label">No teams yet</div>
-              <p className="hint" style={{ marginTop: 3 }}>
-                Create or join a team to share lineups with people.
-              </p>
-              <Button size="sm" style={{ marginTop: 8 }} onClick={() => navigate('/teams')}>
-                Go to Teams
-              </Button>
-            </div>
-          )}
-        </div>
-      </Sheet>
-
-      <Sheet open={sheetOpen === 'library'} onClose={() => setSheetOpen(null)} title="How adding works">
-        <div className="stack-sm">
-          <p className="small muted">
-            Tap any part to add it at the end of your sequence. Hold a part and drag it onto the
-            sequence to drop it between two parts. Inside the sequence, drag the handle to reorder,
-            or use the arrows.
-          </p>
-          <p className="small muted">
-            Repeat a part with the copy icon — a chorus can appear as many times as you like. Each
-            active song needs one fast and one slow track in the set.
-          </p>
-          <Button block onClick={() => setSheetOpen(null)}>
-            Got it
-          </Button>
-        </div>
+        )}
       </Sheet>
 
       <Toast message={toast} />

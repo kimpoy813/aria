@@ -62,7 +62,7 @@ resets need Supabase). See [DEPLOY.md](DEPLOY.md).
 
 `Teams`
 
-- **Create a team** and get a code, or **join with a code** (the demo team is `ARIA-123`).
+- **Create a team** and get an invite code (`ARIA-000`), or **join with a code** shared by a teammate.
 - Shared songs and shared lineups live in the team area. Anyone in the team can **copy a song** into
   their own library, or **copy a lineup** — the songs it needs come with it, so a teammate can open
   it immediately.
@@ -122,9 +122,9 @@ The schema is in [`supabase/schema.sql`](supabase/schema.sql). Run
 `npm run test:supabase` to verify the whole path against a real Postgres before deploying — no
 Supabase account needed.
 
-The API stores its data in `server/data.json` (git-ignored, created on first run and seeded with the
-demo team `ARIA-123`). `npm run dev` proxies `/api` from Vite to the API, so the browser only ever
-talks to one origin.
+In local file mode, the API stores its data in `server/data.json` (git-ignored, created on first
+run with an empty store). `npm run dev` proxies `/api` from Vite to the API, so the browser only
+ever talks to one origin.
 
 ## Layout
 
@@ -147,12 +147,11 @@ src/styles.css           design tokens for both themes and the mobile-first layo
 
 ## Try it in a minute
 
-0. A new account lands on a five-step tour — songs, class/message, lineups, teams — then joins team
-   **ARIA-123** in one tap. Replay it any time from the account sheet (**How Aria works**).
-1. Or create an account / sign in with Google, then join team **ARIA-123** on the Teams tab.
-2. Add a song: title, then Verse, Chorus, Bridge — one at a time — and hit **Generate class &
-   message**.
-3. Go to **Lineups → Build a lineup**, filter by a class, and drag in a slow verse and a fast chorus
-   from two songs. Save.
-4. Open **Share → Create & share link**, then open the link: that lineup is now the most recently
-   used one, and a different lineup is suggested.
+0. Sign in with Google or create an account to take the interactive four-step tour. Replay it any
+   time from the account sheet (**How Aria works**).
+1. Add your first song — paste full lyrics to split automatically, or enter Verse, Chorus, and
+   Bridge parts — and click **Generate class & message**.
+2. Add a second song with the opposite tempo (one Fast, one Slow).
+3. Go to **Lineups → New lineup**, drag or tap parts from your songs into the sequence, and save.
+4. Open **Share**, copy or send the public lyric sheet link, and watch the least-recently-used
+   rotation update automatically.

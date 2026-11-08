@@ -86,7 +86,7 @@ Settings** to your own provider so reset mail is reliable.
 3. When prompted for `SUPABASE_SERVICE_ROLE_KEY` (`sync: false`), paste the
    **service_role** key from step 1 (`SUPABASE_URL` and `SUPABASE_ANON_KEY`
    are pre-configured in `render.yaml` and can be overridden in the dashboard).
-4. Deploy. First boot creates the demo team `ARIA-123` and its six songs.
+4. Deploy. Every new account starts with a clean personal library.
 
 ### Manual web service
 
@@ -122,7 +122,7 @@ missing (or spelled differently) and the app is writing to a throwaway file.
 
 Then prove persistence end to end:
 
-1. Open the site, enter a name, join team `ARIA-123`.
+1. Open the site and sign in with Google or create an account.
 2. Add a song with a verse and a chorus, save it.
 3. In Supabase → **Table Editor**, open `songs`: your row is there, with the
    parts visible inside the `parts` column as JSON.

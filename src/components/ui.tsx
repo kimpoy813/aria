@@ -1,79 +1,55 @@
-import { useEffect, type ReactNode } from 'react';
+import {
+  useEffect,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from 'react';
+import { Icon, type IconName } from './Icon';
 
-import { Icon } from './Icon';
-
-export { Icon } from './Icon';
-export type { IconName } from './Icon';
-
-/* --------------------------------------------------------------- buttons */
-
-type BtnProps = {
-  children: ReactNode;
-  onClick?: () => void;
-  variant?: 'default' | 'primary' | 'soft' | 'quiet' | 'danger';
-  size?: 'sm' | 'md';
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'default' | 'primary' | 'quiet' | 'danger';
   block?: boolean;
-  disabled?: boolean;
-  type?: 'button' | 'submit';
-  className?: string;
-  ariaLabel?: string;
-  style?: React.CSSProperties;
-};
+}
 
 export function Button({
-  children,
-  onClick,
   variant = 'default',
-  size = 'md',
   block,
-  disabled,
-  type = 'button',
   className = '',
-  ariaLabel,
-  style,
-}: BtnProps) {
-  const cls = [
+  children,
+  ...rest
+}: ButtonProps) {
+  const classes = [
     'btn',
     variant !== 'default' ? `btn-${variant}` : '',
-    size === 'sm' ? 'btn-sm' : '',
     block ? 'btn-block' : '',
     className,
   ]
     .filter(Boolean)
     .join(' ');
   return (
-    <button
-      type={type}
-      className={cls}
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      style={style}
-    >
+    <button type="button" className={classes} {...rest}>
       {children}
     </button>
   );
 }
 
 export function IconButton({
-  children,
-  onClick,
   label,
+  children,
   className = '',
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  label: string;
-  className?: string;
-}) {
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (
-    <button type="button" className={`icon-btn ${className}`} onClick={onClick} aria-label={label} title={label}>
+    <button
+      type="button"
+      className={`icon-btn ${className}`.trim()}
+      aria-label={label}
+      title={label}
+      {...rest}
+    >
       {children}
     </button>
   );
 }
-
-/* --------------------------------------------------------------- sheet */
 
 export function Sheet({
   open,
@@ -84,7 +60,7 @@ export function Sheet({
 }: {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title?: string;
   subtitle?: string;
   children: ReactNode;
 }) {
@@ -93,12 +69,8 @@ export function Sheet({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open) return null;
@@ -111,115 +83,107 @@ export function Sheet({
     >
       <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="sheet-grab" />
-        <div className="row-between" style={{ marginBottom: 12 }}>
-          <div>
-            <h2>{title}</h2>
-            {subtitle ? <p className="small muted" style={{ marginTop: 2 }}>{subtitle}</p> : null}
+        {(title || subtitle) && (
+          <div className="sheet-head">
+            <div>
+              {title && <h2>{title}</h2>}
+              {subtitle && <p className="small">{subtitle}</p>}
+            </div>
+            <IconButton label="Close" onClick={onClose} className="sheet-close">
+              <Icon name="close" size={16} />
+            </IconButton>
           </div>
-          <IconButton label="Close" onClick={onClose}>
-            <Icon name="close" />
-          </IconButton>
-        </div>
+        )}
         {children}
       </div>
     </div>
   );
 }
 
-/* --------------------------------------------------------------- toast */
-
 export function Toast({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <div className="toast-wrap">
-      <div className="toast" role="status">
-        {message}
+    <div className="toast-wrap" role="status" aria-live="polite">
+      <div className="toast">
+        <Icon name="check" size={14} />
+        <span>{message}</span>
       </div>
     </div>
   );
 }
 
-/* --------------------------------------------------------------- misc */
-
 export function Empty({
+  icon = 'songs',
   title,
   body,
   action,
 }: {
+  icon?: IconName;
   title: string;
   body: string;
   action?: ReactNode;
 }) {
   return (
     <div className="empty">
+      <div className="empty-icon">
+        <Icon name={icon} size={22} />
+      </div>
       <h3>{title}</h3>
       <p>{body}</p>
-      {action}
+      {action && <div className="empty-actions">{action}</div>}
     </div>
   );
 }
 
 export function Chip({
+  tone,
   children,
-  tone = 'plain',
-  active,
-  onClick,
 }: {
+  tone?: 'brand' | 'fast' | 'slow' | 'warn';
   children: ReactNode;
-  tone?: 'plain' | 'brand' | 'fast' | 'slow';
-  active?: boolean;
-  onClick?: () => void;
 }) {
-  const cls = ['chip', tone !== 'plain' ? tone : '', onClick ? 'chip-button' : '', active ? 'active' : '']
-    .filter(Boolean)
-    .join(' ');
-  if (!onClick) return <span className={cls}>{children}</span>;
-  return (
-    <button type="button" className={cls} onClick={onClick} aria-pressed={!!active}>
-      {children}
-    </button>
-  );
+  return <span className={`chip ${tone ?? ''}`.trim()}>{children}</span>;
 }
 
 export function Switch({
   checked,
   onChange,
   label,
-  hint,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
-  hint?: string;
 }) {
   return (
-    <div className="toggle-row">
-      <div>
-        <div className="label">{label}</div>
-        {hint ? <div className="hint">{hint}</div> : null}
-      </div>
-      <button
-        type="button"
-        className="switch"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-      />
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className="switch"
+      onClick={() => onChange(!checked)}
+    />
+  );
+}
+
+export function BackBar({
+  onBack,
+  label = 'Back',
+  right,
+}: {
+  onBack: () => void;
+  label?: string;
+  right?: ReactNode;
+}) {
+  return (
+    <div className="row-between backbar">
+      <button type="button" className="btn btn-quiet backbar-btn" onClick={onBack}>
+        <Icon name="back" size={16} />
+        {label}
+      </button>
+      {right}
     </div>
   );
 }
 
-export function BackBar({ onBack, title, right }: { onBack: () => void; title: string; right?: ReactNode }) {
-  return (
-    <div className="row-between" style={{ marginBottom: 10 }}>
-      <button type="button" className="btn btn-quiet" onClick={onBack} style={{ marginLeft: -10 }}>
-        <Icon name="back" /> Back
-      </button>
-      <div className="row" style={{ gap: 6 }}>
-        <span className="eyebrow truncate">{title}</span>
-        {right}
-      </div>
-    </div>
-  );
-}
+export { Icon };

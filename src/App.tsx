@@ -7,7 +7,7 @@ import {
   useLocation,
   useNavigate,
 } from 'react-router-dom';
-import { StoreProvider, useStore } from './lib/store';
+import { StoreProvider, useStore, type ThemePreference } from './lib/store';
 import { Button, Icon, IconButton, Sheet } from './components/ui';
 import type { IconName } from './components/Icon';
 import { LogoHero, Wordmark } from './components/Logo';
@@ -27,26 +27,91 @@ import { LineupViewPage } from './pages/LineupViewPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { SharedPage } from './pages/SharedPage';
 
+const TABS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/', label: 'Songs', icon: 'songs' },
+  { to: '/lineups', label: 'Lineups', icon: 'lineup' },
+  { to: '/teams', label: 'Teams', icon: 'teams' },
+];
+
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IconName }[] = [
+  { value: 'light', label: 'Light', icon: 'sun' },
+  { value: 'dark', label: 'Dark', icon: 'moon' },
+  { value: 'system', label: 'System', icon: 'monitor' },
+];
+
+function isTabActive(pathname: string, to: string) {
+  return to === '/' ? pathname === '/' || pathname.startsWith('/songs') : pathname.startsWith(to);
+}
+
 function TopBar() {
-  const { theme, toggleTheme, user, signOut, config } = useStore();
+  const {
+    theme,
+    themePreference,
+    toggleTheme,
+    setThemePreference,
+    user,
+    songs,
+    lineups,
+    teams,
+    signOut,
+    config,
+  } = useStore();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const counts: Record<string, number> = {
+    '/': songs.length,
+    '/lineups': lineups.length,
+    '/teams': teams.length,
+  };
+
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <Wordmark />
+        <button
+          type="button"
+          className="brand-home"
+          onClick={() => navigate('/')}
+          aria-label="Aria home"
+        >
+          <Wordmark size={30} />
+        </button>
+
+        <nav className="desktop-nav" aria-label="Primary">
+          {TABS.map((tab) => {
+            const active = isTabActive(pathname, tab.to);
+            const count = counts[tab.to] ?? 0;
+            return (
+              <button
+                key={tab.to}
+                type="button"
+                className={`desktop-tab ${active ? 'active' : ''}`}
+                onClick={() => navigate(tab.to)}
+                aria-current={active ? 'page' : undefined}
+              >
+                <Icon name={tab.icon} size={16} />
+                <span>{tab.label}</span>
+                {count > 0 && <span className="nav-count">{count}</span>}
+              </button>
+            );
+          })}
+        </nav>
+
         <div className="push" />
+
         <IconButton
           label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={toggleTheme}
         >
-          {theme === 'dark' ? <Icon name="sun" /> : <Icon name="moon" />}
+          {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
         </IconButton>
+
         {user ? (
           <button
             type="button"
             className="avatar-button"
-            aria-label="Account"
+            aria-label="Account and settings"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
           >
@@ -54,59 +119,107 @@ function TopBar() {
           </button>
         ) : null}
       </div>
-      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={user?.name || 'Account'}>
-        <div className="stack-sm">
-          {user?.email ? (
-            <div className="field">
-              <span className="label">Signed in as</span>
-              <div className="account-email">{user.email}</div>
+
+      <Sheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        title="Account & workspace"
+        subtitle="Manage your profile, appearance, and session."
+      >
+        <div className="stack">
+          {user && (
+            <div className="account-profile">
+              <div className="account-avatar-lg">{user.name.slice(0, 1).toUpperCase()}</div>
+              <div className="account-meta">
+                <div className="account-name">{user.name}</div>
+                {user.email && <div className="small">{user.email}</div>}
+                <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                  <span className="chip brand">
+                    {config.driver === 'supabase' ? 'Cloud sync' : 'Local workspace'}
+                  </span>
+                </div>
+              </div>
             </div>
-          ) : null}
-          <div className="row" style={{ gap: 8 }}>
-            <span className="chip brand">{config.driver === 'supabase' ? 'Supabase' : 'Local account'}</span>
+          )}
+
+          <div className="stat-strip">
+            <div className="stat-cell">
+              <strong>{songs.length}</strong>
+              <span>Songs</span>
+            </div>
+            <div className="stat-cell">
+              <strong>{lineups.length}</strong>
+              <span>Lineups</span>
+            </div>
+            <div className="stat-cell">
+              <strong>{teams.length}</strong>
+              <span>Teams</span>
+            </div>
           </div>
-          <Button
-            block
-            onClick={() => {
-              setMenuOpen(false);
-              navigate('/onboarding');
-            }}
-          >
-            <Icon name="sparkle" size={14} /> How Aria works
-          </Button>
-          <Button block onClick={() => setMenuOpen(false)}>
-            Keep browsing
-          </Button>
-          <Button
-            variant="danger"
-            block
-            onClick={async () => {
-              setMenuOpen(false);
-              await signOut();
-            }}
-          >
-            Sign out
-          </Button>
+
+          <div className="field">
+            <span className="label">Appearance</span>
+            <div className="seg" role="radiogroup" aria-label="Theme preference">
+              {THEME_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={themePreference === opt.value}
+                  className={themePreference === opt.value ? 'active' : ''}
+                  onClick={() => setThemePreference(opt.value)}
+                >
+                  <Icon name={opt.icon} size={14} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="stack-sm">
+            <Button
+              block
+              onClick={() => {
+                setMenuOpen(false);
+                navigate('/onboarding');
+              }}
+            >
+              <Icon name="sparkle" size={16} /> How Aria works
+            </Button>
+            <Button
+              variant="danger"
+              block
+              onClick={async () => {
+                setMenuOpen(false);
+                await signOut();
+              }}
+            >
+              <Icon name="logout" size={16} /> Sign out
+            </Button>
+          </div>
         </div>
       </Sheet>
     </header>
   );
 }
 
-const TABS: { to: string; label: string; icon: IconName }[] = [
-  { to: '/', label: 'Songs', icon: 'songs' },
-  { to: '/lineups', label: 'Lineups', icon: 'lineup' },
-  { to: '/teams', label: 'Teams', icon: 'teams' },
-];
-
 function TabBar() {
   const { pathname } = useLocation();
+  const { songs, lineups, teams } = useStore();
   const navigate = useNavigate();
+
+  const counts: Record<string, number> = {
+    '/': songs.length,
+    '/lineups': lineups.length,
+    '/teams': teams.length,
+  };
+
   return (
     <nav className="tabbar" aria-label="Main">
       <div className="tabbar-inner">
         {TABS.map((tab) => {
-          const active = tab.to === '/' ? pathname === '/' || pathname.startsWith('/songs') : pathname.startsWith(tab.to);
+          const active = isTabActive(pathname, tab.to);
+          const count = counts[tab.to] ?? 0;
           return (
             <button
               key={tab.to}
@@ -115,8 +228,11 @@ function TabBar() {
               onClick={() => navigate(tab.to)}
               aria-current={active ? 'page' : undefined}
             >
-              <Icon name={tab.icon} size={20} />
-              {tab.label}
+              <span className="tab-icon-wrap">
+                <Icon name={tab.icon} size={20} />
+                {count > 0 && <span className="tab-badge">{count}</span>}
+              </span>
+              <span>{tab.label}</span>
             </button>
           );
         })}
@@ -177,8 +293,10 @@ function Shell() {
       <div className="app">
         <div className="overlay-center">
           <div className="stack-sm" style={{ alignItems: 'center' }}>
-            <LogoHero size={52} />
-            <p className="small">Tuning up…</p>
+            <LogoHero size={56} />
+            <p className="small" style={{ marginTop: 6 }}>
+              Tuning your studio…
+            </p>
           </div>
         </div>
       </div>
@@ -216,11 +334,14 @@ function Shell() {
     );
   }
 
+  const isBuilder =
+    pathname === '/lineups/new' || /^\/lineups\/[^/]+\/edit$/.test(pathname);
+
   return (
     <div className="app">
       <TopBar />
       <ScrollToTop />
-      <main className={`app-main ${pathname.startsWith('/s/') ? 'no-nav' : ''}`}>
+      <main className={`app-main ${isBuilder ? 'app-main-wide' : ''}`.trim()}>
         <Routes>
           <Route path="/" element={<SongsPage />} />
           <Route path="/songs/new" element={<SongFormPage />} />
