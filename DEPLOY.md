@@ -28,12 +28,14 @@ keeps team codes and ownership rules working exactly as they do locally.
 3. Paste the contents of [`supabase/schema.sql`](supabase/schema.sql) and press
    **Run**. It creates four tables, indexes, and turns on Row Level Security. It
    is idempotent, so running it twice is harmless.
-4. Open **Project Settings → API** and copy two values:
+4. Open **Project Settings → API** and copy three values:
    - **Project URL** — `https://<project-ref>.supabase.co`
-   - **service_role** secret key (under *Project API keys*, click reveal)
+   - **publishable / anon** key (`SUPABASE_ANON_KEY`, safe in the browser — used by Google sign-in)
+   - **service_role** secret key (`SUPABASE_SERVICE_ROLE_KEY`, under *Project API keys*, click reveal)
 
-> **Never** use the `anon` key here, and never put the service role key in the
-> frontend. It bypasses RLS by design and is only safe on the server.
+> Never put the `service_role` key in the frontend. It bypasses RLS by design
+> and is only safe on the server (`SUPABASE_SERVICE_ROLE_KEY`), while the
+> `anon` / publishable key (`SUPABASE_ANON_KEY`) is safe for browser OAuth.
 
 The schema also works on any plain Postgres (Neon, RDS, a VPS) if you point
 `SUPABASE_URL` at a PostgREST/Supabase-compatible endpoint later.
@@ -81,8 +83,9 @@ Settings** to your own provider so reset mail is reliable.
 
 1. Push this repo to GitHub.
 2. Render → **New → Blueprint** → pick the repository → **Apply**.
-3. When prompted for the two `sync: false` variables, paste the **Project URL**
-   and the **service_role** key from step 1.
+3. When prompted for `SUPABASE_SERVICE_ROLE_KEY` (`sync: false`), paste the
+   **service_role** key from step 1 (`SUPABASE_URL` and `SUPABASE_ANON_KEY`
+   are pre-configured in `render.yaml` and can be overridden in the dashboard).
 4. Deploy. First boot creates the demo team `ARIA-123` and its six songs.
 
 ### Manual web service

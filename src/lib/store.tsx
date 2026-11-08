@@ -11,6 +11,10 @@ import {
 import { api } from './api';
 import type { AppState, Lineup, Song, Team, User } from './types';
 import {
+  completePopupRelay,
+  consumeOAuthError,
+  getPendingPopupRelay,
+  getSupabaseSessionTokens,
   loadConfig,
   logout as authLogout,
   onChange as onAuthChange,
@@ -24,10 +28,12 @@ const THEME_KEY = 'aria.theme';
 const ONBOARDING_KEY = 'aria.onboarded';
 
 type ThemeMode = 'light' | 'dark';
+type PopupStatus = 'idle' | 'completed' | 'error';
 
 interface StoreValue {
   loading: boolean;
   error: string | null;
+  popupStatus: PopupStatus;
   user: User | null;
   teams: Team[];
   songs: Song[];
@@ -35,6 +41,7 @@ interface StoreValue {
   theme: ThemeMode;
   config: AuthConfig;
   onboarded: boolean;
+  clearError: () => void;
   toggleTheme: () => void;
   completeOnboarding: () => void;
   replayOnboarding: () => void;
@@ -59,6 +66,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [popupStatus, setPopupStatus] = useState<PopupStatus>('idle');
   const [theme, setTheme] = useState<ThemeMode>(() => readTheme());
   const [config, setConfig] = useState<AuthConfig>({
     driver: 'demo',
@@ -122,6 +130,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, []);
 
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  // Keep auth state listener active across StrictMode unmount/remount cycles.
+  useEffect(() => {
+    return onAuthChange((account) => {
+      if (window.location.pathname === '/auth/google' || getPendingPopupRelay()) return;
+      void adoptAccount(account);
+    });
+  }, [adoptAccount]);
+
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
@@ -130,9 +150,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const loaded = await loadConfig();
         setConfig(loaded);
+        const oauthErr = consumeOAuthError();
+
+        // Popup starter route handles its own redirect immediately.
+        if (window.location.pathname === '/auth/google') {
+          if (oauthErr) setError(oauthErr);
+          return;
+        }
+
+        // Returning OAuth popup: relay credentials back to the opener/iframe and close.
+        const relayNonce = getPendingPopupRelay();
+        if (relayNonce) {
+          if (oauthErr) {
+            setError(oauthErr);
+            setPopupStatus('error');
+            await completePopupRelay(relayNonce, { error: oauthErr });
+            return;
+          }
+          const tokens = await getSupabaseSessionTokens();
+          if (tokens) {
+            setPopupStatus('completed');
+            await completePopupRelay(relayNonce, {
+              accessToken: tokens.accessToken,
+              refreshToken: tokens.refreshToken,
+            });
+          } else {
+            const msg = 'Google sign-in did not return a session.';
+            setError(msg);
+            setPopupStatus('error');
+            await completePopupRelay(relayNonce, { error: msg });
+          }
+          return;
+        }
+
+        if (oauthErr) {
+          setError(oauthErr);
+        }
+
         const account = await resumeSession();
-        // Clear any Supabase auth callback tokens from the URL.
-        if (window.location.hash.includes('access_token')) {
+        // Clear any Supabase auth callback tokens or empty hash from the URL.
+        if (
+          window.location.hash.includes('access_token') ||
+          window.location.href.endsWith('#')
+        ) {
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
         }
         await adoptAccount(account);
@@ -142,13 +202,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     })();
-
-    const off = onAuthChange((account) => {
-      void adoptAccount(account);
-    });
-    return () => {
-      off();
-    };
   }, [adoptAccount]);
 
   const joinTeam = useCallback(
@@ -195,6 +248,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({
       loading,
       error,
+      popupStatus,
       user: state?.user ?? null,
       teams: state?.teams ?? [],
       songs: state?.songs ?? [],
@@ -202,6 +256,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       theme,
       config,
       onboarded,
+      clearError,
       toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
       completeOnboarding,
       replayOnboarding,
@@ -216,10 +271,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       loading,
       error,
+      popupStatus,
       state,
       theme,
       config,
       onboarded,
+      clearError,
       completeOnboarding,
       replayOnboarding,
       signInWithAccount,

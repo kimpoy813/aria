@@ -6,12 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './storage.js';
 import {
   createAuth,
+  loadDotEnv,
   normaliseEmail,
   emailProblem,
   passwordProblem,
   SESSION_TTL_DAYS,
   RESET_TTL_MINUTES,
 } from './auth.js';
+
+loadDotEnv();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, '..', 'dist');
@@ -587,6 +590,12 @@ function ensureUserRecord(identity) {
     );
     db.songs.push(...starter);
     save();
+  } else {
+    if (identity.email && !user.email) user.email = identity.email;
+    if (identity.name && (!user.name || user.name === 'Listener')) {
+      user.name = identity.name;
+      save();
+    }
   }
   return user;
 }
@@ -644,13 +653,72 @@ api.get('/health', (_req, res) => res.json({ ok: true }));
 
 /* ---------------------------------------------------------------- auth */
 
+const oauthRelay = new Map();
+const OAUTH_RELAY_TTL_MS = 2 * 60 * 1000;
+const validRelayNonce = (value) =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value);
+
+function pruneOAuthRelay() {
+  const cutoff = now();
+  for (const [key, entry] of oauthRelay.entries()) {
+    if (entry.expiresAt <= cutoff) oauthRelay.delete(key);
+  }
+}
+
 api.get('/auth/config', (_req, res) => {
   res.json({
     driver: auth?.driver || 'demo',
-    supabaseUrl: auth?.driver === 'supabase' ? process.env.SUPABASE_URL : null,
-    supabaseAnonKey: auth?.driver === 'supabase' ? process.env.SUPABASE_ANON_KEY || null : null,
+    supabaseUrl: auth?.driver === 'supabase' ? auth.supabaseUrl : null,
+    supabaseAnonKey: auth?.driver === 'supabase' ? auth.supabaseAnonKey : null,
     sessionDays: SESSION_TTL_DAYS,
     resetMinutes: RESET_TTL_MINUTES,
+  });
+});
+
+/**
+ * Short-lived single-use relay for Google OAuth popups opened from inside an
+ * iframe (where accounts.google.com blocks framing via X-Frame-Options and
+ * COOP / storage partitioning can isolate the popup from the iframe).
+ */
+api.post('/auth/relay', (req, res) => {
+  pruneOAuthRelay();
+  const nonce = clean(req.body?.nonce, 128);
+  if (!validRelayNonce(nonce)) {
+    return res.status(400).json({ error: 'Invalid OAuth relay nonce.' });
+  }
+  const accessToken = clean(req.body?.accessToken, 8192) || null;
+  const refreshToken = clean(req.body?.refreshToken, 4096) || null;
+  const error = clean(req.body?.error, 500) || null;
+  if (!accessToken && !error) {
+    return res.status(400).json({ error: 'Relay payload is empty.' });
+  }
+  if (oauthRelay.size >= 200) {
+    const oldest = oauthRelay.keys().next().value;
+    if (oldest) oauthRelay.delete(oldest);
+  }
+  oauthRelay.set(nonce, {
+    accessToken,
+    refreshToken,
+    error,
+    expiresAt: now() + OAUTH_RELAY_TTL_MS,
+  });
+  res.json({ ok: true });
+});
+
+api.get('/auth/relay/:nonce', (req, res) => {
+  pruneOAuthRelay();
+  const nonce = clean(req.params.nonce, 128);
+  if (!validRelayNonce(nonce)) {
+    return res.status(400).json({ error: 'Invalid OAuth relay nonce.' });
+  }
+  const entry = oauthRelay.get(nonce);
+  if (!entry) return res.json({ pending: true });
+  oauthRelay.delete(nonce);
+  res.json({
+    pending: false,
+    accessToken: entry.accessToken,
+    refreshToken: entry.refreshToken,
+    error: entry.error,
   });
 });
 

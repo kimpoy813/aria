@@ -15,6 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { cleanEnv, loadDotEnv, resolveSupabaseConfig } from './auth.js';
 
 export const COLLECTIONS = ['users', 'teams', 'songs', 'lineups'];
 
@@ -261,9 +262,9 @@ export class SupabaseStore {
 /* ------------------------------------------------------------------ factory */
 
 export async function createStore({ log = console.log } = {}) {
-  const wanted = (process.env.ARIA_STORAGE || '').toLowerCase();
-  const url = process.env.SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
+  loadDotEnv();
+  const wanted = cleanEnv(process.env.ARIA_STORAGE || '').toLowerCase();
+  const { url, serviceRoleKey: key } = resolveSupabaseConfig();
   const dataDir = process.env.ARIA_DATA_DIR || path.join(process.cwd(), 'server');
   const file = path.join(dataDir, 'data.json');
 
@@ -271,14 +272,28 @@ export async function createStore({ log = console.log } = {}) {
 
   if (useSupabase) {
     if (!url || !key) {
-      throw new Error(
-        'ARIA_STORAGE=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to be set.',
+      log(
+        `[aria] storage: SUPABASE_SERVICE_ROLE_KEY is not set — falling back to file → ${file}`,
       );
+      return new FileStore(file);
     }
     const store = new SupabaseStore({ url, key });
-    await store.connect();
-    log(`[aria] storage: supabase → ${url}`);
-    return store;
+    try {
+      await store.connect();
+      log(`[aria] storage: supabase → ${url}`);
+      return store;
+    } catch (err) {
+      const isSandboxOffline =
+        !globalThis.__ariaSupabaseClient &&
+        process.env.NODE_ENV !== 'production' &&
+        !process.env.RENDER &&
+        /fetch failed/i.test(err?.message || '');
+      if (isSandboxOffline) {
+        log(`[aria] storage: Supabase unreachable in offline sandbox — using file → ${file}`);
+        return new FileStore(file);
+      }
+      throw err;
+    }
   }
 
   if (wanted && wanted !== 'file') {
