@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Logo, LogoHero } from '../components/Logo';
+import { LogoHero, Wordmark } from '../components/Logo';
 import { Button, Icon, IconButton } from '../components/ui';
 import { useStore } from '../lib/store';
 import {
@@ -24,15 +24,15 @@ const emailOk = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.tr
 function Shell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useStore();
   return (
-    <div className="app">
+    <div className="app auth-surface">
       <div className="auth">
         <div className="auth-top">
-          <span className="tiny muted">Aria Music Recommender</span>
+          <Wordmark size={26} subtitle="Setlist Studio" />
           <IconButton
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? <Icon name="sun" /> : <Icon name="moon" />}
+            {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
           </IconButton>
         </div>
         <div className="auth-card">{children}</div>
@@ -41,12 +41,49 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function PasswordInput({
+  id,
+  value,
+  placeholder,
+  autoComplete,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  placeholder?: string;
+  autoComplete?: string;
+  onChange: (next: string) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="input-adorned">
+      <input
+        id={id}
+        className="input"
+        type={visible ? 'text' : 'password'}
+        autoComplete={autoComplete}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <button
+        type="button"
+        className="input-action"
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        onClick={() => setVisible((v) => !v)}
+      >
+        <Icon name={visible ? 'eyeOff' : 'view'} size={16} />
+      </button>
+    </div>
+  );
+}
+
 function GoogleButton({
   onError,
-  onDemo,
+  onUnavailable,
 }: {
   onError: (message: string) => void;
-  onDemo: () => void;
+  onUnavailable: () => void;
 }) {
   const { config, signInWithAccount, clearError } = useStore();
   const [busy, setBusy] = useState(false);
@@ -54,58 +91,56 @@ function GoogleButton({
     config.driver === 'supabase' && Boolean(config.supabaseUrl && config.supabaseAnonKey);
 
   return (
-    <div className="stack-sm">
-      <button
-        type="button"
-        className="btn btn-google"
-        disabled={busy}
-        onClick={async () => {
-          clearError();
-          if (!live) {
-            if (config.driver === 'supabase') {
-              onError(
-                'Supabase client keys are missing on the server (set SUPABASE_URL and SUPABASE_ANON_KEY).',
-              );
-            } else {
-              onDemo();
-            }
-            return;
+    <button
+      type="button"
+      className="btn btn-google btn-block"
+      disabled={busy}
+      onClick={async () => {
+        clearError();
+        if (!live) {
+          if (config.driver === 'supabase') {
+            onError(
+              'Supabase client keys are missing on the server (set SUPABASE_URL and SUPABASE_ANON_KEY).',
+            );
+          } else {
+            onUnavailable();
           }
-          setBusy(true);
-          try {
-            const account = await loginWithGoogle();
-            if (account) {
-              await signInWithAccount(account);
-            }
-          } catch (err) {
-            if (!(err instanceof OAuthCancelledError)) {
-              onError(err instanceof Error ? err.message : 'Google sign-in failed.');
-            }
-            setBusy(false);
+          return;
+        }
+        setBusy(true);
+        try {
+          const account = await loginWithGoogle();
+          if (account) {
+            await signInWithAccount(account);
           }
-        }}
-      >
-        <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden>
-          <path
-            fill="#4285F4"
-            d="M45.1 24.5c0-1.6-.1-2.8-.4-4H24v7.9h12c-.2 2-1.5 5-4.4 7l6.7 5.2c4-3.7 6.8-9.1 6.8-16.1Z"
-          />
-          <path
-            fill="#34A853"
-            d="M24 46c5.9 0 10.9-2 14.5-5.4l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8.1 41.1 15.4 46 24 46Z"
-          />
-          <path
-            fill="#FBBC05"
-            d="M11.5 28.3a13.7 13.7 0 0 1 0-8.7l-7.1-5.5a22 22 0 0 0 0 19.7l7.1-5.5Z"
-          />
-          <path
-            fill="#EA4335"
-            d="M24 10.1c4.1 0 7.5 1.4 9.9 3.7l6-6C36 4 30.9 2 24 2 15.4 2 8.1 6.9 4.4 14.1l7.1 5.5C13.3 13.9 18.2 10.1 24 10.1Z"
-          />
-        </svg>
-        {busy ? 'Connecting to Google…' : 'Continue with Google'}
-      </button>
-    </div>
+        } catch (err) {
+          if (!(err instanceof OAuthCancelledError)) {
+            onError(err instanceof Error ? err.message : 'Google sign-in failed.');
+          }
+          setBusy(false);
+        }
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+        <path
+          fill="#4285F4"
+          d="M45.1 24.5c0-1.6-.1-2.8-.4-4H24v7.9h12c-.2 2-1.5 5-4.4 7l6.7 5.2c4-3.7 6.8-9.1 6.8-16.1Z"
+        />
+        <path
+          fill="#34A853"
+          d="M24 46c5.9 0 10.9-2 14.5-5.4l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8.1 41.1 15.4 46 24 46Z"
+        />
+        <path
+          fill="#FBBC05"
+          d="M11.5 28.3a13.7 13.7 0 0 1 0-8.7l-7.1-5.5a22 22 0 0 0 0 19.7l7.1-5.5Z"
+        />
+        <path
+          fill="#EA4335"
+          d="M24 10.1c4.1 0 7.5 1.4 9.9 3.7l6-6C36 4 30.9 2 24 2 15.4 2 8.1 6.9 4.4 14.1l7.1 5.5C13.3 13.9 18.2 10.1 24 10.1Z"
+        />
+      </svg>
+      <span>{busy ? 'Connecting to Google…' : 'Continue with Google'}</span>
+    </button>
   );
 }
 
@@ -126,18 +161,24 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
   useEffect(() => setMode(initial), [initial]);
 
   const activeError = error || storeError;
+  const isLoginView = mode === 'login' || mode === 'welcome';
+
   const resetErrors = () => {
     setError(null);
     setNotice(null);
     if (storeError) clearError();
   };
 
+  const switchMode = (next: Mode) => {
+    resetErrors();
+    setMode(next);
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     resetErrors();
 
-    // The welcome screen is the login card, so it submits the same way.
-    if (mode === 'login' || mode === 'welcome') {
+    if (isLoginView) {
       if (!emailOk(email)) return setError('Enter a valid email address.');
       if (!password) return setError('Enter your password.');
     }
@@ -153,7 +194,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
 
     setBusy(true);
     try {
-      if (mode === 'login' || mode === 'welcome') {
+      if (isLoginView) {
         await signInWithAccount(await login(email, password));
       } else if (mode === 'register') {
         const result = await register({ name, email, password });
@@ -174,7 +215,6 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
     }
   };
 
-  /* ------------------------------------------------------------ register */
   if (needsConfirm) {
     return (
       <Shell>
@@ -182,12 +222,19 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
           <LogoHero size={56} />
           <h1 className="auth-title">Check your inbox</h1>
           <p className="auth-sub">
-            We sent a confirmation link to <strong>{email}</strong>. Open it, then come back and
+            We sent a confirmation link to <strong>{email}</strong>. Open it, then return here to
             sign in.
           </p>
         </div>
         <div className="auth-body">
-          <Button variant="primary" block onClick={() => navigate('/login')}>
+          <Button
+            variant="primary"
+            block
+            onClick={() => {
+              setNeedsConfirm(false);
+              navigate('/login');
+            }}
+          >
             Go to sign in
           </Button>
         </div>
@@ -195,7 +242,6 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
     );
   }
 
-  /* -------------------------------------------------------------- reset */
   if (mode === 'reset-sent') {
     return (
       <Shell>
@@ -203,17 +249,17 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
           <LogoHero size={56} />
           <h1 className="auth-title">Check your email</h1>
           <p className="auth-sub">
-            If an account exists for <strong>{email}</strong>, a reset link is on its way. The link
-            works once and expires in {config.resetMinutes} minutes.
+            If an account exists for <strong>{email}</strong>, a reset link is on its way and
+            expires in {config.resetMinutes} minutes.
           </p>
         </div>
 
         <div className="auth-body">
           {resetLink ? (
             <div className="card stack-sm">
-              <div className="label">Demo mode has no mail server</div>
+              <div className="label">Local recovery link</div>
               <p className="hint">
-                Use this link now to choose a new password. It is single-use and expires shortly.
+                Open this single-use link to choose a new password right away.
               </p>
               <Button variant="primary" block onClick={() => navigate(resetLink)}>
                 <Icon name="link" /> Open reset link
@@ -221,154 +267,71 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
             </div>
           ) : null}
 
-          <Button variant="quiet" block onClick={() => navigate('/login')}>
-            <Icon name="back" size={14} /> Back to log in
+          <Button variant="quiet" block onClick={() => switchMode('login')}>
+            <Icon name="back" size={14} /> Back to sign in
           </Button>
         </div>
       </Shell>
     );
   }
 
-  /* ------------------------------------------------------------ welcome */
-  if (mode === 'welcome') {
-    return (
-      <Shell>
-        <div className="auth-head">
-          <LogoHero size={56} />
-          <h1 className="auth-title">Welcome back</h1>
-          <p className="auth-sub">Log in to your account</p>
-        </div>
-
-        <div className="auth-body">
-          <GoogleButton
-            onError={setError}
-            onDemo={() => {
-              setMode('login');
-              setNotice('Google sign-in turns on once Supabase is connected.');
-            }}
-          />
-
-          <div className="or-divider">
-            <span>or</span>
-          </div>
-
-          <form className="stack" onSubmit={submit}>
-            <div className="field">
-              <label htmlFor="welcome-email">Email</label>
-              <input
-                id="welcome-email"
-                className="input"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                value={email}
-                placeholder="you@example.com"
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  resetErrors();
-                }}
-              />
-            </div>
-            <div className="field">
-              <div className="row-between">
-                <label htmlFor="welcome-password">Password</label>
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => {
-                    setMode('forgot');
-                    resetErrors();
-                  }}
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <input
-                id="welcome-password"
-                className="input"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                placeholder="••••••••"
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  resetErrors();
-                }}
-              />
-            </div>
-
-            {activeError ? (
-              <p className="small" style={{ color: 'var(--danger)' }}>
-                {activeError}
-              </p>
-            ) : null}
-            {notice ? (
-              <p className="small" style={{ color: 'var(--brand-text)' }}>
-                {notice}
-              </p>
-            ) : null}
-
-            <Button type="submit" variant="primary" block disabled={busy}>
-              {busy ? 'Signing in…' : 'Log in'}
-            </Button>
-          </form>
-        </div>
-
-        <p className="auth-foot">
-          Don&apos;t have an account?{' '}
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => {
-              setMode('register');
-              resetErrors();
-            }}
-          >
-            Create one
-          </button>
-        </p>
-
-        {config.driver === 'demo' ? (
-          <p className="tiny muted auth-note">
-            <Logo size={12} style={{ display: 'inline-block', verticalAlign: '-1px' }} /> Local
-            accounts are active. Connect Supabase for Google and emailed resets. Demo team code{' '}
-            <strong>ARIA-123</strong>.
-          </p>
-        ) : null}
-      </Shell>
-    );
-  }
-
-  /* -------------------------------------------------------- login/register/forgot */
-  const title =
-    mode === 'login' ? 'Welcome back' : mode === 'register' ? 'Create your account' : 'Reset password';
-  const subtitle =
-    mode === 'login'
-      ? 'Log in to your account'
-      : mode === 'register'
-        ? 'Sign up to get started'
-        : "We'll send you a link to reset it";
+  const title = isLoginView
+    ? 'Welcome to Aria'
+    : mode === 'register'
+      ? 'Create your studio'
+      : 'Reset password';
+  const subtitle = isLoginView
+    ? 'Read the lyric, find the message, and shape balanced lineups.'
+    : mode === 'register'
+      ? 'Start with a clean personal library and collaborate with your team.'
+      : "Enter your email and we'll send a recovery link.";
 
   return (
     <Shell>
       <div className="auth-head">
-        <LogoHero size={56} />
+        <LogoHero size={58} />
+        <span className="auth-pill">
+          <Icon name="sparkle" size={12} /> Lyric-aware music studio
+        </span>
         <h1 className="auth-title">{title}</h1>
         <p className="auth-sub">{subtitle}</p>
       </div>
+
+      {mode !== 'forgot' && (
+        <div className="seg" role="tablist" aria-label="Authentication mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isLoginView}
+            className={isLoginView ? 'active' : ''}
+            onClick={() => switchMode('login')}
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
+            className={mode === 'register' ? 'active' : ''}
+            onClick={() => switchMode('register')}
+          >
+            Create account
+          </button>
+        </div>
+      )}
 
       <div className="auth-body">
         {mode !== 'forgot' ? (
           <>
             <GoogleButton
               onError={setError}
-              onDemo={() => {
-                setMode('login');
-                setNotice('Google sign-in turns on once Supabase is connected.');
+              onUnavailable={() => {
+                switchMode('login');
+                setNotice('Google sign-in is available when Supabase Auth is connected.');
               }}
             />
             <div className="or-divider">
-              <span>or</span>
+              <span>or continue with email</span>
             </div>
           </>
         ) : null}
@@ -382,7 +345,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
                 className="input"
                 value={name}
                 autoComplete="name"
-                placeholder="e.g. Kim"
+                placeholder="e.g. Alex Rivera"
                 onChange={(e) => {
                   setName(e.target.value);
                   resetErrors();
@@ -412,28 +375,23 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
             <div className="field">
               <div className="row-between">
                 <label htmlFor="password">Password</label>
-                {mode === 'login' ? (
+                {isLoginView ? (
                   <button
                     type="button"
                     className="link-button"
-                    onClick={() => {
-                      setMode('forgot');
-                      resetErrors();
-                    }}
+                    onClick={() => switchMode('forgot')}
                   >
                     Forgot password?
                   </button>
                 ) : null}
               </div>
-              <input
+              <PasswordInput
                 id="password"
-                className="input"
-                type="password"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                autoComplete={isLoginView ? 'current-password' : 'new-password'}
                 value={password}
-                placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
-                onChange={(e) => {
-                  setPassword(e.target.value);
+                placeholder={mode === 'register' ? 'At least 8 characters' : 'Enter your password'}
+                onChange={(v) => {
+                  setPassword(v);
                   resetErrors();
                 }}
               />
@@ -443,15 +401,13 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
           {mode === 'register' ? (
             <div className="field">
               <label htmlFor="confirm">Confirm password</label>
-              <input
+              <PasswordInput
                 id="confirm"
-                className="input"
-                type="password"
                 autoComplete="new-password"
                 value={confirm}
                 placeholder="Repeat your password"
-                onChange={(e) => {
-                  setConfirm(e.target.value);
+                onChange={(v) => {
+                  setConfirm(v);
                   resetErrors();
                 }}
               />
@@ -459,21 +415,21 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
           ) : null}
 
           {activeError ? (
-            <p className="small" style={{ color: 'var(--danger)' }}>
+            <div className="alert alert-danger" role="alert">
               {activeError}
-            </p>
+            </div>
           ) : null}
           {notice ? (
-            <p className="small" style={{ color: 'var(--brand-text)' }}>
+            <div className="alert alert-info" role="status">
               {notice}
-            </p>
+            </div>
           ) : null}
 
           <Button type="submit" variant="primary" block disabled={busy}>
             {busy
               ? 'Working…'
-              : mode === 'login'
-                ? 'Log in'
+              : isLoginView
+                ? 'Sign in'
                 : mode === 'register'
                   ? 'Create account'
                   : 'Send reset link'}
@@ -481,47 +437,11 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
         </form>
 
         {mode === 'forgot' ? (
-          <Button variant="quiet" block onClick={() => navigate('/login')}>
-            <Icon name="back" size={14} /> Back to log in
+          <Button variant="quiet" block onClick={() => switchMode('login')}>
+            <Icon name="back" size={14} /> Back to sign in
           </Button>
         ) : null}
       </div>
-
-      <p className="auth-foot">
-        {mode === 'login' ? (
-          <>
-            Don&apos;t have an account?{' '}
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                setMode('register');
-                resetErrors();
-              }}
-            >
-              Create one
-            </button>
-          </>
-        ) : mode === 'register' ? (
-          <>
-            Already have an account?{' '}
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                setMode('login');
-                resetErrors();
-              }}
-            >
-              Log in
-            </button>
-          </>
-        ) : (
-          <button type="button" className="link-button" onClick={() => navigate('/login')}>
-            Back to log in
-          </button>
-        )}
-      </p>
     </Shell>
   );
 }
@@ -658,7 +578,7 @@ export function ResetPasswordPage() {
         <p className="auth-sub">
           {driver === 'demo' && !token
             ? 'Open the reset link from the previous step, or request a new one.'
-            : 'Pick something you have not used before.'}
+            : 'Pick something strong that you have not used before.'}
         </p>
       </div>
 
@@ -666,34 +586,35 @@ export function ResetPasswordPage() {
         <form className="stack" onSubmit={submit}>
           <div className="field">
             <label htmlFor="new-password">New password</label>
-            <input
+            <PasswordInput
               id="new-password"
-              className="input"
-              type="password"
               autoComplete="new-password"
               value={password}
               placeholder="At least 8 characters"
-              onChange={(e) => {
-                setPassword(e.target.value);
+              onChange={(v) => {
+                setPassword(v);
                 setError(null);
               }}
             />
           </div>
           <div className="field">
             <label htmlFor="confirm-password">Confirm password</label>
-            <input
+            <PasswordInput
               id="confirm-password"
-              className="input"
-              type="password"
               autoComplete="new-password"
               value={confirm}
-              onChange={(e) => {
-                setConfirm(e.target.value);
+              placeholder="Repeat your new password"
+              onChange={(v) => {
+                setConfirm(v);
                 setError(null);
               }}
             />
           </div>
-          {error ? <p className="small" style={{ color: 'var(--danger)' }}>{error}</p> : null}
+          {error ? (
+            <div className="alert alert-danger" role="alert">
+              {error}
+            </div>
+          ) : null}
           <Button type="submit" variant="primary" block disabled={busy}>
             {busy ? 'Saving…' : 'Save new password'}
           </Button>

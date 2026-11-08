@@ -269,10 +269,11 @@ check(
   /\[aria\] storage: supabase/.test(bootLog),
   bootLog.split('\n')[0],
 );
-check('seeds only when the store is empty', /Seeded demo team ARIA-123/.test(bootLog));
+check('no demo data is seeded on boot', !/Seeded demo team/.test(bootLog));
 
 let userId = null;
 let songId = null;
+let slowSongId = null;
 let lineupId = null;
 let shareToken = null;
 
@@ -286,18 +287,33 @@ let shareToken = null;
 
   await settle();
   const rows = await pg.query('select count(*)::int as n from public.users');
-  check('user row is in Postgres', rows.rows[0].n >= 2, `users=${rows.rows[0].n}`);
+  check('user row is in Postgres', rows.rows[0].n === 1, `users=${rows.rows[0].n}`);
 
   const state = await api(port, 'GET', '/api/state');
-  check('starter library is created', state.data?.songs?.length >= 4, `songs=${state.data?.songs?.length}`);
-
-  await settle();
-  const songs = (await pg.query('select count(*)::int as n from public.songs')).rows[0].n;
-  check('song rows are in Postgres', songs >= 4, `songs=${songs}`);
+  check(
+    'new account starts with zero demo songs/teams',
+    state.data?.songs?.length === 0 && state.data?.teams?.length === 0,
+    `songs=${state.data?.songs?.length}`,
+  );
 }
 
 console.log('\n4. Song, lineup, share and the LRU clock');
 {
+  const createdSlow = await api(port, 'POST', '/api/songs', {
+    title: 'Evening Tide',
+    artist: 'Tester',
+    tempo: 'slow',
+    theme: 'Love',
+    parts: [
+      { kind: 'verse', label: 'Verse 1', lyrics: 'quiet waters hold the evening light' },
+      { kind: 'chorus', label: 'Chorus', lyrics: 'stay close beside the shore tonight' },
+    ],
+    analysis: null,
+    teamId: null,
+  });
+  slowSongId = createdSlow.data?.song?.id;
+  check('creates a slow song', createdSlow.status === 200 && Boolean(slowSongId));
+
   const created = await api(port, 'POST', '/api/songs', {
     title: 'Postgres Lullaby',
     artist: 'Tester',
@@ -311,7 +327,7 @@ console.log('\n4. Song, lineup, share and the LRU clock');
     teamId: null,
   });
   songId = created.data?.song?.id;
-  check('creates a song with its parts', created.status === 200 && Boolean(songId));
+  check('creates a fast song with its parts', created.status === 200 && Boolean(songId));
 
   await settle();
   const parts = await pg.query('select parts from public.songs where id = $1', [songId]);
@@ -319,7 +335,7 @@ console.log('\n4. Song, lineup, share and the LRU clock');
 
   const state = await api(port, 'GET', '/api/state');
   const mySong = state.data?.songs?.find((song) => song.id === songId);
-  const slowSong = state.data?.songs?.find((song) => song.tempo === 'slow' && song.ownerId === userId);
+  const slowSong = state.data?.songs?.find((song) => song.id === slowSongId);
 
   const built = await api(port, 'POST', '/api/lineups', {
     name: 'Postgres Set',

@@ -55,327 +55,33 @@ function save() {
   }, 60);
 }
 
-/* -------------------------------------------------------------- seed data */
+/* -------------------------------------------------------- legacy demo purge */
 
-const STARTER_SONGS = [
-  {
-    title: 'Harbor Light',
-    artist: 'Aria Studio',
-    tempo: 'slow',
-    theme: 'Love',
-    parts: [
-      {
-        kind: 'verse',
-        label: 'Verse 1',
-        lyrics: `You leave the porch light on for me
-A quiet promise I can keep
-The kettle hums, the floorboards speak
-And every room remembers me
-I never had to raise my voice
-You heard me in the smallest noise`,
-      },
-      {
-        kind: 'chorus',
-        label: 'Chorus',
-        lyrics: `Stay, stay, the harbor light is low
-Stay, stay, I am not letting go
-Every tide that pulls me out to sea
-Brings me back to where you wait for me`,
-      },
-      {
-        kind: 'bridge',
-        label: 'Bridge',
-        lyrics: `If the years are kind, we'll grow
-If they're not, I'll still be close
-Holding on to what we know`,
-      },
-    ],
-  },
-  {
-    title: 'Paper Kites',
-    artist: 'Aria Studio',
-    tempo: 'fast',
-    theme: 'Hope',
-    parts: [
-      {
-        kind: 'verse',
-        label: 'Verse 1',
-        lyrics: `We were told the sky was far
-So we folded up our paper stars
-Ran the field past the broken gate
-Chasing something we could make
-Nothing started out as gold
-We just refused to let it go`,
-      },
-      {
-        kind: 'chorus',
-        label: 'Chorus',
-        lyrics: `Fly, paper kites, fly
-Tomorrow is a door we haven't tried
-Rise, paper kites, rise
-There is sunlight on the other side`,
-      },
-      {
-        kind: 'outro',
-        label: 'Outro',
-        lyrics: `There is sunlight on the other side`,
-      },
-    ],
-  },
-  {
-    title: 'Still Water',
-    artist: 'Aria Studio',
-    tempo: 'slow',
-    theme: 'Faith',
-    parts: [
-      {
-        kind: 'verse',
-        label: 'Verse 1',
-        lyrics: `I bring my questions like a stone
-Lay them down and let them go
-The river does not answer me
-But it carries what I leave
-In the silence I can hear
-Something steady, something near`,
-      },
-      {
-        kind: 'chorus',
-        label: 'Chorus',
-        lyrics: `Still water, hold my name
-Even when I lose my way
-Still water, carry me
-Through the dark and out to sea`,
-      },
-      {
-        kind: 'bridge',
-        label: 'Bridge',
-        lyrics: `I do not need to see the shore
-To trust the hand that holds the oar`,
-      },
-    ],
-  },
-  {
-    title: 'Midnight Train Home',
-    artist: 'Aria Studio',
-    tempo: 'fast',
-    theme: 'Longing',
-    parts: [
-      {
-        kind: 'verse',
-        label: 'Verse 1',
-        lyrics: `Platform lights and a paper cup
-I count the miles and I don't look up
-Every window is a movie scene
-Somebody living what I wish I'd been
-I've got your voice in a voicemail saved
-Playing it back like a runaway train`,
-      },
-      {
-        kind: 'chorus',
-        label: 'Chorus',
-        lyrics: `Midnight train, take me home
-Past the fields and the telephone poles
-Midnight train, don't be late
-Somebody's waiting at the garden gate`,
-      },
-    ],
-  },
-  {
-    title: 'Salt and Ash',
-    artist: 'Aria Studio',
-    tempo: 'slow',
-    theme: 'Grief',
-    parts: [
-      {
-        kind: 'verse',
-        label: 'Verse 1',
-        lyrics: `Your coat still hangs beside the door
-I keep forgetting you're not coming home
-The kettle whistles, no one pours
-The house is quiet as a stone
-Grief is not a room I chose
-It is a garden I still water`,
-      },
-      {
-        kind: 'chorus',
-        label: 'Chorus',
-        lyrics: `Salt and ash, and the shape of you
-Every song that we sang out of tune
-Salt and ash, I will learn to hold
-The love you left when the fire went cold`,
-      },
-    ],
-  },
-  {
-    title: 'Sunday Morning People',
-    artist: 'Aria Studio',
-    tempo: 'fast',
-    theme: 'Joy',
-    parts: [
-      {
-        kind: 'verse',
-        label: 'Verse 1',
-        lyrics: `Shoes by the door and a playlist loud
-Sun through the curtains, a happy crowd
-Somebody's laughing at a joke too long
-Somebody's burning the toast again
-Dance in the kitchen in mismatched socks
-This is the good stuff, this is a lot`,
-      },
-      {
-        kind: 'chorus',
-        label: 'Chorus',
-        lyrics: `We are the Sunday morning people
-Singing in the street
-We are the Sunday morning people
-Clapping out of beat
-Every little thing is bright
-Every little thing is alright`,
-      },
-      {
-        kind: 'bridge',
-        label: 'Bridge',
-        lyrics: `Let the whole street hear it
-Let the neighbors know
-We made it through the winter
-Now look how we glow`,
-      },
-    ],
-  },
-];
-
-function makeSong(data, ownerId, ownerName, teamId = null) {
-  const parts = data.parts.map((p) => ({
-    id: uid('part'),
-    kind: p.kind,
-    label: p.label,
-    lyrics: p.lyrics,
-  }));
-  const allLyrics = parts.map((p) => p.lyrics).join('\n');
-  return {
-    id: uid('song'),
-    title: data.title,
-    artist: data.artist,
-    tempo: data.tempo,
-    theme: data.theme || '',
-    parts,
-    analysis: data.analysis || null,
-    ownerId,
-    ownerName,
-    teamId,
-    sourceSongId: data.sourceSongId || null,
-    createdAt: now(),
-    updatedAt: now(),
-    lyrics: allLyrics,
-  };
-}
-
-function lineItem(song, part) {
-  return { id: uid('slot'), songId: song.id, partId: part.id };
-}
-
-function seed() {
-  // Only ever seed an empty store, whatever the driver.
-  if (db.users.length > 0) return;
-
-  const studioUser = {
-    id: uid('user'),
-    name: 'Aria Studio',
-    createdAt: now(),
-    isDemo: true,
-  };
-  db.users.push(studioUser);
-
-  const team = {
-    id: uid('team'),
-    name: 'Aria Studio',
-    code: 'ARIA-123',
-    ownerId: studioUser.id,
-    createdAt: now(),
-    members: [
-      { userId: studioUser.id, name: studioUser.name, role: 'owner', joinedAt: now() },
-    ],
-  };
-  db.teams.push(team);
-
-  const seeded = STARTER_SONGS.map((song) =>
-    makeSong(song, studioUser.id, studioUser.name, team.id),
+/**
+ * Ensure legacy seeded demo records (Aria Studio / ARIA-123) are removed if
+ * an older local store file still contains them.
+ */
+function purgeLegacyDemoData() {
+  const demoUserIds = new Set(
+    db.users.filter((u) => u.isDemo || u.name === 'Aria Studio').map((u) => u.id),
   );
-  db.songs.push(...seeded);
+  const demoTeamIds = new Set(
+    db.teams
+      .filter((t) => t.code === 'ARIA-123' && demoUserIds.has(t.ownerId))
+      .map((t) => t.id),
+  );
 
-  const harbor = seeded[0];
-  const kites = seeded[1];
-  const water = seeded[2];
-  const train = seeded[3];
+  if (demoUserIds.size === 0 && demoTeamIds.size === 0) return;
 
-  const loveSet = {
-    id: uid('lineup'),
-    name: 'Quiet Love Set',
-    theme: 'Love',
-    ownerId: studioUser.id,
-    ownerName: studioUser.name,
-    teamId: team.id,
-    items: [
-      lineItem(harbor, harbor.parts[0]),
-      lineItem(harbor, harbor.parts[1]),
-      lineItem(water, water.parts[1]),
-      lineItem(train, train.parts[0]),
-    ],
-    shareToken: crypto.randomBytes(6).toString('base64url'),
-    createdAt: now() - 1000 * 60 * 60 * 24 * 9,
-    updatedAt: now() - 1000 * 60 * 60 * 24 * 9,
-    lastUsedAt: null,
-    useCount: 0,
-    lastUsedReason: null,
-    sourceLineupId: null,
-  };
-
-  const opener = {
-    id: uid('lineup'),
-    name: 'Faith & Hope Opener',
-    theme: 'Hope',
-    ownerId: studioUser.id,
-    ownerName: studioUser.name,
-    teamId: team.id,
-    items: [
-      lineItem(kites, kites.parts[0]),
-      lineItem(kites, kites.parts[1]),
-      lineItem(water, water.parts[1]),
-      lineItem(water, water.parts[2]),
-    ],
-    shareToken: crypto.randomBytes(6).toString('base64url'),
-    createdAt: now() - 1000 * 60 * 60 * 24 * 14,
-    updatedAt: now() - 1000 * 60 * 60 * 24 * 14,
-    lastUsedAt: now() - 1000 * 60 * 60 * 24 * 3,
-    useCount: 2,
-    lastUsedReason: 'link_shared',
-    sourceLineupId: null,
-  };
-
-  const sunday = {
-    id: uid('lineup'),
-    name: 'Sunday Warm-Up',
-    theme: 'Joy',
-    ownerId: studioUser.id,
-    ownerName: studioUser.name,
-    teamId: team.id,
-    items: [
-      lineItem(seeded[5], seeded[5].parts[0]),
-      lineItem(seeded[5], seeded[5].parts[1]),
-      lineItem(harbor, harbor.parts[1]),
-    ],
-    shareToken: crypto.randomBytes(6).toString('base64url'),
-    createdAt: now() - 1000 * 60 * 60 * 24 * 5,
-    updatedAt: now() - 1000 * 60 * 60 * 24 * 5,
-    lastUsedAt: now() - 1000 * 60 * 60 * 2,
-    useCount: 4,
-    lastUsedReason: 'link_opened',
-    sourceLineupId: null,
-  };
-
-  db.lineups.push(loveSet, opener, sunday);
+  db.users = db.users.filter((u) => !demoUserIds.has(u.id));
+  db.teams = db.teams.filter((t) => !demoTeamIds.has(t.id));
+  db.songs = db.songs.filter(
+    (s) => !demoUserIds.has(s.ownerId) && !(s.teamId && demoTeamIds.has(s.teamId)),
+  );
+  db.lineups = db.lineups.filter(
+    (l) => !demoUserIds.has(l.ownerId) && !(l.teamId && demoTeamIds.has(l.teamId)),
+  );
   save();
-  console.log('Seeded demo team ARIA-123');
 }
 
 /* ------------------------------------------------------------ boot sequence */
@@ -384,7 +90,7 @@ async function boot() {
   store = await createStore({ log: (line) => console.log(line) });
   auth = await createAuth({ log: (line) => console.log(line) });
   db = await store.load();
-  seed();
+  purgeLegacyDemoData();
   return store;
 }
 
@@ -585,10 +291,6 @@ function ensureUserRecord(identity) {
       createdAt: now(),
     };
     db.users.push(user);
-    const starter = STARTER_SONGS.slice(0, 4).map((song) =>
-      makeSong({ ...song, sourceSongId: null }, user.id, user.name, null),
-    );
-    db.songs.push(...starter);
     save();
   } else {
     if (identity.email && !user.email) user.email = identity.email;
@@ -851,7 +553,6 @@ api.get('/state', (req, res) => {
     teams: teams.map((t) => teamView(t, userId)),
     songs: visibleRecords(db.songs, userId),
     lineups: visibleRecords(db.lineups, userId),
-    demoCode: 'ARIA-123',
   });
 });
 

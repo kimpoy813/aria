@@ -43,7 +43,10 @@ export type IconName =
   | 'lock'
   | 'user'
   | 'logout'
-  | 'filter';
+  | 'filter'
+  | 'eyeOff'
+  | 'paste'
+  | 'monitor';
 
 /** Sanctioned sizes; anything else is rounded to the nearest. */
 const SIZES = [12, 14, 16, 18, 20, 24] as const;
@@ -192,6 +195,27 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   filter: <path d="M4 6.4h16L13.6 13v6l-3.2-1.8V13Z" />,
+  eyeOff: (
+    <>
+      <path d="M3.2 3.2 20.8 20.8" />
+      <path d="M10.4 10.4a2.3 2.3 0 0 0 3.2 3.2" />
+      <path d="M9.8 6.6A9.8 9.8 0 0 1 12 6.4c6 0 9.2 5.6 9.2 5.6a16 16 0 0 1-3.1 3.7" />
+      <path d="M6.3 7.3C4.1 8.9 2.8 12 2.8 12S6 17.6 12 17.6c1.6 0 3.1-.4 4.4-1" />
+    </>
+  ),
+  paste: (
+    <>
+      <rect x="5.5" y="4.8" width="13" height="15.7" rx="2.4" />
+      <path d="M9.2 4.8V3.7a1.2 1.2 0 0 1 1.2-1.2h3.2a1.2 1.2 0 0 1 1.2 1.2v1.1" />
+      <path d="M8.8 10.6h6.4M8.8 14.6h4.2" />
+    </>
+  ),
+  monitor: (
+    <>
+      <rect x="3" y="4.2" width="18" height="12.2" rx="2.2" />
+      <path d="M8.6 20h6.8M12 16.4V20" />
+    </>
+  ),
 };
 
 export function Icon({

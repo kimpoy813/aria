@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Button, Chip, Empty, Icon, IconButton, Toast } from '../components/ui';
+import { Wordmark } from '../components/Logo';
 import { api } from '../lib/api';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
-import { Button, Icon, IconButton } from '../components/ui';
-import { Wordmark } from '../components/Logo';
 
 export function SharedPage() {
   const { token } = useParams();
@@ -12,176 +12,134 @@ export function SharedPage() {
   const [lineup, setLineup] = useState<SharedLineup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showParts, setShowParts] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
-    let alive = true;
     setLoading(true);
     api
       .shared(token)
       .then((res) => {
-        if (alive) setLineup(res.lineup);
+        setLineup(res.lineup);
+        setError(null);
       })
-      .catch((err) => {
-        if (alive) setError(err instanceof Error ? err.message : 'Could not open this lineup.');
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Invalid link'))
+      .finally(() => setLoading(false));
   }, [token]);
 
-  if (loading) {
-    return (
-      <div className="overlay-center">
-        <div className="stack-sm" style={{ alignItems: 'center' }}>
-          <Icon name="slow" size={22} />
-          <p className="small">Opening lineup…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !lineup) {
-    return (
-      <div className="overlay-center">
-        <div className="stack-sm" style={{ alignItems: 'center', maxWidth: 320 }}>
-          <div className="serif" style={{ fontSize: 24, color: 'var(--ink)' }}>
-            Lineup not found
-          </div>
-          <p className="small">{error || 'This link may have expired or been removed.'}</p>
-          <Link to="/">
-            <Button variant="primary">Open Aria</Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const grouped = new Map<string, typeof lineup.items>();
-  for (const item of lineup.items) {
-    const key = `${item.songTitle}||${item.partLabel}||${item.lyrics}`;
-    const list = grouped.get(key) || [];
-    list.push(item);
-    grouped.set(key, list);
-  }
-  const blocks = [...grouped.entries()].map(([key, items]) => ({
-    key,
-    item: items[0],
-    repeats: items.length,
-  }));
+  const copyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setToast('Link copied');
+      setTimeout(() => setToast(null), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
-    <div className="app">
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link to="/" style={{ color: 'inherit' }}>
-            <Wordmark />
+          <Link to="/" className="brand-home" style={{ textDecoration: 'none' }}>
+            <Wordmark size={28} subtitle="Shared Program" />
           </Link>
           <div className="push" />
-          <span className="badge">View only</span>
           <IconButton
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? <Icon name="sun" /> : <Icon name="moon" />}
+            {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
           </IconButton>
         </div>
       </header>
 
       <main className="app-main no-nav">
-        <div className="share-hero">
-          <div className="eyebrow" style={{ marginBottom: 8 }}>
-            {lineup.theme || 'Lineup'}
+        {loading ? (
+          <div className="overlay-center" style={{ minHeight: '50vh' }}>
+            <span className="small">Loading shared program…</span>
           </div>
-          <h1>{lineup.name}</h1>
-          <p className="small muted" style={{ marginTop: 6 }}>
-            by {lineup.ownerName}
-          </p>
-        </div>
-
-        <div className="row" style={{ gap: 8, padding: '0 4px 12px' }}>
-          <button
-            type="button"
-            className="chip chip-button"
-            onClick={() => setShowParts(!showParts)}
-            aria-pressed={showParts}
-          >
-            <Icon name="lyrics" size={13} /> {showParts ? 'Hide lyrics' : 'Show lyrics'}
-          </button>
-          <button
-            type="button"
-            className="chip chip-button"
-            onClick={() => {
-              const text = blocks
-                .map(({ item, repeats }) => {
-                  const header = `${item.songTitle} — ${item.partLabel}${repeats > 1 ? ` (×${repeats})` : ''}`;
-                  return `${header}\n${item.lyrics}`;
-                })
-                .join('\n\n');
-              const body = `${lineup.name} — a lineup on Aria\n\n${text}`;
-              navigator.clipboard.writeText(body).catch(() => {
-                if (navigator.share) void navigator.share({ title: lineup.name, text: body });
-              });
-            }}
-          >
-            <Icon name="share" size={13} /> Copy
-          </button>
-        </div>
-
-        <div className="stack" style={{ gap: 10 }}>
-          {blocks.map(({ key, item, repeats }) => (
-            <article className="card flush" key={key}>
-              <div className="share-part" style={{ borderTop: 'none' }}>
-                <div className="row-between" style={{ alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="eyebrow" style={{ marginBottom: 3 }}>
-                      {item.partKind === 'prechorus' ? 'Pre-chorus' : item.partKind}
-                      {repeats > 1 ? ` · repeated ×${repeats}` : ''}
-                    </div>
-                    <h2 className="serif" style={{ fontSize: 18, lineHeight: 1.25, letterSpacing: '-0.01em' }}>
-                      {item.songTitle}
-                    </h2>
-                    <div className="tiny muted">{item.artist}</div>
-                  </div>
-                  <span className={`chip ${item.tempo}`} style={{ fontSize: 11, flexShrink: 0 }}>
-                    {item.tempo === 'fast' ? <Icon name="fast" size={11} /> : <Icon name="slow" size={11} />}
-                    {item.tempo}
-                  </span>
+        ) : error || !lineup ? (
+          <Empty
+            icon="link"
+            title="This share link isn’t active"
+            body={error ?? 'Ask the sender for an updated lineup link.'}
+            action={
+              <Link to="/" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+                Open Aria Studio
+              </Link>
+            }
+          />
+        ) : (
+          <div className="stack">
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="share-hero stack-xs">
+                <span className="eyebrow" style={{ justifyContent: 'center' }}>
+                  Shared Lineup
+                </span>
+                <h1>{lineup.name}</h1>
+                <div
+                  className="row"
+                  style={{ justifyContent: 'center', flexWrap: 'wrap', gap: 6, marginTop: 6 }}
+                >
+                  {lineup.theme && <Chip tone="brand">{lineup.theme}</Chip>}
+                  <Chip>{lineup.items.length} parts</Chip>
+                  <Chip>Curated by {lineup.ownerName}</Chip>
                 </div>
-
-                {showParts ? (
-                  <div className="lyrics-lines">
-                    {item.lyrics.split(/\n/).map((line, i) => (
-                      <div className="lyric-line" key={i}>
-                        {line || '\u00A0'}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="tiny muted" style={{ marginTop: 6 }}>
-                    {item.partLabel}
-                  </div>
-                )}
               </div>
-            </article>
-          ))}
-        </div>
 
-        <div className="card tight" style={{ marginTop: 14, textAlign: 'center' }}>
-          <p className="tiny muted">
-            Shared from Aria · opening this link marks the lineup as used
-          </p>
-          <Link to="/">
-            <Button size="sm" variant="soft" style={{ marginTop: 8 }}>
-              <Icon name="songs" size={14} /> Build your own lineup
-            </Button>
-          </Link>
-        </div>
+              {lineup.items.map((item, i) => {
+                const lines = item.lyrics.split(/\r?\n/);
+                return (
+                  <div key={i} className="share-part">
+                    <div className="row-between" style={{ gap: 8 }}>
+                      <div className="row" style={{ gap: 10, minWidth: 0 }}>
+                        <span className="part-index">{i + 1}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 15 }} className="truncate">
+                            {item.songTitle}
+                          </div>
+                          <div className="tiny">
+                            {item.partLabel}
+                            {item.artist ? ` · ${item.artist}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <Chip tone={item.tempo}>
+                        <Icon name={item.tempo} size={12} />
+                        {item.tempo === 'fast' ? 'Fast' : 'Slow'}
+                      </Chip>
+                    </div>
+                    <div className="lyrics-lines">
+                      {lines.map((l, li) => (
+                        <div key={li} className="lyric-line">
+                          {l || '\u00A0'}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="card row-between" style={{ flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>Made with Aria</div>
+                <div className="tiny">Read-only lyric program · edits stay with the creator</div>
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                <Button onClick={copyUrl}>
+                  <Icon name="copy" size={14} /> Copy link
+                </Button>
+                <Link to="/" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+                  Open Aria
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+      <Toast message={toast} />
     </div>
   );
 }

@@ -111,7 +111,6 @@ export interface User {
   name: string;
   email?: string;
   createdAt: number;
-  isDemo?: boolean;
 }
 
 export interface AppState {
@@ -119,7 +118,6 @@ export interface AppState {
   teams: Team[];
   songs: Song[];
   lineups: Lineup[];
-  demoCode?: string;
 }
 
 export interface SharedLineupItem {

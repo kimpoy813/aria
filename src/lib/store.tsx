@@ -27,7 +27,8 @@ import {
 const THEME_KEY = 'aria.theme';
 const ONBOARDING_KEY = 'aria.onboarded';
 
-type ThemeMode = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark';
+export type ThemePreference = 'light' | 'dark' | 'system';
 type PopupStatus = 'idle' | 'completed' | 'error';
 
 interface StoreValue {
@@ -39,10 +40,12 @@ interface StoreValue {
   songs: Song[];
   lineups: Lineup[];
   theme: ThemeMode;
+  themePreference: ThemePreference;
   config: AuthConfig;
   onboarded: boolean;
   clearError: () => void;
   toggleTheme: () => void;
+  setThemePreference: (pref: ThemePreference) => void;
   completeOnboarding: () => void;
   replayOnboarding: () => void;
   signInWithAccount: (account: Account) => Promise<void>;
@@ -56,9 +59,13 @@ interface StoreValue {
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-function readTheme(): ThemeMode {
+function readThemePreference(): ThemePreference {
   const saved = localStorage.getItem(THEME_KEY);
-  if (saved === 'light' || saved === 'dark') return saved;
+  if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+  return 'system';
+}
+
+function resolveSystemTheme(): ThemeMode {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
@@ -67,7 +74,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [popupStatus, setPopupStatus] = useState<PopupStatus>('idle');
-  const [theme, setTheme] = useState<ThemeMode>(() => readTheme());
+  const [themePreference, setThemePrefState] = useState<ThemePreference>(() =>
+    readThemePreference(),
+  );
+  const [systemTheme, setSystemTheme] = useState<ThemeMode>(() => resolveSystemTheme());
+  const theme: ThemeMode = themePreference === 'system' ? systemTheme : themePreference;
   const [config, setConfig] = useState<AuthConfig>({
     driver: 'demo',
     supabaseUrl: null,
@@ -78,10 +89,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDING_KEY) === '1');
 
   useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const onChange = () => setSystemTheme(mq.matches ? 'dark' : 'light');
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(THEME_KEY, themePreference);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#071410' : '#ffffff');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#060e0b' : '#f5f8f6');
+  }, [theme, themePreference]);
+
+  const setThemePreference = useCallback((pref: ThemePreference) => {
+    setThemePrefState(pref);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setThemePrefState(theme === 'dark' ? 'light' : 'dark');
   }, [theme]);
 
   /** Load the signed-in account's library. No account -> empty state. */
@@ -254,10 +281,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       songs: state?.songs ?? [],
       lineups: state?.lineups ?? [],
       theme,
+      themePreference,
       config,
       onboarded,
       clearError,
-      toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
+      toggleTheme,
+      setThemePreference,
       completeOnboarding,
       replayOnboarding,
       signInWithAccount,
@@ -274,9 +303,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       popupStatus,
       state,
       theme,
+      themePreference,
       config,
       onboarded,
       clearError,
+      toggleTheme,
+      setThemePreference,
       completeOnboarding,
       replayOnboarding,
       signInWithAccount,

@@ -1,63 +1,60 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Logo } from '../components/Logo';
-import { Button, Icon, IconButton, type IconName } from '../components/ui';
+import { Wordmark } from '../components/Logo';
+import { Button, Icon, IconButton } from '../components/ui';
+import type { IconName } from '../components/Icon';
 import { useStore } from '../lib/store';
 
 interface Step {
   eyebrow: string;
   title: string;
   body: string;
-  points?: { icon: IconName; text: string }[];
-  art: 'songs' | 'classify' | 'lineup' | 'team';
+  points: { icon: IconName; text: string }[];
+  art: 'lyrics' | 'classify' | 'sequence' | 'team';
 }
 
 const STEPS: Step[] = [
   {
     eyebrow: 'Welcome to Aria',
-    title: 'Read the lyric.\nFind the message.\nBuild the set.',
-    body: 'Aria is a setlist companion. It reads your lyrics, names what the song is about, then helps you shape parts into lineups that never repeat themselves.',
-    art: 'songs',
-  },
-  {
-    eyebrow: 'Step 1 · Songs',
-    title: 'Add a song one\npart at a time.',
-    body: 'Type or paste each section separately — verse, chorus, bridge — and label it. Every part becomes a piece you can use on its own later.',
+    title: 'Structure every song,\npart by part.',
+    body:
+      'Capture verses, choruses, bridges, and outros as modular blocks so you can mix and arrange them effortlessly.',
     points: [
-      { icon: 'lyrics', text: 'Verse, chorus, bridge, pre-chorus, intro, outro' },
-      { icon: 'songs', text: 'Order parts, or repeat a chorus twice' },
+      { icon: 'lyrics', text: 'Paste full lyrics to split automatically, or craft part by part' },
+      { icon: 'fast', text: 'Tag each song as Fast or Slow to balance your setlist energy' },
     ],
-    art: 'songs',
+    art: 'lyrics',
   },
   {
-    eyebrow: 'Step 2 · Class & message',
-    title: 'Let the lyrics\nname themselves.',
-    body: 'Aria reads the words and tells you the class — love, faith, hope, longing, grief — with the line that carried it.',
+    eyebrow: 'Lyric Intelligence',
+    title: 'Lyrics reveal their\nown meaning.',
+    body:
+      'One tap reads your verses and choruses to classify the song’s core theme and summarize its emotional message.',
     points: [
-      { icon: 'sparkle', text: 'A class, a message, and how confident it is' },
-      { icon: 'fast', text: 'A tempo reading: fast or slow' },
+      { icon: 'sparkle', text: 'Eight lyrical classes: Love, Hope, Faith, Joy, Longing, and more' },
+      { icon: 'edit', text: 'Refine the suggested class or tempo anytime before saving' },
     ],
     art: 'classify',
   },
   {
-    eyebrow: 'Step 3 · Lineups',
-    title: 'Build by the part,\nnot the whole song.',
-    body: 'Drag a chorus from one song and a bridge from another. Need the chorus twice? Drop it in again.',
+    eyebrow: 'Sequence Builder',
+    title: 'Arrange balanced sets\nthat stay fresh.',
+    body:
+      'Drag parts across songs into custom sequences. Aria checks tempo balance and rotates least-recently-used lineups to the top.',
     points: [
-      { icon: 'drag', text: 'Drag parts in, reorder any time' },
-      { icon: 'fast', text: 'A lineup needs one fast and one slow track' },
-      { icon: 'clock', text: 'Least recently used sets are suggested first' },
+      { icon: 'lineup', text: 'Live guardrails ensure 2+ songs with both Fast and Slow dynamics' },
+      { icon: 'clock', text: 'Least-recently-used rotation keeps your setlists feeling fresh' },
     ],
-    art: 'lineup',
+    art: 'sequence',
   },
   {
-    eyebrow: 'Step 4 · Teams',
-    title: 'Share the room,\nnot just the link.',
-    body: 'Join a team with a code, then copy songs and lineups from each other. Sharing a lineup link marks it as used, so the next suggestion stays fresh.',
+    eyebrow: 'Teams & Sharing',
+    title: 'Collaborate cleanly,\nshare in one link.',
+    body:
+      'Create a team workspace to share songs and lineups, copy items to customize personally, and send read-only lyric sheets.',
     points: [
-      { icon: 'teams', text: 'Create a team, or join with a code' },
-      { icon: 'copy', text: 'Copy a song or a whole lineup' },
-      { icon: 'link', text: 'Send a view-only link with full lyrics' },
+      { icon: 'teams', text: 'Invite bandmates with a simple team code' },
+      { icon: 'share', text: 'Public share links open cleanly without requiring an account' },
     ],
     art: 'team',
   },
@@ -66,39 +63,43 @@ const STEPS: Step[] = [
 function Art({ kind }: { kind: Step['art'] }) {
   if (kind === 'classify') {
     return (
-      <div className="onb-art onb-art-card">
+      <div className="onb-art" aria-hidden="true">
         <div className="onb-class-row">
-          <span className="chip brand">Love</span>
-          <span className="onb-confidence">84% match</span>
+          <span className="chip brand">
+            <Icon name="sparkle" size={12} /> Hope
+          </span>
+          <span className="chip">Renewal</span>
+          <span className="onb-confidence">Strong match · 84%</span>
         </div>
         <div className="onb-bars">
-          <span style={{ width: '100%' }} />
-          <span style={{ width: '62%' }} />
-          <span style={{ width: '38%' }} />
+          <span style={{ width: '84%' }} />
+          <span style={{ width: '48%' }} />
+          <span style={{ width: '26%' }} />
         </div>
-        <p className="onb-quote">“Stay, stay, the harbor light is low”</p>
+        <p className="onb-quote">“Morning breaks across the quiet ridge”</p>
       </div>
     );
   }
 
-  if (kind === 'lineup') {
+  if (kind === 'sequence') {
     return (
-      <div className="onb-art onb-art-card onb-seq">
+      <div className="onb-art onb-seq" aria-hidden="true">
         {[
-          { part: 'Verse 1', song: 'Harbor Light', tone: 'slow' },
-          { part: 'Chorus', song: 'Paper Kites', tone: 'fast' },
-          { part: 'Bridge', song: 'Still Water', tone: 'slow' },
-        ].map((row, index) => (
-          <div className="onb-seq-row" key={row.part}>
+          { part: 'Verse 1', song: 'Opening Hymn', tone: 'slow' as const },
+          { part: 'Chorus', song: 'Rising Light', tone: 'fast' as const },
+          { part: 'Bridge', song: 'Quiet Anchor', tone: 'slow' as const },
+        ].map((row, idx) => (
+          <div key={row.part} className="onb-seq-row">
             <Icon name="drag" size={14} />
-            <span className="onb-seq-index">{index + 1}</span>
-            <span className="chip brand">{row.part}</span>
-            <span className="truncate small">{row.song}</span>
-            <Icon name={row.tone === 'fast' ? 'fast' : 'slow'} size={14} />
+            <span className="onb-seq-index">{idx + 1}</span>
+            <span className={`chip ${row.tone}`}>{row.part}</span>
+            <span className="small truncate">{row.song}</span>
+            <Icon name={row.tone} size={14} />
           </div>
         ))}
         <div className="onb-seq-foot">
-          <Icon name="clock" size={14} /> Least recently used
+          <Icon name="clock" size={12} />
+          <span>Balanced Fast + Slow · Ready for rotation</span>
         </div>
       </div>
     );
@@ -106,159 +107,159 @@ function Art({ kind }: { kind: Step['art'] }) {
 
   if (kind === 'team') {
     return (
-      <div className="onb-art onb-art-card onb-team">
-        <div className="onb-code">ARIA-123</div>
+      <div className="onb-art onb-team" aria-hidden="true">
+        <span className="tiny muted">Team invite code</span>
+        <div className="onb-code">ARIA-•••</div>
         <div className="onb-members">
-          {['AS', 'YOU'].map((initials) => (
-            <span key={initials} className="onb-avatar">
-              {initials}
+          {['AR', 'JM', 'KL'].map((init) => (
+            <span key={init} className="onb-avatar">
+              {init}
             </span>
           ))}
           <span className="onb-avatar onb-avatar-add">
-            <Icon name="add" size={14} />
+            <Icon name="add" size={12} />
           </span>
         </div>
         <div className="onb-team-row">
-          <Icon name="copy" size={14} /> Copied “Faith &amp; Hope Opener”
+          <Icon name="share" size={14} />
+          <span>Share read-only lyric programs in one tap</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="onb-art onb-art-card onb-song">
-      <div className="onb-song-title">Harbor Light</div>
-      <div className="onb-part-tag">Verse 1</div>
-      <div className="onb-lines">
-        <span style={{ width: '92%' }} />
-        <span style={{ width: '78%' }} />
-        <span style={{ width: '86%' }} />
+    <div className="onb-art" aria-hidden="true">
+      <div className="row-between">
+        <span className="onb-song-title">Morning Anthem</span>
+        <span className="chip slow">
+          <Icon name="slow" size={12} /> Slow
+        </span>
       </div>
-      <div className="onb-part-tag">Chorus</div>
-      <div className="onb-lines">
-        <span style={{ width: '88%' }} />
-        <span style={{ width: '64%' }} />
-      </div>
+      {['Verse 1', 'Chorus', 'Bridge'].map((label, idx) => (
+        <div key={label} className="onb-part">
+          <span className="onb-part-tag">{label}</span>
+          <div className="onb-lines">
+            <span style={{ width: idx === 1 ? '88%' : '76%' }} />
+            <span style={{ width: idx === 2 ? '56%' : '66%' }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
 export function OnboardingPage({ replay = false }: { replay?: boolean }) {
+  const { completeOnboarding, theme, toggleTheme } = useStore();
   const navigate = useNavigate();
-  const { completeOnboarding, joinTeam, user } = useStore();
-  const [step, setStep] = useState(0);
-  const [joined, setJoined] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [index, setIndex] = useState(0);
 
-  const current = STEPS[step];
-  const last = step === STEPS.length - 1;
+  const step = STEPS[index];
+  const last = index === STEPS.length - 1;
 
-  const finish = () => {
+  const finish = (destination = '/') => {
     completeOnboarding();
-    navigate('/', { replace: true });
+    navigate(destination, { replace: true });
   };
 
-  const next = () => {
-    if (last) finish();
-    else setStep((s) => s + 1);
-  };
-
-  const joinDemo = async () => {
-    setBusy(true);
-    try {
-      await joinTeam('ARIA-123');
-      setJoined(true);
-    } catch {
-      /* the team may already be joined or removed */
-    } finally {
-      setBusy(false);
-    }
-  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' && index < STEPS.length - 1) setIndex((i) => i + 1);
+      if (e.key === 'ArrowLeft' && index > 0) setIndex((i) => i - 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [index]);
 
   return (
     <div className="onb">
       <header className="onb-top">
-        <span className="wordmark onb-brand">
-          <Logo size={24} />
-          Aria
-        </span>
-        <button type="button" className="link-button onb-skip" onClick={finish}>
-          {replay ? 'Close' : 'Skip'}
-        </button>
+        <Wordmark size={26} />
+        <div className="row" style={{ gap: 8 }}>
+          <IconButton
+            label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
+          </IconButton>
+          <button type="button" className="link-button onb-skip" onClick={() => finish('/')}>
+            {replay ? 'Close' : 'Skip'}
+          </button>
+        </div>
       </header>
 
-      <div className="onb-body" key={step}>
+      <div className="onb-body" key={index}>
+        <Art kind={step.art} />
+
         <div className="onb-head">
-          <div className="eyebrow">{current.eyebrow}</div>
-          <h1 className="onb-title">{current.title}</h1>
-          <p className="onb-copy">{current.body}</p>
+          <span className="eyebrow">
+            Step {index + 1} of {STEPS.length} · {step.eyebrow}
+          </span>
+          <h1 className="onb-title">{step.title}</h1>
+          <p className="onb-copy">{step.body}</p>
         </div>
 
-        <Art kind={current.art} />
-
-        {current.points ? (
-          <ul className="onb-points">
-            {current.points.map((point) => (
-              <li key={point.text}>
-                <span className="onb-point-icon">
-                  <Icon name={point.icon} size={16} />
-                </span>
-                {point.text}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        {last && user ? (
-          <div className="onb-cta">
-            <div className="onb-cta-text">
-              <strong>Try it with the demo team</strong>
-              <span className="small muted">Code ARIA-123 · starter songs included</span>
-            </div>
-            <Button
-              size="sm"
-              variant={joined ? 'soft' : 'default'}
-              onClick={joinDemo}
-              disabled={busy || joined}
-            >
-              {joined ? (
-                <>
-                  <Icon name="check" size={14} /> Joined
-                </>
-              ) : (
-                'Join team'
-              )}
-            </Button>
-          </div>
-        ) : null}
+        <ul className="onb-points">
+          {step.points.map((point) => (
+            <li key={point.text}>
+              <span className="onb-point-icon">
+                <Icon name={point.icon} size={16} />
+              </span>
+              <span>{point.text}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <footer className="onb-foot">
-        <div className="onb-dots" role="tablist" aria-label="Onboarding progress">
+        <div className="onb-dots" role="tablist" aria-label="Onboarding steps">
           {STEPS.map((s, i) => (
             <button
               key={s.eyebrow}
               type="button"
               role="tab"
-              aria-selected={i === step}
+              aria-selected={i === index}
               aria-label={`Step ${i + 1}: ${s.eyebrow}`}
-              className={`onb-dot ${i === step ? 'active' : ''}`}
-              onClick={() => setStep(i)}
+              className={`onb-dot ${i === index ? 'active' : ''}`}
+              onClick={() => setIndex(i)}
             />
           ))}
         </div>
+
         <div className="onb-actions">
-          {step > 0 ? (
-            <IconButton label="Previous step" onClick={() => setStep((s) => s - 1)}>
+          {index > 0 ? (
+            <IconButton label="Previous step" onClick={() => setIndex((i) => i - 1)}>
               <Icon name="back" size={18} />
             </IconButton>
           ) : (
             <span />
           )}
-          <Button variant="primary" onClick={next} className="onb-next">
-            {last ? 'Start with my songs' : 'Next'}
-            <Icon name="chevronRight" size={16} />
-          </Button>
+
+          {last ? (
+            <div className="row" style={{ flex: 1, gap: 8 }}>
+              {!replay && (
+                <Button
+                  className="onb-next"
+                  onClick={() => finish('/songs/new')}
+                >
+                  <Icon name="add" size={16} /> Add first song
+                </Button>
+              )}
+              <Button variant="primary" className="onb-next" onClick={() => finish('/')}>
+                {replay ? 'Back to studio' : 'Open studio'}
+                <Icon name="chevronRight" size={16} />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              className="onb-next"
+              onClick={() => setIndex((i) => i + 1)}
+            >
+              Continue
+              <Icon name="chevronRight" size={16} />
+            </Button>
+          )}
         </div>
       </footer>
     </div>

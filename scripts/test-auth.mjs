@@ -101,7 +101,12 @@ console.log('\nAria · auth test\n\n1. Demo driver (local accounts)');
 
   const state = await api('GET', '/api/state', token);
   check('token identifies the caller', state.data?.user?.name === 'Kim');
-  check('new accounts get a starter library', state.data?.songs?.length === 4);
+  check(
+    'new accounts start with a clean empty library (no demo data)',
+    state.data?.songs?.length === 0 &&
+      state.data?.lineups?.length === 0 &&
+      state.data?.teams?.length === 0,
+  );
 
   const dup = await api('POST', '/api/auth/register', null, {
     email: 'KIM@example.com',
