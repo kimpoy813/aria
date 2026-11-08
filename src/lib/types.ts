@@ -46,6 +46,7 @@ export interface Analysis {
   signals: ThemeScore[];
   parts: PartSignal[];
   generatedAt: number;
+  manualOverride?: boolean;
 }
 
 export interface Song {

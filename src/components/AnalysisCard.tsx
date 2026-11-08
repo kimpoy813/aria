@@ -2,14 +2,15 @@ import type { Analysis } from '../lib/types';
 import { Chip } from './ui';
 
 /**
- * Minimalist lyric analysis summary: detected class, confidence, and core message.
+ * Clean, minimal lyric classification summary: worship theme, message, and optional edit trigger.
  */
 export function AnalysisCard({
   analysis,
-  compact,
+  onEdit,
 }: {
   analysis: Analysis;
   compact?: boolean;
+  onEdit?: () => void;
 }) {
   const pct =
     analysis.confidence <= 1
@@ -21,18 +22,18 @@ export function AnalysisCard({
       <div className="row-between" style={{ gap: 8 }}>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <Chip tone="brand">{analysis.theme}</Chip>
-          {analysis.toneLabel && <Chip>{analysis.toneLabel}</Chip>}
+          {analysis.manualOverride && <span className="tiny">Edited</span>}
         </div>
-        <span className="tiny">{pct}% match</span>
+        {onEdit ? (
+          <button type="button" className="link-button tiny" onClick={onEdit}>
+            Edit message
+          </button>
+        ) : (
+          !analysis.manualOverride && <span className="tiny">{pct}% match</span>
+        )}
       </div>
 
       <p className="analysis-message">{analysis.message}</p>
-
-      {!compact && analysis.evidence && analysis.evidence.length > 0 && (
-        <blockquote className="analysis-quote">
-          “{analysis.evidence[0].replace(/^["“”]+|["“”]+$/g, '')}”
-        </blockquote>
-      )}
     </div>
   );
 }

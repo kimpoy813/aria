@@ -191,7 +191,8 @@ My anchor is holding secure
     );
 
     // 1f. Christian / Church worship classification & message
-    const { analyzeLyrics } = await vite.ssrLoadModule('/src/lib/nlp.ts');
+    const { analyzeLyrics, applyClassificationOverride, defaultMessageForTheme } =
+      await vite.ssrLoadModule('/src/lib/nlp.ts');
     const graceAnalysis = analyzeLyrics([
       {
         id: 'p1',
@@ -205,6 +206,19 @@ My anchor is holding secure
       graceAnalysis.theme === 'Grace & Salvation' &&
         /cross|Christ|salvation/i.test(graceAnalysis.message),
       `${graceAnalysis.theme}: ${graceAnalysis.message}`,
+    );
+
+    const overridden = applyClassificationOverride(graceAnalysis, {
+      theme: 'Surrender & Devotion',
+      message: 'A personal prayer of full surrender to Jesus as Lord over every area of life.',
+    });
+    check(
+      'allows user to override classified worship theme and message when they know the song message',
+      overridden.theme === 'Surrender & Devotion' &&
+        overridden.message ===
+          'A personal prayer of full surrender to Jesus as Lord over every area of life.' &&
+        overridden.manualOverride === true &&
+        Boolean(defaultMessageForTheme('Hope & Heaven').message),
     );
 
     const fatherLoveAnalysis = analyzeLyrics([
@@ -362,6 +376,18 @@ My anchor is holding secure
       path.join(process.cwd(), 'src', 'pages', 'BuilderPage.tsx'),
       'utf8',
     );
+    const homeSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'pages', 'HomePage.tsx'),
+      'utf8',
+    );
+    const lineupsSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'pages', 'LineupsPage.tsx'),
+      'utf8',
+    );
+    const songFormSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'pages', 'SongFormPage.tsx'),
+      'utf8',
+    );
     const stylesSrc = fs.readFileSync(
       path.join(process.cwd(), 'src', 'styles.css'),
       'utf8',
@@ -371,6 +397,23 @@ My anchor is holding secure
       !builderSrc.includes('songs.slice(0, 3)') &&
         builderSrc.includes('const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})') &&
         /\.part-chip\s*\{[\s\S]*?touch-action:\s*manipulation/m.test(stylesSrc),
+    );
+    check(
+      'BuilderPage displays a prominent labeled Lineup title input',
+      builderSrc.includes('id="lineup-title"') &&
+        builderSrc.includes('lineup-title-input') &&
+        stylesSrc.includes('.lineup-title-input'),
+    );
+    check(
+      'SongFormPage lets users directly edit the classified song message',
+      songFormSrc.includes('id="song-message"') &&
+        songFormSrc.includes('applyClassificationOverride'),
+    );
+    check(
+      'HomePage and LineupsPage stay minimal without redundant stat grids or part-count clutter',
+      !homeSrc.includes('home-stats') &&
+        !homeSrc.includes('parts.join(') &&
+        !lineupsSrc.includes('parts ·'),
     );
     check(
       'App CSS enforces a disciplined neutral + single brand accent palette (no orange/blue tempo rainbow)',

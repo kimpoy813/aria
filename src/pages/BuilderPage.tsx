@@ -55,10 +55,12 @@ export function BuilderPage() {
   const [dropActive, setDropActive] = useState(false);
 
   const [touchDrag, setTouchDrag] = useState<TouchDragState | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dropzoneRef = useRef<HTMLDivElement | null>(null);
 
   const [previewSlot, setPreviewSlot] = useState<{ song: Song; part: SongPart } | null>(null);
+  const [titleMissing, setTitleMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -296,8 +298,11 @@ export function BuilderPage() {
   const save = async () => {
     setError(null);
     if (!name.trim()) {
-      setError('Name this lineup.');
-      return showToast('Enter a lineup name', 'error');
+      setTitleMissing(true);
+      setError('Enter a title for this lineup.');
+      nameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      nameInputRef.current?.focus();
+      return showToast('Enter a lineup title', 'error');
     }
     if (resolved.length < 2) {
       setError('Add at least two parts.');
@@ -343,65 +348,93 @@ export function BuilderPage() {
     <div className="stack">
       <BackBar
         onBack={() => navigate(editing && existing ? `/lineups/${existing.id}` : '/lineups')}
+        label={editing ? 'Lineup' : 'Lineups'}
       />
 
-      <input
-        aria-label="Lineup name"
-        className="input title-input"
-        placeholder="Lineup name…"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-
-      <div className="guardrail-bar" aria-label="Requirements">
-        <span className={`guardrail-pill ${checks.parts ? 'ok' : ''}`}>
-          {resolved.length}/2 parts
-        </span>
-        <span className={`guardrail-pill ${checks.songs ? 'ok' : ''}`}>
-          {songCount}/2 songs
-        </span>
-        <span className={`guardrail-pill ${checks.fast ? 'ok' : ''}`}>
-          {fastCount} fast
-        </span>
-        <span className={`guardrail-pill ${checks.slow ? 'ok' : ''}`}>
-          {slowCount} slow
-        </span>
+      <div className="page-head">
+        <h1>{editing ? 'Edit lineup' : 'New lineup'}</h1>
       </div>
 
-      <div className="row" style={{ gap: 8 }}>
-        <select
-          aria-label="Lineup class"
-          className="select"
-          style={{ flex: 1 }}
-          value={theme}
-          onChange={(e) => setTheme(e.target.value)}
-        >
-          <option value="">
-            {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto class'}
-          </option>
-          {THEME_LIST.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+      <div
+        className={`card stack lineup-title-card ${
+          titleMissing ? 'lineup-title-card-error' : ''
+        }`}
+      >
+        <div className="field">
+          <label htmlFor="lineup-title" className="lineup-title-label">
+            Lineup title
+          </label>
+          <input
+            ref={nameInputRef}
+            id="lineup-title"
+            aria-label="Lineup title"
+            className={`input lineup-title-input ${titleMissing ? 'input-error' : ''}`}
+            placeholder="e.g. Sunday Morning Worship"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (titleMissing) setTitleMissing(false);
+              if (error) setError(null);
+            }}
+          />
+        </div>
 
-        {teams.length > 0 && (
-          <select
-            aria-label="Visibility"
-            className="select"
-            style={{ flex: 1 }}
-            value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
-          >
-            <option value="">Personal</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+        <div className="row" style={{ gap: 8 }}>
+          <div className="field" style={{ flex: 1 }}>
+            <label htmlFor="lineup-theme">Worship theme</label>
+            <select
+              id="lineup-theme"
+              aria-label="Lineup class"
+              className="select"
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+            >
+              <option value="">
+                {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto-detect'}
               </option>
-            ))}
-          </select>
-        )}
+              {THEME_LIST.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {teams.length > 0 && (
+            <div className="field" style={{ flex: 1 }}>
+              <label htmlFor="lineup-team">Visibility</label>
+              <select
+                id="lineup-team"
+                aria-label="Visibility"
+                className="select"
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+              >
+                <option value="">Personal</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="guardrail-bar" aria-label="Requirements">
+          <span className={`guardrail-pill ${checks.parts ? 'ok' : ''}`}>
+            {resolved.length}/2 parts
+          </span>
+          <span className={`guardrail-pill ${checks.songs ? 'ok' : ''}`}>
+            {songCount}/2 songs
+          </span>
+          <span className={`guardrail-pill ${checks.fast ? 'ok' : ''}`}>
+            {fastCount} fast
+          </span>
+          <span className={`guardrail-pill ${checks.slow ? 'ok' : ''}`}>
+            {slowCount} slow
+          </span>
+        </div>
       </div>
 
       <div className="stack-sm">

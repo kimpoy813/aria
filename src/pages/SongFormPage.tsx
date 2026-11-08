@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AnalysisCard } from '../components/AnalysisCard';
 import { BackBar, Button, Chip, Icon, IconButton, Sheet, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
 import {
@@ -8,7 +7,13 @@ import {
   shouldAutoSplitPaste,
   splitPastedLyrics,
 } from '../lib/lyricSplit';
-import { PART_KINDS, THEME_LIST, analyzeLyrics } from '../lib/nlp';
+import {
+  PART_KINDS,
+  THEME_LIST,
+  analyzeLyrics,
+  applyClassificationOverride,
+  defaultMessageForTheme,
+} from '../lib/nlp';
 import { useStore } from '../lib/store';
 import type { Analysis, PartKind, SongPart, Tempo } from '../lib/types';
 
@@ -35,6 +40,10 @@ export function SongFormPage() {
   const [tempoTouched, setTempoTouched] = useState(Boolean(existing));
   const [theme, setTheme] = useState(existing?.theme ?? '');
   const [themeTouched, setThemeTouched] = useState(Boolean(existing?.theme));
+  const [messageDraft, setMessageDraft] = useState(existing?.analysis?.message ?? '');
+  const [messageTouched, setMessageTouched] = useState(
+    Boolean(existing?.analysis?.manualOverride),
+  );
   const [teamId, setTeamId] = useState<string>(existing?.teamId ?? '');
   const [parts, setParts] = useState<SongPart[]>(() => {
     if (existing?.parts.length) return existing.parts.map((p) => ({ ...p }));
@@ -74,28 +83,45 @@ export function SongFormPage() {
     const filled = parts.filter((p) => p.lyrics.trim().length > 0);
     if (filled.length === 0) {
       setAnalysis(null);
+      if (!messageTouched) setMessageDraft('');
       return;
     }
     const timer = window.setTimeout(() => {
       const result = analyzeLyrics(filled, title);
       setAnalysis(result);
+      const activeTheme = themeTouched && theme.trim() ? theme.trim() : result.theme;
       if (!themeTouched) {
         setTheme(result.theme);
+      }
+      if (!messageTouched) {
+        setMessageDraft(
+          activeTheme.toLowerCase() === result.theme.toLowerCase()
+            ? result.message
+            : defaultMessageForTheme(activeTheme).message,
+        );
       }
       if (!tempoTouched && result.suggestedTempo) {
         setTempo(result.suggestedTempo);
       }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [parts, title, themeTouched, tempoTouched]);
+  }, [parts, title, theme, themeTouched, messageTouched, tempoTouched]);
 
   const runAutoClassifyImmediate = (nextParts: SongPart[], nextTitle = title) => {
     const filled = nextParts.filter((p) => p.lyrics.trim().length > 0);
     if (filled.length === 0) return null;
     const result = analyzeLyrics(filled, nextTitle);
     setAnalysis(result);
+    const activeTheme = themeTouched && theme.trim() ? theme.trim() : result.theme;
     if (!themeTouched) {
       setTheme(result.theme);
+    }
+    if (!messageTouched) {
+      setMessageDraft(
+        activeTheme.toLowerCase() === result.theme.toLowerCase()
+          ? result.message
+          : defaultMessageForTheme(activeTheme).message,
+      );
     }
     if (!tempoTouched && result.suggestedTempo) {
       setTempo(result.suggestedTempo);
@@ -291,11 +317,13 @@ export function SongFormPage() {
     showToast(`Split into ${split.parts.length} parts`, 'success');
   };
 
-  const generate = () => {
+  const resetToAutoClassification = () => {
     setError(null);
     if (!hasLyrics) {
-      setError('Add lyrics to at least one part.');
-      showToast('Add lyrics to at least one part', 'error');
+      setThemeTouched(false);
+      setMessageTouched(false);
+      setTheme('');
+      setMessageDraft('');
       return;
     }
     const filled = parts.filter((p) => p.lyrics.trim().length > 0);
@@ -303,10 +331,12 @@ export function SongFormPage() {
     setAnalysis(result);
     setTheme(result.theme);
     setThemeTouched(false);
+    setMessageDraft(result.message);
+    setMessageTouched(false);
     if (!tempoTouched && result.suggestedTempo) {
       setTempo(result.suggestedTempo);
     }
-    showToast(`Classified: ${result.theme}`, 'success');
+    showToast(`Auto-classified: ${result.theme}`, 'success');
   };
 
   const submit = async () => {
@@ -322,11 +352,27 @@ export function SongFormPage() {
       return showToast('Paste or type lyrics into at least one part', 'error');
     }
 
-    // Compute fresh analysis automatically so the user never has to click Classify manually first
-    const finalAnalysis = analyzeLyrics(filled, title.trim());
+    const autoAnalysis = analyzeLyrics(filled, title.trim());
+    const finalTheme =
+      themeTouched && theme.trim() ? theme.trim() : autoAnalysis.theme;
+    const finalMessage =
+      messageTouched && messageDraft.trim()
+        ? messageDraft.trim()
+        : finalTheme.toLowerCase() !== autoAnalysis.theme.toLowerCase()
+          ? defaultMessageForTheme(finalTheme).message
+          : autoAnalysis.message;
+
+    const isManual =
+      (themeTouched && finalTheme !== autoAnalysis.theme) ||
+      (messageTouched && finalMessage !== autoAnalysis.message);
+
+    const finalAnalysis = applyClassificationOverride(autoAnalysis, {
+      theme: finalTheme,
+      message: finalMessage,
+      manualOverride: isManual,
+    });
     setAnalysis(finalAnalysis);
-    const finalTheme = (themeTouched && theme.trim()) ? theme.trim() : finalAnalysis.theme;
-    const finalTempo = tempoTouched ? tempo : (finalAnalysis.suggestedTempo || tempo);
+    const finalTempo = tempoTouched ? tempo : autoAnalysis.suggestedTempo || tempo;
 
     setBusy(true);
     try {
@@ -554,43 +600,80 @@ export function SongFormPage() {
 
       <div className="card stack">
         <div className="row-between">
-          <span className="label">Worship Classification</span>
-          {hasLyrics && <span className="tiny">Auto-detected</span>}
+          <span className="label">Song Message & Theme</span>
+          {(themeTouched || messageTouched) && hasLyrics ? (
+            <button
+              type="button"
+              className="link-button tiny"
+              onClick={resetToAutoClassification}
+            >
+              Reset to auto
+            </button>
+          ) : hasLyrics && analysis ? (
+            <span className="tiny">
+              Auto-detected ·{' '}
+              {analysis.confidence <= 1
+                ? Math.round(analysis.confidence * 100)
+                : Math.round(analysis.confidence)}
+              %
+            </span>
+          ) : null}
         </div>
 
-        {analysis && hasLyrics ? (
-          <>
-            <AnalysisCard analysis={analysis} />
-            <div className="field">
-              <label htmlFor="song-class">Worship Theme</label>
-              <select
-                id="song-class"
-                className="select"
-                value={theme || analysis.theme}
-                onChange={(e) => {
-                  setTheme(e.target.value);
-                  setThemeTouched(true);
-                }}
-              >
-                {(theme && !THEME_LIST.includes(theme) ? [theme, ...THEME_LIST] : THEME_LIST).map(
-                  (c) => (
-                    <option key={c} value={c}>
-                      {c}
-                      {c === analysis.theme ? ' (detected)' : ''}
-                    </option>
-                  ),
-                )}
-              </select>
-            </div>
-            <Button variant="default" block onClick={generate}>
-              <Icon name="sparkle" size={14} /> Refresh analysis
-            </Button>
-          </>
-        ) : (
-          <p className="tiny">
-            Paste or type your song lyrics above — Aria automatically classifies the Christian worship theme and core message.
-          </p>
-        )}
+        <div className="field">
+          <label htmlFor="song-class">Worship theme</label>
+          <select
+            id="song-class"
+            className="select"
+            value={theme || analysis?.theme || ''}
+            onChange={(e) => {
+              const nextTheme = e.target.value;
+              setTheme(nextTheme);
+              setThemeTouched(true);
+              if (!messageTouched) {
+                if (analysis && nextTheme === analysis.theme) {
+                  setMessageDraft(analysis.message);
+                } else if (nextTheme) {
+                  setMessageDraft(defaultMessageForTheme(nextTheme).message);
+                }
+              }
+            }}
+          >
+            {!hasLyrics && !theme && (
+              <option value="">Auto-detect from lyrics…</option>
+            )}
+            {(theme && !THEME_LIST.includes(theme) ? [theme, ...THEME_LIST] : THEME_LIST).map(
+              (c) => (
+                <option key={c} value={c}>
+                  {c}
+                  {analysis && c === analysis.theme ? ' (detected)' : ''}
+                </option>
+              ),
+            )}
+          </select>
+        </div>
+
+        <div className="field">
+          <label htmlFor="song-message">Classified message</label>
+          <textarea
+            id="song-message"
+            className="textarea"
+            rows={3}
+            value={messageDraft}
+            onChange={(e) => {
+              setMessageDraft(e.target.value);
+              setMessageTouched(true);
+            }}
+            placeholder={
+              hasLyrics
+                ? 'Edit the worship message if you know what this song is about…'
+                : 'Auto-filled once lyrics are added — or type your own song message here…'
+            }
+          />
+          <span className="hint">
+            You can edit this message anytime if the automatic classification isn’t exact.
+          </span>
+        </div>
       </div>
 
       {error && (

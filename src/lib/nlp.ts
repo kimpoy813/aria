@@ -786,13 +786,6 @@ function confidenceOf(signals: ThemeScore[], wordCount: number, partAgreementRat
   return Math.round(Math.max(0.38, Math.min(0.98, raw)) * 100);
 }
 
-const describeKeywords = (keywords: string[]) => {
-  if (keywords.length === 0) return 'scriptural devotion and worship';
-  if (keywords.length === 1) return keywords[0];
-  if (keywords.length === 2) return `${keywords[0]} and ${keywords[1]}`;
-  return `${keywords.slice(0, 3).join(', ')}`;
-};
-
 function keywordsOf(matched: Map<string, number>, text: string): string[] {
   const seenLemmas = new Set<string>();
   const distinct: string[] = [];
@@ -868,19 +861,14 @@ export function analyzeLyrics(parts: SongPart[], title = ''): Analysis {
     : 'This song invites the church into Christian worship and reflection — fixing hearts and minds on the Lord.';
 
   const secondaryNote = secondaryTheme
-    ? ` Also carries strong themes of ${secondaryTheme}.`
+    ? ` Carries related themes of ${secondaryTheme}.`
     : '';
 
   const serviceGuidance = profile
     ? ` ${profile.serviceMoment}`
     : ' Suitable for devotional worship or congregational reflection.';
 
-  const keywordNote =
-    keywords.length > 0
-      ? ` Key scriptural expressions: ${describeKeywords(keywords)}.`
-      : '';
-
-  const message = `${core}${secondaryNote}${serviceGuidance}${keywordNote}`;
+  const message = `${core}${secondaryNote}${serviceGuidance}`;
 
   const evidence: string[] = [];
   if (raw.topLine) evidence.push(raw.topLine);
@@ -923,6 +911,55 @@ export function effectiveAnalysis(song: {
 }
 
 export const THEME_LIST = [...THEMES.map((t) => t.key), 'Worship & Reflection'];
+
+export function defaultMessageForTheme(theme: string): { message: string; about: string } {
+  const trimmed = theme.trim();
+  const profile = THEMES.find((t) => t.key.toLowerCase() === trimmed.toLowerCase());
+  if (profile) {
+    return {
+      message: `${profile.core} ${profile.serviceMoment}`,
+      about: profile.about,
+    };
+  }
+  if (!trimmed || trimmed.toLowerCase() === 'worship & reflection') {
+    return {
+      message:
+        'This song invites the church into Christian worship and reflection — fixing hearts and minds on the Lord. Suitable for devotional worship or congregational reflection.',
+      about: 'Christian worship and reflection before God',
+    };
+  }
+  return {
+    message: `This song leads the church in ${trimmed} — centering hearts and minds on Christ.`,
+    about: trimmed,
+  };
+}
+
+export function applyClassificationOverride(
+  base: Analysis,
+  opts: {
+    theme?: string;
+    message?: string;
+    manualOverride?: boolean;
+  },
+): Analysis {
+  const nextTheme = opts.theme?.trim() || base.theme;
+  const fallback =
+    nextTheme.toLowerCase() !== base.theme.toLowerCase()
+      ? defaultMessageForTheme(nextTheme)
+      : { message: base.message, about: base.about };
+  const nextMessage = opts.message?.trim() || fallback.message;
+  const isManual =
+    opts.manualOverride ??
+    (nextTheme !== base.theme || nextMessage !== base.message);
+
+  return {
+    ...base,
+    theme: nextTheme,
+    message: nextMessage,
+    about: fallback.about,
+    manualOverride: isManual,
+  };
+}
 
 /** How strongly a song belongs to a given class/message (0-100). */
 export function themeMatch(
