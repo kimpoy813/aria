@@ -143,6 +143,7 @@ begin
       declare
         v_uid text := public.aria_caller_id();
         v_team_ids text[];
+        v_teammate_ids text[];
         v_ref_song_ids text[];
         v_users jsonb;
         v_teams jsonb;
@@ -164,6 +165,21 @@ begin
                   where m->>'userId' = v_uid
                );
 
+        select coalesce(array_agg(distinct uid_val), array[]::text[])
+          into v_teammate_ids
+          from (
+            select t.owner_id as uid_val
+              from public.teams t
+             where t.id = any(v_team_ids)
+            union
+            select m->>'userId' as uid_val
+              from public.teams t,
+                   jsonb_array_elements(coalesce(t.members, '[]'::jsonb)) m
+             where t.id = any(v_team_ids)
+               and m->>'userId' is not null
+          ) sub
+         where uid_val is not null and uid_val <> v_uid;
+
         select coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb)
           into v_teams
           from public.teams t
@@ -173,26 +189,33 @@ begin
           into v_lineups
           from public.lineups l
          where l.owner_id = v_uid
+            or l.owner_id = any(v_teammate_ids)
             or (l.team_id is not null and l.team_id = any(v_team_ids));
 
         select coalesce(array_agg(distinct item->>'songId'), array[]::text[])
           into v_ref_song_ids
           from public.lineups l,
                jsonb_array_elements(coalesce(l.items, '[]'::jsonb)) item
-         where (l.owner_id = v_uid or (l.team_id is not null and l.team_id = any(v_team_ids)))
+         where (
+                 l.owner_id = v_uid
+                 or l.owner_id = any(v_teammate_ids)
+                 or (l.team_id is not null and l.team_id = any(v_team_ids))
+               )
            and item->>'songId' is not null;
 
         select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb)
           into v_songs
           from public.songs s
          where s.owner_id = v_uid
+            or s.owner_id = any(v_teammate_ids)
             or (s.team_id is not null and s.team_id = any(v_team_ids))
             or s.id = any(v_ref_song_ids);
 
         select coalesce(jsonb_agg(to_jsonb(u)), '[]'::jsonb)
           into v_users
           from public.users u
-         where u.id = v_uid;
+         where u.id = v_uid
+            or u.id = any(v_teammate_ids);
 
         select s.data
           into v_settings
@@ -448,8 +471,8 @@ begin
            where m->>'userId' <> v_uid;
 
           if jsonb_array_length(v_members) = 0 then
-            delete from public.songs where team_id = v_row.id and owner_id = v_uid;
-            delete from public.lineups where team_id = v_row.id and owner_id = v_uid;
+            update public.songs set team_id = null where team_id = v_row.id;
+            update public.lineups set team_id = null where team_id = v_row.id;
             delete from public.teams where id = v_row.id;
           else
             if v_row.owner_id = v_uid then
@@ -479,16 +502,23 @@ begin
            where id = (p_team->>'id')
              and (
                owner_id = v_uid
-               or (
-                 team_id is not null
-                 and exists (
-                   select 1 from public.teams t
-                    where t.id = public.lineups.team_id
-                      and exists (
-                        select 1 from jsonb_array_elements(coalesce(t.members, '[]'::jsonb)) m
-                         where m->>'userId' = v_uid
-                      )
-                 )
+               or exists (
+                 select 1 from public.teams t
+                  where (
+                          t.owner_id = v_uid
+                          or exists (
+                            select 1 from jsonb_array_elements(coalesce(t.members, '[]'::jsonb)) m1
+                             where m1->>'userId' = v_uid
+                          )
+                        )
+                    and (
+                          t.owner_id = public.lineups.owner_id
+                          or t.id = public.lineups.team_id
+                          or exists (
+                            select 1 from jsonb_array_elements(coalesce(t.members, '[]'::jsonb)) m2
+                             where m2->>'userId' = public.lineups.owner_id
+                          )
+                        )
                )
              );
           return jsonb_build_object('ok', true);

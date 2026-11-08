@@ -98,7 +98,7 @@ export function SongDetailPage() {
     try {
       const res = await api.copySong(song.id);
       await refresh();
-      showToast('Saved to your library', 'success');
+      showToast(`Copied “${song.title}” to your account`, 'success');
       navigate(`/songs/${res.song.id}`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not copy', 'error');
@@ -166,7 +166,7 @@ export function SongDetailPage() {
             </div>
           ) : (
             <Button variant="primary" onClick={copyToMine} disabled={busy}>
-              <Icon name="copy" size={14} /> Copy
+              <Icon name="copy" size={14} /> {busy ? 'Copying…' : 'Copy song'}
             </Button>
           )
         }

@@ -98,8 +98,8 @@ export function LineupViewPage() {
     try {
       const res = await api.copyLineup(lineup.id);
       await refresh();
-      showToast('Copied to your lineups', 'success');
-      navigate(`/lineups/${res.lineup.id}/edit`);
+      showToast(`Copied “${lineup.name}” to your account`, 'success');
+      navigate(`/lineups/${res.lineup.id}`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not copy', 'error');
     } finally {
@@ -120,7 +120,11 @@ export function LineupViewPage() {
     }
   };
 
-  const metaParts = [lineup.theme || null, team?.name || null].filter(Boolean);
+  const metaParts = [
+    !mine ? `by ${lineup.ownerName}` : null,
+    lineup.theme || null,
+    team?.name || null,
+  ].filter(Boolean);
 
   return (
     <div className="stack">
@@ -129,11 +133,11 @@ export function LineupViewPage() {
         label={backLabel}
         right={
           <div className="row" style={{ gap: 6 }}>
-            <Button variant="primary" onClick={() => setShareOpen(true)}>
-              <Icon name="share" size={14} /> Share
-            </Button>
             {mine ? (
               <>
+                <Button variant="primary" onClick={() => setShareOpen(true)}>
+                  <Icon name="share" size={14} /> Share
+                </Button>
                 <IconButton
                   label="Edit"
                   onClick={() => navigate(`/lineups/${lineup.id}/edit`)}
@@ -145,9 +149,14 @@ export function LineupViewPage() {
                 </IconButton>
               </>
             ) : (
-              <Button onClick={copyToMine} disabled={busy}>
-                <Icon name="copy" size={14} /> Copy
-              </Button>
+              <>
+                <IconButton label="Share" onClick={() => setShareOpen(true)}>
+                  <Icon name="share" size={16} />
+                </IconButton>
+                <Button variant="primary" onClick={copyToMine} disabled={busy}>
+                  <Icon name="copy" size={14} /> {busy ? 'Copying…' : 'Copy lineup'}
+                </Button>
+              </>
             )}
           </div>
         }

@@ -521,6 +521,64 @@ select {
   letter-spacing: -0.01em;
 }
 
+.list-row-split {
+  cursor: default;
+  padding: 0 14px 0 0;
+  gap: 8px;
+}
+
+.list-row-split:hover,
+.list-row-split:active {
+  background: transparent;
+}
+
+.list-row-hit {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 12px 6px 12px 14px;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.list-row-hit:hover .list-row-title {
+  color: var(--brand-text);
+}
+
+.copy-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--brand-soft-2);
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  border-radius: var(--radius-pill);
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease;
+}
+
+.copy-action-btn:hover:not(:disabled) {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+
+.copy-action-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.copy-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ------------------------------------------------------------------ empty */
 
 .empty {

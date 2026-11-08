@@ -666,6 +666,36 @@ console.log('\n6. Anon-only Render mode (no SUPABASE_SERVICE_ROLE_KEY) survives 
     `songs=${mem3.songs.length}`,
   );
 
+  // Automatic team sharing in Postgres RPCs: teammate joins team and receives all 3 songs + lineup
+  await bridge3.teamOp('jwt-kim', {
+    op: 'create',
+    team: {
+      id: 'team_sunday',
+      name: 'Sunday Team',
+      code: 'ARIA-777',
+      createdAt: 3000,
+      members: [{ userId: kim.id, name: kim.name, role: 'owner', joinedAt: 3000 }],
+    },
+    memberName: kim.name,
+  });
+  await bridge3.teamOp('jwt-teammate', {
+    op: 'join',
+    code: 'ARIA-777',
+    memberName: 'Grace',
+  });
+  const memTeammate = { users: [], teams: [], songs: [], lineups: [], settings: null };
+  await bridge3.hydrateCaller(
+    'jwt-teammate',
+    'sb_22222222-3333-4444-5555-666666666666',
+    memTeammate,
+    { force: true, immediate: true },
+  );
+  check(
+    'Postgres RPC automatically shares all team member songs & lineups upon joining',
+    memTeammate.songs.length === 3 && memTeammate.lineups.length === 1,
+    `songs=${memTeammate.songs.length}, lineups=${memTeammate.lineups.length}`,
+  );
+
   delete globalThis.__ariaCallerClientFactory;
   await pgRls.close();
 }
