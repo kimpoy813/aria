@@ -190,7 +190,6 @@ export function LineupViewPage() {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         title="Share lineup"
-        subtitle="Anyone with the link can read the lyrics cleanly."
       >
         <div className="stack">
           <div className="share-link-box">

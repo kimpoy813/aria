@@ -100,11 +100,7 @@ export function LineupsPage() {
         <Empty
           icon="lineup"
           title={lineups.length === 0 ? 'No lineups yet' : 'No matches'}
-          body={
-            lineups.length === 0
-              ? 'Combine parts from at least two songs — mixing fast and slow tempos.'
-              : 'Nothing matched that filter.'
-          }
+          body={lineups.length === 0 ? 'Create your first lineup.' : 'No matches.'}
           action={
             lineups.length === 0 ? (
               <Button variant="primary" onClick={() => navigate('/lineups/new')}>

@@ -518,25 +518,25 @@ export function BuilderPage() {
           </div>
         )}
 
-        <div
-          ref={dropzoneRef}
-          className={`dropzone ${dropActive ? 'active' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDropActive(true);
-          }}
-          onDragLeave={() => setDropActive(false)}
-          onDrop={onZoneDrop}
-        >
-          {resolved.length === 0
-            ? 'Tap any song part below to add it to your lineup.'
-            : 'Tap song parts below to add more, or drag slots to reorder.'}
-        </div>
+        {(resolved.length === 0 || dropActive || dragIndex !== null || touchDrag !== null) && (
+          <div
+            ref={dropzoneRef}
+            className={`dropzone ${dropActive ? 'active' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDropActive(true);
+            }}
+            onDragLeave={() => setDropActive(false)}
+            onDrop={onZoneDrop}
+          >
+            {resolved.length === 0 ? 'Tap song parts below' : 'Drop here'}
+          </div>
+        )}
       </div>
 
       <div className="stack-sm">
         <div className="row-between">
-          <span className="label">Add parts ({librarySongs.length} songs)</span>
+          <span className="label">Songs</span>
           {hasCollapsedSongs && (
             <button
               type="button"
@@ -552,7 +552,7 @@ export function BuilderPage() {
           <Empty
             icon="songs"
             title="No songs yet"
-            body="Add at least one fast and one slow song first."
+            body="Add songs first."
             action={
               <Button variant="primary" onClick={() => navigate('/songs/new')}>
                 <Icon name="add" size={16} /> Add song

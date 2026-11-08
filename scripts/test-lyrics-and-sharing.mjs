@@ -410,6 +410,12 @@ My anchor is holding secure
         songFormSrc.includes('applyClassificationOverride'),
     );
     check(
+      'Paste lyrics and Lineup builder keep instructions minimal (no multi-line explanatory bloat)',
+      !songFormSrc.includes('Stanzas separated by blank lines') &&
+        !songFormSrc.includes('No manual formatting needed') &&
+        !builderSrc.includes('Tap song parts below to add more, or drag slots to reorder.'),
+    );
+    check(
       'HomePage and LineupsPage stay minimal without redundant stat grids or part-count clutter',
       !homeSrc.includes('home-stats') &&
         !homeSrc.includes('parts.join(') &&

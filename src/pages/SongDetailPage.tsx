@@ -221,8 +221,7 @@ export function SongDetailPage() {
       <Sheet
         open={editMsgOpen}
         onClose={() => setEditMsgOpen(false)}
-        title="Edit song message"
-        subtitle="Adjust the worship theme or message to match this song."
+        title="Song message"
       >
         <div className="stack">
           <div className="field">
