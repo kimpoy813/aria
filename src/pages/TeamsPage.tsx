@@ -133,10 +133,10 @@ export function TeamsPage() {
 
       <div className="row" style={{ gap: 8 }}>
         <Button variant="primary" block onClick={() => setJoinOpen(true)}>
-          <Icon.Link /> Join with code
+          <Icon name="link" /> Join with code
         </Button>
         <Button block onClick={() => setCreateOpen(true)}>
-          <Icon.Plus /> Create team
+          <Icon name="add" /> Create team
         </Button>
       </div>
 
@@ -181,7 +181,7 @@ export function TeamsPage() {
                     </div>
                   </div>
                   <Button size="sm" onClick={() => copyCode(activeTeam.code)}>
-                    <Icon.Copy size={14} /> Copy
+                    <Icon name="copy" size={14} /> Copy
                   </Button>
                 </div>
                 <p className="tiny muted">
@@ -245,15 +245,15 @@ export function TeamsPage() {
                           </div>
                           <div className="row" style={{ gap: 6 }}>
                             <Button size="sm" onClick={() => navigate(`/songs/${song.id}`)}>
-                              <Icon.Eye size={13} /> View
+                              <Icon name="view" size={13} /> View
                             </Button>
                             {isMine ? (
                               <Button size="sm" variant="quiet" onClick={() => navigate(`/songs/${song.id}/edit`)}>
-                                <Icon.Edit size={13} /> Edit
+                                <Icon name="edit" size={13} /> Edit
                               </Button>
                             ) : (
                               <Button size="sm" variant="soft" onClick={() => copySong(song.id)} disabled={busy}>
-                                <Icon.Copy size={13} /> Copy
+                                <Icon name="copy" size={13} /> Copy
                               </Button>
                             )}
                           </div>
@@ -294,15 +294,15 @@ export function TeamsPage() {
                         </div>
                         <div className="row" style={{ gap: 6 }}>
                           <Button size="sm" onClick={() => navigate(`/lineups/${lineup.id}`)}>
-                            <Icon.Eye size={13} /> View
+                            <Icon name="view" size={13} /> View
                           </Button>
                           {isMine ? (
                             <Button size="sm" variant="quiet" onClick={() => navigate(`/lineups/${lineup.id}/edit`)}>
-                              <Icon.Edit size={13} /> Edit
+                              <Icon name="edit" size={13} /> Edit
                             </Button>
                           ) : (
                             <Button size="sm" variant="soft" onClick={() => copyLineup(lineup.id)} disabled={busy}>
-                              <Icon.Copy size={13} /> Copy
+                              <Icon name="copy" size={13} /> Copy
                             </Button>
                           )}
                         </div>

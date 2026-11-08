@@ -71,7 +71,7 @@ function PartRow({
       <span className="kind">{kindLabel(part.kind)}</span>
       <span className="excerpt grow">{part.lyrics.split('\n')[0] || part.label}</span>
       <span className="part-add" aria-hidden>
-        <Icon.Plus size={14} />
+        <Icon name="add" size={14} />
       </span>
     </div>
   );
@@ -118,7 +118,7 @@ function SequenceRow({
         {...listeners}
         aria-label={`Drag to reorder ${partLabel} of ${song.title}`}
       >
-        <Icon.Drag />
+        <Icon name="drag" />
       </button>
       <div className="seq-body">
         <div className="seq-title">
@@ -128,7 +128,7 @@ function SequenceRow({
           </span>
           <span className="truncate">{song.title}</span>
           <span className={`chip ${song.tempo}`} style={{ fontSize: 10, padding: '2px 7px' }}>
-            {song.tempo === 'fast' ? <Icon.Bolt size={10} /> : <Icon.Wave size={10} />}
+            {song.tempo === 'fast' ? <Icon name="fast" size={10} /> : <Icon name="slow" size={10} />}
             {song.tempo}
           </span>
         </div>
@@ -138,7 +138,7 @@ function SequenceRow({
       </div>
       <div className="seq-toolbar">
         <button type="button" className="icon-btn" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Move up">
-          <Icon.Up size={14} />
+          <Icon name="arrowUp" size={14} />
         </button>
         <button
           type="button"
@@ -147,13 +147,13 @@ function SequenceRow({
           disabled={index === total - 1}
           aria-label="Move down"
         >
-          <Icon.Down size={14} />
+          <Icon name="arrowDown" size={14} />
         </button>
         <button type="button" className="icon-btn" onClick={onDuplicate} aria-label="Repeat this part">
-          <Icon.Copy size={14} />
+          <Icon name="copy" size={14} />
         </button>
         <button type="button" className="icon-btn" onClick={onRemove} aria-label="Remove from lineup">
-          <Icon.Close size={14} />
+          <Icon name="close" size={14} />
         </button>
       </div>
     </div>
@@ -432,7 +432,7 @@ export function BuilderPage() {
         title={editing ? 'Edit lineup' : 'New lineup'}
         right={
           <Button size="sm" variant="quiet" onClick={() => setSheetOpen('share')}>
-            <Icon.Share size={14} />
+            <Icon name="share" size={14} />
           </Button>
         }
       />
@@ -465,7 +465,7 @@ export function BuilderPage() {
         <div className="card tight">
           <div className="row-between">
             <span className="badge lru">
-              <Icon.Clock size={12} /> Last used {timeAgo(editing.lastUsedAt)}
+              <Icon name="clock" size={12} /> Last used {timeAgo(editing.lastUsedAt)}
             </span>
             <span className="tiny muted">{reasonLabel(editing.lastUsedReason)}</span>
           </div>
@@ -479,7 +479,7 @@ export function BuilderPage() {
         <div className="card brand stack-sm">
           <div className="row-between">
             <span className="badge lru">
-              <Icon.Clock size={12} /> Least recently used
+              <Icon name="clock" size={12} /> Least recently used
             </span>
             <span className="tiny muted">{timeAgo(suggestion.lastUsedAt)}</span>
           </div>
@@ -490,7 +490,7 @@ export function BuilderPage() {
             </p>
           </div>
           <Button size="sm" variant="soft" onClick={loadSuggestion}>
-            <Icon.Refresh size={13} /> Use its sequence
+            <Icon name="refresh" size={13} /> Use its sequence
           </Button>
         </div>
       ) : null}
@@ -511,13 +511,13 @@ export function BuilderPage() {
 
         <div className="mix-row">
           <span className={`chip ${fastCount > 0 ? 'fast' : ''}`}>
-            <Icon.Bolt size={12} /> {fastCount} fast
+            <Icon name="fast" size={12} /> {fastCount} fast
           </span>
           <span className={`chip ${slowCount > 0 ? 'slow' : ''}`}>
-            <Icon.Wave size={12} /> {slowCount} slow
+            <Icon name="slow" size={12} /> {slowCount} slow
           </span>
           <span className={`chip ${songCount >= 2 ? 'brand' : ''}`}>
-            <Icon.Note size={12} /> {songCount} song{songCount === 1 ? '' : 's'}
+            <Icon name="songs" size={12} /> {songCount} song{songCount === 1 ? '' : 's'}
           </span>
           <span className={`chip ${ready ? 'brand' : 'fast'}`}>
             {ready ? 'Ready' : 'Needs fast + slow'}
@@ -566,7 +566,7 @@ export function BuilderPage() {
         <div className="stack-sm">
           <div className="search-wrap">
             <span className="search-icon">
-              <Icon.Search />
+              <Icon name="search" />
             </span>
             <input
               className="input"
@@ -633,7 +633,7 @@ export function BuilderPage() {
                       </div>
                     </div>
                     <span className="picker-chevron" style={{ transform: open ? 'rotate(180deg)' : 'none' }}>
-                      <Icon.ChevronDown size={16} />
+                      <Icon name="chevronDown" size={16} />
                     </span>
                   </button>
                   {open ? (
@@ -651,7 +651,7 @@ export function BuilderPage() {
                       ))}
                       {song.parts.length > 1 ? (
                         <Button size="sm" variant="quiet" onClick={() => addSong(song)}>
-                          <Icon.Plus size={13} /> Add all {song.parts.length} parts
+                          <Icon name="add" size={13} /> Add all {song.parts.length} parts
                         </Button>
                       ) : null}
                     </div>
@@ -681,7 +681,7 @@ export function BuilderPage() {
           ariaLabel="How adding works"
           className="btn-icon-only"
         >
-          <Icon.Note2 size={17} />
+          <Icon name="lyrics" size={17} />
         </Button>
         {isOwner ? (
           <Button variant="primary" block onClick={save} disabled={busy}>
@@ -693,7 +693,7 @@ export function BuilderPage() {
           </Button>
         )}
         <Button onClick={() => setSheetOpen('share')} ariaLabel="Share lineup">
-          <Icon.Share />
+          <Icon name="share" />
         </Button>
       </div>
 
@@ -708,13 +708,13 @@ export function BuilderPage() {
             <div className="label">View-only link</div>
             <p className="hint">Anyone can open it. Shows every part with its lyrics.</p>
             <Button variant="primary" block onClick={buildLink} disabled={busy}>
-              <Icon.Link /> {shareLink ? 'Copy link again' : 'Create & share link'}
+              <Icon name="link" /> {shareLink ? 'Copy link again' : 'Create & share link'}
             </Button>
             {shareLink ? (
               <>
                 <input className="input" readOnly value={shareLink} onFocus={(e) => e.currentTarget.select()} />
                 <Button size="sm" block onClick={() => window.open(shareLink, '_blank')}>
-                  <Icon.Eye size={14} /> Open preview
+                  <Icon name="view" size={14} /> Open preview
                 </Button>
               </>
             ) : null}
@@ -736,7 +736,7 @@ export function BuilderPage() {
                 ))}
               </select>
               <Button block onClick={shareToTeam} disabled={busy}>
-                <Icon.Users size={15} /> Send to team
+                <Icon name="teams" size={15} /> Send to team
               </Button>
             </div>
           ) : (

@@ -136,7 +136,7 @@ export function LineupViewPage() {
         right={
           canEdit ? (
             <Button size="sm" variant="soft" onClick={() => navigate(`/lineups/${lineup.id}/edit`)}>
-              <Icon.Edit size={13} /> Edit
+              <Icon name="edit" size={13} /> Edit
             </Button>
           ) : undefined
         }
@@ -149,10 +149,10 @@ export function LineupViewPage() {
         <div className="row wrap" style={{ gap: 6 }}>
           {lineup.theme ? <span className="chip brand">{lineup.theme}</span> : null}
           <span className="chip slow">
-            <Icon.Wave size={12} /> {mix.slow} slow
+            <Icon name="slow" size={12} /> {mix.slow} slow
           </span>
           <span className="chip fast">
-            <Icon.Bolt size={12} /> {mix.fast} fast
+            <Icon name="fast" size={12} /> {mix.fast} fast
           </span>
           <span className="chip">{entries.length} parts</span>
         </div>
@@ -165,14 +165,14 @@ export function LineupViewPage() {
 
       <div className="row wrap" style={{ gap: 8 }}>
         <Button variant="primary" block onClick={() => setShareOpen(true)}>
-          <Icon.Share /> Share
+          <Icon name="share" /> Share
         </Button>
         <Button block onClick={copyText}>
-          {copied ? <Icon.Check /> : <Icon.Copy />} Copy
+          {copied ? <Icon name="check" /> : <Icon name="copy" />} Copy
         </Button>
         {!isMine ? (
           <Button variant="soft" block onClick={copyLineup} disabled={busy}>
-            <Icon.Copy /> Copy lineup
+            <Icon name="copy" /> Copy lineup
           </Button>
         ) : null}
       </div>
@@ -205,7 +205,7 @@ export function LineupViewPage() {
                   </div>
                   <div className="stack-sm" style={{ alignItems: 'flex-end', gap: 4 }}>
                     <span className={`chip ${entry.song.tempo}`} style={{ fontSize: 11 }}>
-                      {entry.song.tempo === 'fast' ? <Icon.Bolt size={11} /> : <Icon.Wave size={11} />}
+                      {entry.song.tempo === 'fast' ? <Icon name="fast" size={11} /> : <Icon name="slow" size={11} />}
                       {entry.song.tempo}
                     </span>
                   </div>
@@ -225,7 +225,7 @@ export function LineupViewPage() {
 
       {canEdit ? (
         <Button variant="danger" size="sm" block onClick={() => setConfirmDelete(true)} style={{ marginTop: 8 }}>
-          <Icon.Trash /> Delete lineup
+          <Icon name="trash" /> Delete lineup
         </Button>
       ) : null}
 
@@ -243,13 +243,13 @@ export function LineupViewPage() {
             <div className="label">View-only link</div>
             <p className="hint">Anyone can open it. Shows every part with its full lyrics.</p>
             <Button variant="primary" block onClick={makeLink} disabled={busy}>
-              <Icon.Link /> {shareLink ? 'Copy link again' : 'Create & copy link'}
+              <Icon name="link" /> {shareLink ? 'Copy link again' : 'Create & copy link'}
             </Button>
             {shareLink ? (
               <>
                 <input className="input" readOnly value={shareLink} onFocus={(e) => e.currentTarget.select()} />
                 <Button size="sm" block onClick={() => window.open(shareLink, '_blank')}>
-                  <Icon.Eye size={14} /> Open preview
+                  <Icon name="view" size={14} /> Open preview
                 </Button>
               </>
             ) : null}
@@ -271,7 +271,7 @@ export function LineupViewPage() {
                 ))}
               </select>
               <Button block onClick={sendToTeam} disabled={busy}>
-                <Icon.Users size={15} /> Send to team
+                <Icon name="teams" size={15} /> Send to team
               </Button>
             </div>
           ) : (

@@ -50,7 +50,7 @@ export function LineupsPage() {
         <div className="card brand stack-sm" style={{ padding: 15 }}>
           <div className="row-between">
             <span className="badge lru">
-              <Icon.Clock size={12} /> Least recently used
+              <Icon name="clock" size={12} /> Least recently used
             </span>
             <span className="tiny muted">{reasonLabel(suggestion.lastUsedReason)}</span>
           </div>
@@ -76,10 +76,10 @@ export function LineupsPage() {
               return (
                 <>
                   <span className="chip slow">
-                    <Icon.Wave size={12} /> {mix.slow} slow
+                    <Icon name="slow" size={12} /> {mix.slow} slow
                   </span>
                   <span className="chip fast">
-                    <Icon.Bolt size={12} /> {mix.fast} fast
+                    <Icon name="fast" size={12} /> {mix.fast} fast
                   </span>
                   <span className="chip">{suggestion.useCount}× used</span>
                 </>
@@ -91,7 +91,7 @@ export function LineupsPage() {
               Open lineup
             </Button>
             <Button onClick={() => navigate('/lineups/new')} ariaLabel="Build a new lineup">
-              <Icon.Plus />
+              <Icon name="add" />
             </Button>
           </div>
         </div>
@@ -99,7 +99,7 @@ export function LineupsPage() {
 
       <div className="row" style={{ gap: 8 }}>
         <Button variant="soft" block onClick={() => navigate('/lineups/new')}>
-          <Icon.Plus /> Build a lineup
+          <Icon name="add" /> Build a lineup
         </Button>
       </div>
 
@@ -109,7 +109,7 @@ export function LineupsPage() {
           body="Drag parts of a song into a sequence — pick a chorus here, a bridge there. You need at least one fast and one slow track."
           action={
             <Button variant="primary" onClick={() => navigate('/lineups/new')}>
-              <Icon.Plus /> Build a lineup
+              <Icon name="add" /> Build a lineup
             </Button>
           }
         />
@@ -149,13 +149,13 @@ export function LineupsPage() {
                   <div className="meta">
                     {lineup.theme ? <span className="chip brand">{lineup.theme}</span> : null}
                     <span className="chip slow">
-                      <Icon.Wave size={12} /> {mix.slow}
+                      <Icon name="slow" size={12} /> {mix.slow}
                     </span>
                     <span className="chip fast">
-                      <Icon.Bolt size={12} /> {mix.fast}
+                      <Icon name="fast" size={12} /> {mix.fast}
                     </span>
                     <span className="tiny muted">
-                      <Icon.Clock size={11} /> {timeAgo(lineup.lastUsedAt)}
+                      <Icon name="clock" size={11} /> {timeAgo(lineup.lastUsedAt)}
                     </span>
                     {!isMine ? <span className="tiny muted">· {lineup.ownerName}</span> : null}
                   </div>

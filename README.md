@@ -6,8 +6,10 @@ with a code and share songs and lineups. A **Least Recently Used** engine makes 
 repeating the same lineup.
 
 Mobile-first. White canvas with a calm green accent. Light and dark mode.
-The logo (`src/components/Logo.tsx`, artwork in `public/logo.svg`) is used in the header, on the
-landing screen and on the public share page.
+The logo (`src/components/Logo.tsx`, artwork in `public/logo.svg`) is a beamed double-note on a green
+tile, used in the header, on the sign-in card, in onboarding and on the public share page. A single
+`<Icon name="…">` set (`src/components/Icon.tsx`) draws every icon in the app on one 24-unit grid with
+one stroke weight.
 
 ---
 
@@ -135,16 +137,19 @@ scripts/test-auth.mjs      end-to-end check of both auth drivers
 scripts/test-supabase.mjs  end-to-end check of the Supabase path on a real Postgres
 src/lib/nlp.ts           lyric classifier: lexicons, themes, tone, per-part signals, message
 src/lib/lru.ts           LRU ordering, sequence resolution, tempo mix, time helpers
-src/lib/store.tsx        app state, theme (light/dark), session
-src/pages/               Landing, Songs, SongForm, SongDetail, Lineups, Builder, LineupView, Teams, Shared
-src/components/Logo.tsx  the Aria mark (logo, wordmark, landing hero)
+src/lib/store.tsx        app state, theme (light/dark), session, onboarding flag
+src/pages/               Auth, Onboarding, Songs, SongForm, SongDetail, Lineups, Builder, LineupView, Teams, Shared
+src/components/Icon.tsx  the one icon set (24-unit grid, 1.8 stroke, currentColor)
+src/components/Logo.tsx  the Aria mark (logo, wordmark, hero)
 public/logo.svg          the same artwork as a standalone file / favicon
 src/styles.css           design tokens for both themes and the mobile-first layout
 ```
 
 ## Try it in a minute
 
-1. Create an account, then join team **ARIA-123** on the Teams tab.
+0. A new account lands on a five-step tour — songs, class/message, lineups, teams — then joins team
+   **ARIA-123** in one tap. Replay it any time from the account sheet (**How Aria works**).
+1. Or create an account / sign in with Google, then join team **ARIA-123** on the Teams tab.
 2. Add a song: title, then Verse, Chorus, Bridge — one at a time — and hit **Generate class &
    message**.
 3. Go to **Lineups → Build a lineup**, filter by a class, and drag in a slow verse and a fast chorus

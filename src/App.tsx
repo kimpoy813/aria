@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom';
 import { StoreProvider, useStore } from './lib/store';
 import { Button, Icon, IconButton, Sheet } from './components/ui';
+import type { IconName } from './components/Icon';
 import { LogoHero, Wordmark } from './components/Logo';
 import { AuthPage, ResetPasswordPage } from './pages/AuthPage';
 import { SongsPage } from './pages/SongsPage';
@@ -18,10 +19,12 @@ import { LineupsPage } from './pages/LineupsPage';
 import { BuilderPage } from './pages/BuilderPage';
 import { TeamsPage } from './pages/TeamsPage';
 import { LineupViewPage } from './pages/LineupViewPage';
+import { OnboardingPage } from './pages/OnboardingPage';
 import { SharedPage } from './pages/SharedPage';
 
 function TopBar() {
   const { theme, toggleTheme, user, signOut, config } = useStore();
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="topbar">
@@ -32,7 +35,7 @@ function TopBar() {
           label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={toggleTheme}
         >
-          {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
+          {theme === 'dark' ? <Icon name="sun" /> : <Icon name="moon" />}
         </IconButton>
         {user ? (
           <button
@@ -57,6 +60,15 @@ function TopBar() {
           <div className="row" style={{ gap: 8 }}>
             <span className="chip brand">{config.driver === 'supabase' ? 'Supabase' : 'Local account'}</span>
           </div>
+          <Button
+            block
+            onClick={() => {
+              setMenuOpen(false);
+              navigate('/onboarding');
+            }}
+          >
+            <Icon name="sparkle" size={14} /> How Aria works
+          </Button>
           <Button block onClick={() => setMenuOpen(false)}>
             Keep browsing
           </Button>
@@ -76,10 +88,10 @@ function TopBar() {
   );
 }
 
-const TABS = [
-  { to: '/', label: 'Songs', icon: Icon.Note },
-  { to: '/lineups', label: 'Lineups', icon: Icon.List },
-  { to: '/teams', label: 'Teams', icon: Icon.Users },
+const TABS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/', label: 'Songs', icon: 'songs' },
+  { to: '/lineups', label: 'Lineups', icon: 'lineup' },
+  { to: '/teams', label: 'Teams', icon: 'teams' },
 ];
 
 function TabBar() {
@@ -90,7 +102,6 @@ function TabBar() {
       <div className="tabbar-inner">
         {TABS.map((tab) => {
           const active = tab.to === '/' ? pathname === '/' || pathname.startsWith('/songs') : pathname.startsWith(tab.to);
-          const TabIcon = tab.icon;
           return (
             <button
               key={tab.to}
@@ -99,7 +110,7 @@ function TabBar() {
               onClick={() => navigate(tab.to)}
               aria-current={active ? 'page' : undefined}
             >
-              <TabIcon size={21} />
+              <Icon name={tab.icon} size={20} />
               {tab.label}
             </button>
           );
@@ -118,7 +129,7 @@ function ScrollToTop() {
 }
 
 function Shell() {
-  const { loading, user } = useStore();
+  const { loading, user, onboarded } = useStore();
   const { pathname } = useLocation();
 
   // Password recovery works whether or not a session exists.
@@ -164,6 +175,26 @@ function Shell() {
         <Route path="/login" element={<AuthPage mode="login" />} />
         <Route path="*" element={<AuthPage mode="welcome" />} />
       </Routes>
+    );
+  }
+
+  // Onboarding is a dedicated full-screen route, outside the tab shell.
+  if (pathname === '/onboarding') {
+    return (
+      <div className="app">
+        <Routes>
+          <Route path="/onboarding" element={<OnboardingPage replay />} />
+        </Routes>
+      </div>
+    );
+  }
+
+  // First visit after signing in: show the tour before the library.
+  if (!onboarded) {
+    return (
+      <div className="app">
+        <OnboardingPage />
+      </div>
     );
   }
 
