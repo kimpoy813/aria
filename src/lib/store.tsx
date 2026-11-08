@@ -12,13 +12,19 @@ import { api } from './api';
 import { ToastStack, type ToastItem, type ToastTone } from '../components/ui';
 import type { AppState, Lineup, Song, SystemStatus, Team, User } from './types';
 import {
+  clearPopupWindowMarkers,
+  clearReturnedFromOAuth,
   completePopupRelay,
   consumeOAuthError,
+  didReturnFromOAuth,
+  getConfig,
   getPendingPopupRelay,
   getSupabaseSessionTokens,
+  isAuxiliaryPopupWindow,
   loadConfig,
   logout as authLogout,
   onChange as onAuthChange,
+  redeemPendingRelayOpener,
   resumeSession,
   storeToken,
   type Account,
@@ -60,6 +66,8 @@ interface StoreValue {
   onboarded: boolean;
   notify: (message: string, tone?: ToastTone) => void;
   clearError: () => void;
+  reloadAuthConfig: () => Promise<AuthConfig>;
+  continueFromPopup: () => Promise<void>;
   toggleTheme: () => void;
   setThemePreference: (pref: ThemePreference) => void;
   completeOnboarding: () => void;
@@ -87,6 +95,21 @@ function resolveSystemTheme(): ThemeMode {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+function stripOAuthCallbackHash() {
+  if (typeof window === 'undefined') return;
+  if (
+    window.location.hash.includes('access_token') ||
+    window.location.hash.includes('refresh_token') ||
+    window.location.href.endsWith('#')
+  ) {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search,
+    );
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus>(DEFAULT_SYSTEM_STATUS);
@@ -98,12 +121,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
   const [systemTheme, setSystemTheme] = useState<ThemeMode>(() => resolveSystemTheme());
   const theme: ThemeMode = themePreference === 'system' ? systemTheme : themePreference;
-  const [config, setConfig] = useState<AuthConfig>({
-    driver: 'demo',
-    supabaseUrl: null,
-    supabaseAnonKey: null,
-    resetMinutes: 30,
-  });
+  const [config, setConfig] = useState<AuthConfig>(() => getConfig());
   const bootstrapped = useRef(false);
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDING_KEY) === '1');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -117,7 +135,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const trimmed = message.trim();
     if (!trimmed) return;
     const id = ++toastSeq.current;
-    setToasts((prev) => [...prev.filter((t) => t.message !== trimmed).slice(-1), { id, message: trimmed, tone }]);
+    setToasts((prev) => [
+      ...prev.filter((t) => t.message !== trimmed).slice(-1),
+      { id, message: trimmed, tone },
+    ]);
     const duration = tone === 'error' ? 3400 : 2500;
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -182,6 +203,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const reloadAuthConfig = useCallback(async () => {
+    const loaded = await loadConfig(true);
+    setConfig(loaded);
+    return loaded;
+  }, []);
+
   /** Load the signed-in account's library. No account -> empty state. */
   const refresh = useCallback(async () => {
     try {
@@ -230,6 +257,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [adoptAccount, notify],
   );
 
+  const continueFromPopup = useCallback(async () => {
+    clearPopupWindowMarkers();
+    setPopupStatus('idle');
+    setError(null);
+    setLoading(true);
+    try {
+      const account = await resumeSession();
+      await adoptAccount(account);
+      if (account) {
+        const firstName = account.user?.name?.trim().split(/\s+/)[0];
+        notify(firstName ? `Welcome, ${firstName}!` : 'Signed in', 'success');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [adoptAccount, notify]);
+
   const signOut = useCallback(async () => {
     await authLogout();
     setState(null);
@@ -257,6 +301,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, [adoptAccount]);
 
+  // If a standalone mobile PWA returns to foreground after OAuth in a Custom Tab,
+  // check whether a relayed Google session is waiting on the server.
+  useEffect(() => {
+    const checkPendingRelay = async () => {
+      if (state?.user || window.location.pathname === '/auth/google') return;
+      const account = await redeemPendingRelayOpener();
+      if (account) {
+        await adoptAccount(account);
+        const firstName = account.user?.name?.trim().split(/\s+/)[0];
+        notify(firstName ? `Welcome, ${firstName}!` : 'Signed in', 'success');
+      } else {
+        const relayErr = consumeOAuthError();
+        if (relayErr) setError(relayErr);
+      }
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        void checkPendingRelay();
+      }
+    };
+    window.addEventListener('pageshow', checkPendingRelay);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pageshow', checkPendingRelay);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [state?.user, adoptAccount, notify]);
+
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
@@ -274,27 +346,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Returning OAuth popup: relay credentials back to the opener/iframe and close.
+        // Returning OAuth popup or Custom Tab carrying a `?relay=<nonce>` token:
         const relayNonce = getPendingPopupRelay();
         if (relayNonce) {
+          const popupWin = isAuxiliaryPopupWindow();
           if (oauthErr) {
             setError(oauthErr);
-            setPopupStatus('error');
-            await completePopupRelay(relayNonce, { error: oauthErr });
+            await completePopupRelay(relayNonce, { error: oauthErr }, { closeWindow: popupWin });
+            if (popupWin) {
+              setPopupStatus('error');
+            }
             return;
           }
           const tokens = await getSupabaseSessionTokens();
+          stripOAuthCallbackHash();
           if (tokens) {
-            setPopupStatus('completed');
-            await completePopupRelay(relayNonce, {
-              accessToken: tokens.accessToken,
-              refreshToken: tokens.refreshToken,
-            });
+            await completePopupRelay(
+              relayNonce,
+              {
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken,
+              },
+              { closeWindow: popupWin },
+            );
+            if (popupWin) {
+              setPopupStatus('completed');
+            } else {
+              clearPopupWindowMarkers();
+              await adoptAccount({ token: tokens.accessToken, user: tokens.user });
+              const firstName = tokens.user?.name?.trim().split(/\s+/)[0];
+              notify(firstName ? `Welcome, ${firstName}!` : 'Signed in', 'success');
+            }
           } else {
             const msg = 'Google sign-in did not return a session.';
             setError(msg);
-            setPopupStatus('error');
-            await completePopupRelay(relayNonce, { error: msg });
+            await completePopupRelay(relayNonce, { error: msg }, { closeWindow: popupWin });
+            if (popupWin) {
+              setPopupStatus('error');
+            }
           }
           return;
         }
@@ -303,22 +392,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setError(oauthErr);
         }
 
+        const wasOAuthReturn = didReturnFromOAuth();
         const account = await resumeSession();
-        // Clear any Supabase auth callback tokens or empty hash from the URL.
-        if (
-          window.location.hash.includes('access_token') ||
-          window.location.href.endsWith('#')
-        ) {
-          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        const postErr = consumeOAuthError();
+        if (postErr && !oauthErr) {
+          setError(postErr);
         }
+        stripOAuthCallbackHash();
         await adoptAccount(account);
+        if (wasOAuthReturn && account) {
+          clearReturnedFromOAuth();
+          const firstName = account.user?.name?.trim().split(/\s+/)[0];
+          notify(firstName ? `Welcome, ${firstName}!` : 'Signed in', 'success');
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not sign in.');
       } finally {
         setLoading(false);
       }
     })();
-  }, [adoptAccount]);
+  }, [adoptAccount, notify, refreshSystemStatus]);
 
   const joinTeam = useCallback(
     async (code: string) => {
@@ -376,6 +469,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onboarded: onboarded || Boolean(state?.user?.isAdmin),
       notify,
       clearError,
+      reloadAuthConfig,
+      continueFromPopup,
       toggleTheme,
       setThemePreference,
       completeOnboarding,
@@ -402,6 +497,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onboarded,
       notify,
       clearError,
+      reloadAuthConfig,
+      continueFromPopup,
       toggleTheme,
       setThemePreference,
       completeOnboarding,

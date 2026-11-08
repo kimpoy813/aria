@@ -13,17 +13,39 @@ import type {
   Tempo,
 } from './types';
 
-import { authHeaders } from './auth';
+import { authHeaders, currentToken, refreshSupabaseAccessToken } from './auth';
 
 const BASE = '/api';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init?.headers || {}) },
-    ...init,
-  });
+  if (currentToken()) {
+    await refreshSupabaseAccessToken(false);
+  }
+
+  const doFetch = () =>
+    fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init?.headers || {}) },
+      ...init,
+    });
+
+  let res = await doFetch();
+  if (res.status === 401 && currentToken() && !currentToken()?.startsWith('adm.')) {
+    const prev = currentToken();
+    const refreshed = await refreshSupabaseAccessToken(true);
+    if (refreshed && refreshed !== prev) {
+      res = await doFetch();
+    }
+  }
+
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
   if (!res.ok) {
     throw new Error(data?.error || 'Something went wrong. Try again.');
   }

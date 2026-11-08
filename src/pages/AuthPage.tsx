@@ -8,8 +8,10 @@ import {
   completePopupRelay,
   forgotPassword,
   getConfig,
+  isDisallowedGoogleWebView,
   login,
   loginWithGoogle,
+  openInSystemBrowser,
   register,
   rememberPopupRelay,
   rememberResetToken,
@@ -105,62 +107,114 @@ function GoogleButton({
   onError: (message: string) => void;
   onUnavailable: () => void;
 }) {
-  const { config, signInWithAccount, clearError } = useStore();
+  const { config, signInWithAccount, clearError, reloadAuthConfig, notify } = useStore();
   const [busy, setBusy] = useState(false);
-  const live =
-    config.driver === 'supabase' && Boolean(config.supabaseUrl && config.supabaseAnonKey);
+  const [inAppHint, setInAppHint] = useState(false);
 
   return (
-    <button
-      type="button"
-      className="btn btn-google btn-block"
-      disabled={busy}
-      onClick={async () => {
-        clearError();
-        if (!live) {
-          if (config.driver === 'supabase') {
+    <div className="stack-xs">
+      <button
+        type="button"
+        className="btn btn-google btn-block"
+        disabled={busy}
+        onClick={async () => {
+          clearError();
+          if (isDisallowedGoogleWebView()) {
+            setInAppHint(true);
+            openInSystemBrowser('/auth/google');
             onError(
-              'Supabase client keys are missing on the server (set SUPABASE_URL and SUPABASE_ANON_KEY).',
+              'Google blocks sign-in inside in-app browsers (such as Messenger or Instagram). Open Aria in Chrome, Samsung Internet, or Safari to sign in with Google.',
             );
-          } else {
-            onUnavailable();
+            return;
           }
-          return;
-        }
-        setBusy(true);
-        try {
-          const account = await loginWithGoogle();
-          if (account) {
-            await signInWithAccount(account);
+
+          let activeConfig = config;
+          const isLive =
+            activeConfig.driver === 'supabase' &&
+            Boolean(activeConfig.supabaseUrl && activeConfig.supabaseAnonKey);
+          if (!isLive) {
+            setBusy(true);
+            try {
+              activeConfig = await reloadAuthConfig();
+            } finally {
+              setBusy(false);
+            }
           }
-        } catch (err) {
-          if (!(err instanceof OAuthCancelledError)) {
-            onError(err instanceof Error ? err.message : 'Google sign-in failed.');
+
+          const ready =
+            activeConfig.driver === 'supabase' &&
+            Boolean(activeConfig.supabaseUrl && activeConfig.supabaseAnonKey);
+          if (!ready) {
+            if (activeConfig.driver === 'supabase') {
+              onError(
+                'Supabase client keys are missing on the server (set SUPABASE_URL and SUPABASE_ANON_KEY).',
+              );
+            } else {
+              onUnavailable();
+            }
+            return;
           }
-          setBusy(false);
-        }
-      }}
-    >
-      <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true">
-        <path
-          fill="#4285F4"
-          d="M45.1 24.5c0-1.6-.1-2.8-.4-4H24v7.9h12c-.2 2-1.5 5-4.4 7l6.7 5.2c4-3.7 6.8-9.1 6.8-16.1Z"
-        />
-        <path
-          fill="#34A853"
-          d="M24 46c5.9 0 10.9-2 14.5-5.4l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8.1 41.1 15.4 46 24 46Z"
-        />
-        <path
-          fill="#FBBC05"
-          d="M11.5 28.3a13.7 13.7 0 0 1 0-8.7l-7.1-5.5a22 22 0 0 0 0 19.7l7.1-5.5Z"
-        />
-        <path
-          fill="#EA4335"
-          d="M24 10.1c4.1 0 7.5 1.4 9.9 3.7l6-6C36 4 30.9 2 24 2 15.4 2 8.1 6.9 4.4 14.1l7.1 5.5C13.3 13.9 18.2 10.1 24 10.1Z"
-        />
-      </svg>
-      <span>{busy ? 'Connecting…' : 'Continue with Google'}</span>
-    </button>
+
+          setBusy(true);
+          try {
+            const account = await loginWithGoogle();
+            if (account) {
+              await signInWithAccount(account);
+            }
+          } catch (err) {
+            if (!(err instanceof OAuthCancelledError)) {
+              onError(err instanceof Error ? err.message : 'Google sign-in failed.');
+            }
+            setBusy(false);
+          }
+        }}
+      >
+        <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true">
+          <path
+            fill="#4285F4"
+            d="M45.1 24.5c0-1.6-.1-2.8-.4-4H24v7.9h12c-.2 2-1.5 5-4.4 7l6.7 5.2c4-3.7 6.8-9.1 6.8-16.1Z"
+          />
+          <path
+            fill="#34A853"
+            d="M24 46c5.9 0 10.9-2 14.5-5.4l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8.1 41.1 15.4 46 24 46Z"
+          />
+          <path
+            fill="#FBBC05"
+            d="M11.5 28.3a13.7 13.7 0 0 1 0-8.7l-7.1-5.5a22 22 0 0 0 0 19.7l7.1-5.5Z"
+          />
+          <path
+            fill="#EA4335"
+            d="M24 10.1c4.1 0 7.5 1.4 9.9 3.7l6-6C36 4 30.9 2 24 2 15.4 2 8.1 6.9 4.4 14.1l7.1 5.5C13.3 13.9 18.2 10.1 24 10.1Z"
+          />
+        </svg>
+        <span>{busy ? 'Connecting…' : 'Continue with Google'}</span>
+      </button>
+
+      {inAppHint && (
+        <div className="row" style={{ gap: 8 }}>
+          <Button
+            variant="default"
+            block
+            onClick={() => openInSystemBrowser('/auth/google')}
+          >
+            Open in Browser
+          </Button>
+          <Button
+            variant="quiet"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`${window.location.origin}/login`);
+                notify('Sign-in link copied', 'info');
+              } catch {
+                /* ignore clipboard errors */
+              }
+            }}
+          >
+            <Icon name="copy" size={14} /> Copy link
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -471,7 +525,7 @@ export function AuthPage({ mode: initial }: { mode: Mode }) {
   );
 }
 
-/** Popup entry route (/auth/google?relay=…) opened when Aria runs inside an iframe. */
+/** Popup entry route (/auth/google?relay=…) opened from an iframe or standalone PWA. */
 export function GooglePopupStartPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -485,15 +539,17 @@ export function GooglePopupStartPage() {
     started.current = true;
 
     if (!relay) {
-      navigate('/login', { replace: true });
+      void startGoogleRedirect().catch((err) => {
+        setError(err instanceof Error ? err.message : 'Google sign-in failed.');
+      });
       return;
     }
 
     rememberPopupRelay(relay);
-    void startGoogleRedirect().catch(async (err) => {
+    void startGoogleRedirect(relay).catch(async (err) => {
       const message = err instanceof Error ? err.message : 'Google sign-in failed.';
       setError(message);
-      await completePopupRelay(relay, { error: message });
+      await completePopupRelay(relay, { error: message }, { closeWindow: false });
     });
   }, [loading, navigate, relay]);
 
@@ -505,17 +561,23 @@ export function GooglePopupStartPage() {
         <p className="auth-sub">{error || 'Redirecting to Google.'}</p>
       </div>
       {error ? (
-        <Button variant="quiet" block onClick={() => window.close()}>
-          Close window
-        </Button>
+        <div className="stack-sm">
+          <Button variant="primary" block onClick={() => navigate('/login', { replace: true })}>
+            Back to sign in
+          </Button>
+          <Button variant="quiet" block onClick={() => window.close()}>
+            Close window
+          </Button>
+        </div>
       ) : null}
     </Shell>
   );
 }
 
-/** Displayed inside a returning OAuth popup if the browser does not immediately close it. */
+/** Displayed inside a returning OAuth popup / Custom Tab if the browser keeps it open. */
 export function PopupStatusPage() {
-  const { popupStatus, error } = useStore();
+  const navigate = useNavigate();
+  const { popupStatus, error, continueFromPopup } = useStore();
   const ok = popupStatus === 'completed';
   return (
     <Shell>
@@ -523,12 +585,26 @@ export function PopupStatusPage() {
         <LogoHero size={48} />
         <h1 className="auth-title">{ok ? 'Signed in' : 'Sign-in incomplete'}</h1>
         <p className="auth-sub">
-          {ok ? 'You can close this window.' : error || 'Return to Aria and try again.'}
+          {ok
+            ? 'Switch back to Aria, or continue right here.'
+            : error || 'Return to Aria and try again.'}
         </p>
       </div>
-      <Button variant="primary" block onClick={() => window.close()}>
-        Close window
-      </Button>
+      <div className="stack-sm">
+        <Button
+          variant="primary"
+          block
+          onClick={async () => {
+            await continueFromPopup();
+            navigate(ok ? '/' : '/login', { replace: true });
+          }}
+        >
+          {ok ? 'Continue to Aria' : 'Try again'}
+        </Button>
+        <Button variant="quiet" block onClick={() => window.close()}>
+          Close window
+        </Button>
+      </div>
     </Shell>
   );
 }
