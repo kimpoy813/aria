@@ -112,7 +112,6 @@ export function BuilderPage() {
     fast: fastCount >= 1,
     slow: slowCount >= 1,
   };
-  const balanced = checks.parts && checks.songs && checks.fast && checks.slow;
 
   const insertPart = (songId: string, partId: string, at?: number) => {
     const slot = makeSlot(songId, partId);
@@ -663,7 +662,7 @@ export function BuilderPage() {
         <Button
           variant="primary"
           onClick={save}
-          disabled={busy || !balanced || !name.trim()}
+          disabled={busy}
           style={{ flex: 2 }}
         >
           {busy ? 'Saving…' : 'Save lineup'}

@@ -5,7 +5,7 @@
  * - Uses network-first for HTML navigations and stale-while-revalidate for static assets.
  */
 
-const CACHE_NAME = 'aria-shell-v2';
+const CACHE_NAME = 'aria-shell-v3';
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',
