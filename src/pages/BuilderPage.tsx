@@ -24,9 +24,8 @@ function makeSlot(songId: string, partId: string): LineupItem {
 }
 
 interface TouchDragState {
-  source:
-    | { type: 'slot'; index: number; label: string }
-    | { type: 'part'; songId: string; partId: string; label: string };
+  index: number;
+  label: string;
   x: number;
   y: number;
 }
@@ -46,13 +45,8 @@ export function BuilderPage() {
     existing ? existing.items.map((x) => ({ ...x })) : [],
   );
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    songs.slice(0, 3).forEach((s) => {
-      initial[s.id] = true;
-    });
-    return initial;
-  });
+  // Keep ALL songs expanded by default so parts never collapse unless explicitly tucked away
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
   const [libTempo, setLibTempo] = useState<'all' | Tempo>('all');
 
@@ -82,11 +76,25 @@ export function BuilderPage() {
     return items
       .map((it) => {
         const song = songs.find((s) => s.id === it.songId);
-        const part = song?.parts.find((p) => p.id === it.partId);
-        return song && part ? { item: it, song, part } : null;
+        const part =
+          song?.parts.find((p) => p.id === it.partId) ??
+          (it.partLabel
+            ? song?.parts.find((p) => p.label.toLowerCase() === it.partLabel!.toLowerCase())
+            : undefined) ??
+          (it.partKind ? song?.parts.find((p) => p.kind === it.partKind) : undefined);
+        return song && part ? { item: { ...it, partId: part.id }, song, part } : null;
       })
       .filter((x): x is { item: LineupItem; song: Song; part: SongPart } => Boolean(x));
   }, [items, songs]);
+
+  const partUsageCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of resolved) {
+      const key = `${r.song.id}:${r.part.id}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [resolved]);
 
   const suggestedTheme = useMemo(() => {
     if (resolved.length === 0) return '';
@@ -123,7 +131,16 @@ export function BuilderPage() {
     });
     const song = songs.find((s) => s.id === songId);
     const part = song?.parts.find((p) => p.id === partId);
-    if (song && part) showToast(`Added ${part.label}`);
+    if (song && part) showToast(`Added ${song.title} · ${part.label}`);
+  };
+
+  const insertAllSongParts = (song: Song) => {
+    const filled = song.parts.filter((p) => p.lyrics.trim().length > 0);
+    const source = filled.length > 0 ? filled : song.parts;
+    if (source.length === 0) return;
+    const newSlots = source.map((p) => makeSlot(song.id, p.id));
+    setItems((prev) => [...prev, ...newSlots]);
+    showToast(`Added ${newSlots.length} parts from ${song.title}`);
   };
 
   const moveSlot = (from: number, to: number) => {
@@ -145,6 +162,7 @@ export function BuilderPage() {
       copy.splice(index + 1, 0, makeSlot(target.songId, target.partId));
       return copy;
     });
+    showToast('Duplicated slot', 'info');
   };
 
   const removeSlot = (index: number) => {
@@ -234,14 +252,8 @@ export function BuilderPage() {
     };
     const onUp = (e: PointerEvent) => {
       const hit = hitTestIndex(e.clientY);
-      if (touchDrag.source.type === 'slot') {
-        if (typeof hit === 'number') moveSlot(touchDrag.source.index, hit);
-        else if (hit === 'zone') moveSlot(touchDrag.source.index, items.length - 1);
-      } else {
-        const { songId, partId } = touchDrag.source;
-        if (typeof hit === 'number') insertPart(songId, partId, hit);
-        else if (hit === 'zone') insertPart(songId, partId);
-      }
+      if (typeof hit === 'number') moveSlot(touchDrag.index, hit);
+      else if (hit === 'zone') moveSlot(touchDrag.index, items.length - 1);
       setTouchDrag(null);
       setOverIndex(null);
       setDropActive(false);
@@ -262,42 +274,7 @@ export function BuilderPage() {
     if (e.pointerType === 'mouse') return;
     e.preventDefault();
     setDragIndex(index);
-    setTouchDrag({ source: { type: 'slot', index, label }, x: e.clientX, y: e.clientY });
-  };
-
-  const startTouchPart = (
-    e: React.PointerEvent,
-    songId: string,
-    partId: string,
-    label: string,
-  ) => {
-    if (e.pointerType === 'mouse') return;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let moved = false;
-    const move = (ev: PointerEvent) => {
-      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 8) {
-        moved = true;
-        cleanup();
-        setTouchDrag({
-          source: { type: 'part', songId, partId, label },
-          x: ev.clientX,
-          y: ev.clientY,
-        });
-      }
-    };
-    const up = () => {
-      cleanup();
-      if (!moved) insertPart(songId, partId);
-    };
-    const cleanup = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    setTouchDrag({ index, label, x: e.clientX, y: e.clientY });
   };
 
   const librarySongs = useMemo(() => {
@@ -310,6 +287,11 @@ export function BuilderPage() {
         .includes(q);
     });
   }, [songs, search, libTempo]);
+
+  const hasCollapsedSongs = useMemo(
+    () => librarySongs.some((s) => Boolean(collapsed[s.id])),
+    [librarySongs, collapsed],
+  );
 
   const save = async () => {
     setError(null);
@@ -514,13 +496,24 @@ export function BuilderPage() {
           onDrop={onZoneDrop}
         >
           {resolved.length === 0
-            ? 'Tap or drag song parts below to build your sequence.'
-            : 'Drop a part here to add to the end.'}
+            ? 'Tap any song part below to add it to your lineup.'
+            : 'Tap song parts below to add more, or drag slots to reorder.'}
         </div>
       </div>
 
       <div className="stack-sm">
-        <span className="label">Add parts</span>
+        <div className="row-between">
+          <span className="label">Add parts ({librarySongs.length} songs)</span>
+          {hasCollapsedSongs && (
+            <button
+              type="button"
+              className="link-button tiny"
+              onClick={() => setCollapsed({})}
+            >
+              Expand all
+            </button>
+          )}
+        </div>
 
         {songs.length === 0 ? (
           <Empty
@@ -570,31 +563,45 @@ export function BuilderPage() {
 
             <div className="stack-xs">
               {librarySongs.map((song) => {
-                const isOpen = Boolean(expanded[song.id]) || Boolean(search.trim());
+                const isOpen = Boolean(search.trim()) || !collapsed[song.id];
                 return (
                   <div key={song.id} className="song-picker">
-                    <button
-                      type="button"
-                      className="song-picker-head"
-                      aria-expanded={isOpen}
-                      onClick={() =>
-                        setExpanded((prev) => ({ ...prev, [song.id]: !isOpen }))
-                      }
-                    >
+                    <div className="song-picker-head">
                       <span className={`tempo-dot ${song.tempo}`} />
-                      <span className="truncate" style={{ flex: 1, fontWeight: 500 }}>
+                      <span className="truncate" style={{ flex: 1, fontWeight: 600 }}>
                         {song.title}
                       </span>
-                      <span className="tiny">
+                      <Chip tone={song.tempo}>
                         {song.tempo === 'fast' ? 'Fast' : 'Slow'}
-                      </span>
-                      <span
-                        className="picker-chevron"
-                        style={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
+                      </Chip>
+                      <button
+                        type="button"
+                        className="song-add-all-btn"
+                        onClick={() => insertAllSongParts(song)}
+                        title={`Add all parts of ${song.title}`}
                       >
-                        <Icon name="chevronDown" size={16} />
-                      </span>
-                    </button>
+                        <Icon name="add" size={12} /> All
+                      </button>
+                      <button
+                        type="button"
+                        className="song-collapse-btn"
+                        aria-label={isOpen ? `Collapse ${song.title}` : `Expand ${song.title}`}
+                        aria-expanded={isOpen}
+                        onClick={() =>
+                          setCollapsed((prev) => ({
+                            ...prev,
+                            [song.id]: isOpen,
+                          }))
+                        }
+                      >
+                        <span
+                          className="picker-chevron"
+                          style={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
+                        >
+                          <Icon name="chevronDown" size={16} />
+                        </span>
+                      </button>
+                    </div>
 
                     {isOpen && (
                       <div className="picker-parts">
@@ -604,34 +611,22 @@ export function BuilderPage() {
                               .split(/\r?\n/)
                               .map((l) => l.trim())
                               .find(Boolean) ?? '';
+                          const count = partUsageCount.get(`${song.id}:${part.id}`) || 0;
                           return (
                             <button
                               key={part.id}
                               type="button"
-                              className="part-chip"
+                              className={`part-chip ${count > 0 ? 'part-chip-used' : ''}`}
                               draggable
                               onDragStart={(e) => onPartDragStart(e, song.id, part.id)}
-                              onPointerDown={(e) =>
-                                startTouchPart(
-                                  e,
-                                  song.id,
-                                  part.id,
-                                  `${song.title} · ${part.label}`,
-                                )
-                              }
-                              onClick={(e) => {
-                                if (
-                                  (e.nativeEvent as PointerEvent).pointerType &&
-                                  (e.nativeEvent as PointerEvent).pointerType !== 'mouse'
-                                ) {
-                                  return;
-                                }
-                                insertPart(song.id, part.id);
-                              }}
+                              onClick={() => insertPart(song.id, part.id)}
                             >
                               <span className="kind">{part.label}</span>
                               <span className="excerpt">{first || 'Empty'}</span>
                               <span className="push" />
+                              {count > 0 && (
+                                <span className="part-count-badge">×{count}</span>
+                              )}
                               <Icon name="add" size={14} className="muted" />
                             </button>
                           );
@@ -687,7 +682,7 @@ export function BuilderPage() {
             boxShadow: 'var(--shadow-lg)',
           }}
         >
-          {touchDrag.source.label}
+          {touchDrag.label}
         </div>
       )}
 

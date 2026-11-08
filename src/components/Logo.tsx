@@ -50,8 +50,8 @@ export function Logo({ size = 26, variant = 'tile', className }: LogoProps) {
     >
       <defs>
         <linearGradient id={bgId} x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#16bd88" />
-          <stop offset="1" stopColor="#0d9468" />
+          <stop offset="0" stopColor="#129b72" />
+          <stop offset="1" stopColor="#0c7354" />
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="16" fill={`url(#${bgId})`} />
