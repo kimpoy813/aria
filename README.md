@@ -93,6 +93,23 @@ npm run build    # type-check + production bundle
 npm start        # serve the built app and the API from :5174
 ```
 
+### Deploying
+
+One Node service serves the API and the app together, and **Supabase (Postgres)** holds the data so
+nothing is lost on redeploy — see **[DEPLOY.md](DEPLOY.md)** for the full Render + Supabase walkthrough.
+
+Storage is pluggable (`server/storage.js`):
+
+| `ARIA_STORAGE` | Where data lives |
+| --- | --- |
+| *(unset)* | Supabase if `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set, else a local JSON file |
+| `file` | `server/data.json` — the default for `npm run dev` |
+| `supabase` | Postgres through the Supabase service role key |
+
+The schema is in [`supabase/schema.sql`](supabase/schema.sql). Run
+`npm run test:supabase` to verify the whole path against a real Postgres before deploying — no
+Supabase account needed.
+
 The API stores its data in `server/data.json` (git-ignored, created on first run and seeded with the
 demo team `ARIA-123`). `npm run dev` proxies `/api` from Vite to the API, so the browser only ever
 talks to one origin.
@@ -101,6 +118,9 @@ talks to one origin.
 
 ```
 server/index.js          API: users, teams + join codes, songs, lineups, sharing, LRU stamps
+server/storage.js        storage drivers: local JSON file or Supabase Postgres
+supabase/schema.sql      tables, indexes and RLS for Supabase (paste into SQL Editor)
+scripts/test-supabase.mjs  end-to-end check of the Supabase path on a real Postgres
 src/lib/nlp.ts           lyric classifier: lexicons, themes, tone, per-part signals, message
 src/lib/lru.ts           LRU ordering, sequence resolution, tempo mix, time helpers
 src/lib/store.tsx        app state, theme (light/dark), session

@@ -1,0 +1,37 @@
+# Render blueprint for Aria.
+# In the Render dashboard: New → Blueprint → pick this repo → Apply.
+#
+# One Node service serves both the API and the built React app on the same port.
+# Data lives in Supabase (Postgres). Fill the two SUPABASE_* values in the
+# dashboard after the first deploy — see DEPLOY.md.
+services:
+  - type: web
+    name: aria
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      # Postgres, so no disk is needed and nothing is lost on redeploy.
+      - key: ARIA_STORAGE
+        value: supabase
+      # Project URL, e.g. https://abcdefghijkl.supabase.co
+      - key: SUPABASE_URL
+        sync: false
+      # Service role key — server-side only. Never expose it to the browser.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Optional fallback when you would rather not use Supabase at all:
+      # write the JSON store to a mounted disk (paid plans only).
+      # - key: ARIA_DATA_DIR
+      #   value: /var/data
+    # disk:
+    #   name: aria-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createStore } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = path.join(__dirname, 'data.json');
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 const PORT = Number(process.env.PORT || 5174);
+
 
 const uid = (prefix = 'id') => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 const now = () => Date.now();
@@ -16,32 +17,29 @@ const clean = (value, max = 400) =>
 
 /* ------------------------------------------------------------------ store */
 
-function emptyDb() {
-  return { users: [], teams: [], songs: [], lineups: [] };
-}
-
-function loadDb() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    return {
-      users: parsed.users || [],
-      teams: parsed.teams || [],
-      songs: parsed.songs || [],
-      lineups: parsed.lineups || [],
-    };
-  } catch {
-    return emptyDb();
-  }
-}
-
-let db = loadDb();
+let store = null;
+let db = { users: [], teams: [], songs: [], lineups: [] };
 let saveTimer = null;
+let saveChain = Promise.resolve();
+let saveWarning = null;
 
 function save() {
+  if (!store) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    // Serialise writes so two quick actions cannot interleave and clobber rows.
+    saveChain = saveChain
+      .then(() => store.persist(db))
+      .then(() => {
+        saveWarning = null;
+      })
+      .catch((err) => {
+        const message = err?.message || String(err);
+        if (message !== saveWarning) {
+          saveWarning = message;
+          console.error('[aria] save failed:', message);
+        }
+      });
   }, 60);
 }
 
@@ -265,7 +263,8 @@ function lineItem(song, part) {
 }
 
 function seed() {
-  if (fs.existsSync(DATA_FILE) && db.users.length > 0) return;
+  // Only ever seed an empty store, whatever the driver.
+  if (db.users.length > 0) return;
 
   const studioUser = {
     id: uid('user'),
@@ -367,7 +366,14 @@ function seed() {
   console.log('Seeded demo team ARIA-123');
 }
 
-seed();
+/* ------------------------------------------------------------ boot sequence */
+
+async function boot() {
+  store = await createStore({ log: (line) => console.log(line) });
+  db = await store.load();
+  seed();
+  return store;
+}
 
 /* --------------------------------------------------------------- helpers */
 
@@ -718,6 +724,7 @@ api.post('/songs', (req, res) => {
     teamId,
     sourceSongId: null,
     copiedFrom: null,
+    lyrics: parts.map((p) => p.lyrics).join('\n'),
     createdAt: now(),
     updatedAt: now(),
   };
@@ -752,6 +759,7 @@ api.patch('/songs/:id', (req, res) => {
   if (body.teamId !== undefined) {
     song.teamId = body.teamId && getTeam(body.teamId) ? body.teamId : null;
   }
+  song.lyrics = song.parts.map((p) => p.lyrics).join('\n');
   song.updatedAt = now();
   save();
   res.json({ song });
@@ -971,6 +979,17 @@ app.use((err, _req, res, _next) => {
   res.status(err.status || 500).json({ error: err.message || 'Something went wrong.' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Aria API listening on http://0.0.0.0:${PORT}`);
-});
+boot()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Aria API listening on http://0.0.0.0:${PORT}`);
+      console.log(`Store: ${store.describe()}`);
+      if (!fs.existsSync(DIST_DIR)) {
+        console.log('No dist/ build found — run "npm run build" to serve the app from this server.');
+      }
+    });
+  })
+  .catch((err) => {
+    console.error('[aria] failed to start:', err.message);
+    process.exit(1);
+  });
