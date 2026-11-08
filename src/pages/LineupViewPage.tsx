@@ -11,7 +11,7 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { groupLineupSongBlocks, resolveSequence, timeAgo } from '../lib/lru';
+import { groupLineupSongBlocks, resolveSequence } from '../lib/lru';
 import { useStore } from '../lib/store';
 
 export function LineupViewPage() {
@@ -120,12 +120,7 @@ export function LineupViewPage() {
     }
   };
 
-  const metaParts = [
-    `${songBlocks.length} ${songBlocks.length === 1 ? 'song' : 'songs'}`,
-    lineup.theme || null,
-    team?.name || null,
-    timeAgo(lineup.lastUsedAt),
-  ].filter(Boolean);
+  const metaParts = [lineup.theme || null, team?.name || null].filter(Boolean);
 
   return (
     <div className="stack">
@@ -160,7 +155,7 @@ export function LineupViewPage() {
 
       <div className="stack-xs">
         <h1 className="detail-title">{lineup.name}</h1>
-        <div className="tiny">{metaParts.join(' · ')}</div>
+        {metaParts.length > 0 && <div className="tiny">{metaParts.join(' · ')}</div>}
       </div>
 
       <div className="stack">

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Chip, Empty, Icon } from '../components/ui';
+import { Button, Empty, Icon } from '../components/ui';
 import { orderByLRU, summarizeLineupSongs, timeAgo } from '../lib/lru';
 import { useStore } from '../lib/store';
 import type { Lineup } from '../lib/types';
@@ -32,13 +32,9 @@ export function LineupsPage() {
 
   const ordered = useMemo(() => orderByLRU(scoped), [scoped]);
 
-  const describe = (l: Lineup) => {
+  const songSummary = (l: Lineup) => {
     const usedSongs = summarizeLineupSongs(l, songs);
-    return {
-      parts: l.items.length,
-      songs: usedSongs.length,
-      songNames: usedSongs.map((u) => u.song.title).join(' · '),
-    };
+    return usedSongs.map((u) => u.song.title).join(', ');
   };
 
   return (
@@ -46,7 +42,6 @@ export function LineupsPage() {
       <div className="page-head-row">
         <div className="page-head">
           <h1>Lineups</h1>
-          {lineups.length > 0 && <p>Least recently used first</p>}
         </div>
         <Button variant="primary" onClick={() => navigate('/lineups/new')}>
           <Icon name="add" size={16} /> New
@@ -79,7 +74,7 @@ export function LineupsPage() {
         </div>
       )}
 
-      {themes.length > 0 && (
+      {themes.length > 1 && (
         <div className="filter-row">
           <button
             type="button"
@@ -107,7 +102,7 @@ export function LineupsPage() {
           title={lineups.length === 0 ? 'No lineups yet' : 'No matches'}
           body={
             lineups.length === 0
-              ? 'Combine parts from at least two songs — mixing fast and slow tempos — into a setlist.'
+              ? 'Combine parts from at least two songs — mixing fast and slow tempos.'
               : 'Nothing matched that filter.'
           }
           action={
@@ -130,7 +125,7 @@ export function LineupsPage() {
       ) : (
         <div className="list-group">
           {ordered.map((l) => {
-            const d = describe(l);
+            const names = songSummary(l);
             return (
               <button
                 key={l.id}
@@ -140,20 +135,12 @@ export function LineupsPage() {
               >
                 <div className="list-row-body">
                   <div className="list-row-title truncate">{l.name}</div>
-                  {d.songNames && (
-                    <div className="small truncate" style={{ fontSize: 12.5 }}>
-                      {d.songNames}
-                    </div>
-                  )}
-                  <div className="tiny truncate">
-                    {d.songs} {d.songs === 1 ? 'song' : 'songs'} · {d.parts} parts ·{' '}
-                    {timeAgo(l.lastUsedAt)}
-                  </div>
+                  {names && <div className="tiny truncate">{names}</div>}
                 </div>
-                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                  {l.theme && <Chip>{l.theme}</Chip>}
-                  <Icon name="chevronRight" size={16} className="muted" />
-                </div>
+                <span className="tiny" style={{ flexShrink: 0 }}>
+                  {l.lastUsedAt ? timeAgo(l.lastUsedAt) : 'Unused'}
+                </span>
+                <Icon name="chevronRight" size={16} className="muted" />
               </button>
             );
           })}
