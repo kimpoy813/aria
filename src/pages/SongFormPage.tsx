@@ -138,7 +138,6 @@ export function SongFormPage() {
     try {
       if (editing) {
         await api.updateSong(editing.id, {
-          userId: user.id,
           title: title.trim(),
           artist: artist.trim(),
           tempo,
@@ -156,7 +155,6 @@ export function SongFormPage() {
         });
       } else {
         await api.createSong({
-          userId: user.id,
           title: title.trim(),
           artist: artist.trim() || 'Unknown artist',
           tempo,

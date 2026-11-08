@@ -10,8 +10,16 @@ import {
 } from 'react';
 import { api } from './api';
 import type { AppState, Lineup, Song, Team, User } from './types';
+import {
+  loadConfig,
+  logout as authLogout,
+  onChange as onAuthChange,
+  resumeSession,
+  storeToken,
+  type Account,
+  type AuthConfig,
+} from './auth';
 
-const USER_KEY = 'aria.userId';
 const THEME_KEY = 'aria.theme';
 
 type ThemeMode = 'light' | 'dark';
@@ -24,9 +32,10 @@ interface StoreValue {
   songs: Song[];
   lineups: Lineup[];
   theme: ThemeMode;
+  config: AuthConfig;
   toggleTheme: () => void;
-  signIn: (name: string) => Promise<void>;
-  signOut: () => void;
+  signInWithAccount: (account: Account) => Promise<void>;
+  signOut: () => Promise<void>;
   refresh: () => Promise<void>;
   joinTeam: (code: string) => Promise<Team>;
   createTeam: (name: string) => Promise<Team>;
@@ -47,6 +56,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => readTheme());
+  const [config, setConfig] = useState<AuthConfig>({
+    driver: 'demo',
+    supabaseUrl: null,
+    supabaseAnonKey: null,
+    resetMinutes: 30,
+  });
   const bootstrapped = useRef(false);
 
   useEffect(() => {
@@ -56,63 +71,84 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (meta) meta.setAttribute('content', theme === 'dark' ? '#071410' : '#ffffff');
   }, [theme]);
 
+  /** Load the signed-in account's library. No account -> empty state. */
   const refresh = useCallback(async () => {
-    const userId = localStorage.getItem(USER_KEY);
-    if (!userId) {
-      setState(null);
-      setLoading(false);
-      return;
-    }
     try {
-      const next = await api.state(userId);
+      const next = await api.state();
       setState(next);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not reach Aria.';
-      if (message.toLowerCase().includes('unknown user')) {
-        localStorage.removeItem(USER_KEY);
+      if (message.toLowerCase().includes('sign in')) {
+        storeToken(null);
         setState(null);
+      } else {
+        setError(message);
       }
-      setError(message);
-    } finally {
-      setLoading(false);
     }
+  }, []);
+
+  const adoptAccount = useCallback(
+    async (account: Account | null) => {
+      if (!account) {
+        setState(null);
+        return;
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const signInWithAccount = useCallback(
+    async (account: Account) => {
+      setLoading(true);
+      try {
+        await adoptAccount(account);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [adoptAccount],
+  );
+
+  const signOut = useCallback(async () => {
+    await authLogout();
+    setState(null);
+    setError(null);
   }, []);
 
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
-    void refresh();
-  }, [refresh]);
 
-  const signIn = useCallback(
-    async (name: string) => {
-      setLoading(true);
+    (async () => {
       try {
-        const { user } = await api.createUser(name);
-        localStorage.setItem(USER_KEY, user.id);
-        await refresh();
+        const loaded = await loadConfig();
+        setConfig(loaded);
+        const account = await resumeSession();
+        // Clear any Supabase auth callback tokens from the URL.
+        if (window.location.hash.includes('access_token')) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+        await adoptAccount(account);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not create your profile.');
-        throw err;
+        setError(err instanceof Error ? err.message : 'Could not sign in.');
       } finally {
         setLoading(false);
       }
-    },
-    [refresh],
-  );
+    })();
 
-  const signOut = useCallback(() => {
-    localStorage.removeItem(USER_KEY);
-    setState(null);
-    setError(null);
-  }, []);
+    const off = onAuthChange((account) => {
+      void adoptAccount(account);
+    });
+    return () => {
+      off();
+    };
+  }, [adoptAccount]);
 
   const joinTeam = useCallback(
     async (code: string) => {
-      const userId = localStorage.getItem(USER_KEY);
-      if (!userId) throw new Error('Sign in first.');
-      const { team } = await api.joinTeam(userId, code);
+      const { team } = await api.joinTeam(code);
       await refresh();
       return team;
     },
@@ -121,9 +157,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const createTeam = useCallback(
     async (name: string) => {
-      const userId = localStorage.getItem(USER_KEY);
-      if (!userId) throw new Error('Sign in first.');
-      const { team } = await api.createTeam(userId, name);
+      const { team } = await api.createTeam(name);
       await refresh();
       return team;
     },
@@ -132,9 +166,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const leaveTeam = useCallback(
     async (teamId: string) => {
-      const userId = localStorage.getItem(USER_KEY);
-      if (!userId) throw new Error('Sign in first.');
-      await api.leaveTeam(teamId, userId);
+      await api.leaveTeam(teamId);
       await refresh();
     },
     [refresh],
@@ -153,8 +185,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       songs: state?.songs ?? [],
       lineups: state?.lineups ?? [],
       theme,
+      config,
       toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
-      signIn,
+      signInWithAccount,
       signOut,
       refresh,
       joinTeam,
@@ -162,7 +195,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       leaveTeam,
       setUser,
     }),
-    [loading, error, state, theme, signIn, signOut, refresh, joinTeam, createTeam, leaveTeam, setUser],
+    [
+      loading,
+      error,
+      state,
+      theme,
+      config,
+      signInWithAccount,
+      signOut,
+      refresh,
+      joinTeam,
+      createTeam,
+      leaveTeam,
+      setUser,
+    ],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

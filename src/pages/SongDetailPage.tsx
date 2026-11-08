@@ -45,7 +45,7 @@ export function SongDetailPage() {
   const shareToTeam = async (teamId: string) => {
     setBusy(true);
     try {
-      await api.shareSong(song.id, user.id, teamId);
+      await api.shareSong(song.id, teamId);
       await refresh();
       setShareOpen(false);
       flash(teamId ? 'Shared with your team' : 'Song is private again');
@@ -59,7 +59,7 @@ export function SongDetailPage() {
   const copyToMine = async () => {
     setBusy(true);
     try {
-      const { song: copy } = await api.copySong(song.id, user.id, null);
+      const { song: copy } = await api.copySong(song.id, null);
       await refresh();
       flash('Copied to your songs');
       navigate(`/songs/${copy.id}`);
@@ -74,7 +74,7 @@ export function SongDetailPage() {
     if (!window.confirm(`Delete “${song.title}”? It will be removed from lineups too.`)) return;
     setBusy(true);
     try {
-      await api.deleteSong(song.id, user.id);
+      await api.deleteSong(song.id);
       await refresh();
       navigate('/');
     } catch (err) {

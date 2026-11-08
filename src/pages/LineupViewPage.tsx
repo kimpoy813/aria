@@ -61,7 +61,7 @@ export function LineupViewPage() {
   const copyLineup = async () => {
     setBusy(true);
     try {
-      const { lineup: copy } = await api.copyLineup(lineup.id, user.id, lineup.teamId);
+      const { lineup: copy } = await api.copyLineup(lineup.id, lineup.teamId);
       await refresh();
       flash('Copied to your lineups');
       navigate(`/lineups/${copy.id}/edit`);
@@ -75,7 +75,7 @@ export function LineupViewPage() {
   const makeLink = async () => {
     setBusy(true);
     try {
-      await api.shareLineup(lineup.id, user.id, 'link');
+      await api.shareLineup(lineup.id, 'link');
       const url = `${window.location.origin}/s/${lineup.shareToken}`;
       setShareLink(url);
       await refresh();
@@ -92,7 +92,7 @@ export function LineupViewPage() {
     if (!shareTeam) return;
     setBusy(true);
     try {
-      await api.shareLineup(lineup.id, user.id, 'team', shareTeam);
+      await api.shareLineup(lineup.id, 'team', shareTeam);
       await refresh();
       flash('Shared with your team — marked as used');
     } catch (err) {
@@ -118,7 +118,7 @@ export function LineupViewPage() {
   const remove = async () => {
     setBusy(true);
     try {
-      await api.deleteLineup(lineup.id, user.id);
+      await api.deleteLineup(lineup.id);
       await refresh();
       navigate('/lineups');
     } catch (err) {

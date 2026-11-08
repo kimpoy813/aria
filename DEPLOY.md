@@ -38,6 +38,43 @@ keeps team codes and ownership rules working exactly as they do locally.
 The schema also works on any plain Postgres (Neon, RDS, a VPS) if you point
 `SUPABASE_URL` at a PostgREST/Supabase-compatible endpoint later.
 
+## Step 1b — Turn on Google sign-in (Supabase Auth)
+
+Email + password work as soon as Supabase is connected. Google needs a few
+clicks in two consoles.
+
+**In Google Cloud Console**
+1. [console.cloud.google.com](https://console.cloud.google.com) → create or pick a project.
+2. **APIs & Services → OAuth consent screen** → External → fill in the app name and
+   your email → save. Add yourself under **Test users** while it stays in testing.
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+   → Application type **Web application**.
+4. Under **Authorized redirect URIs** add exactly:
+   ```
+   https://<project-ref>.supabase.co/auth/v1/callback
+   ```
+5. Copy the **Client ID** and **Client secret**.
+
+**In Supabase**
+1. **Authentication → Providers → Google** → enable it → paste the Client ID and
+   secret → **Save**.
+2. **Authentication → URL Configuration**:
+   - **Site URL**: `https://<your-service>.onrender.com`
+   - **Redirect URLs**, add both:
+     ```
+     https://<your-service>.onrender.com/
+     https://<your-service>.onrender.com/reset
+     http://localhost:5173/**
+     ```
+     (the last one is for `npm run dev`)
+
+The app asks Google to redirect back to the site root for sign-in and to
+`/reset` for password recovery, so those two must be allowed.
+
+**Emailed password resets** use Supabase's built-in mailer. It is rate-limited and
+fine for trying things out; for real traffic set **Authentication → Emails → SMTP
+Settings** to your own provider so reset mail is reliable.
+
 ## Step 2 — Deploy on Render
 
 ### Blueprint (fastest)
@@ -57,8 +94,10 @@ The schema also works on any plain Postgres (Neon, RDS, a VPS) if you point
 | Start command | `npm start` |
 | Health check path | `/api/health` |
 | `ARIA_STORAGE` | `supabase` |
+| `ARIA_AUTH` | `supabase` |
 | `SUPABASE_URL` | your project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | your service role key |
+| `SUPABASE_ANON_KEY` | your **anon** key (public, used by the browser) |
+| `SUPABASE_SERVICE_ROLE_KEY` | your **service role** key (server only) |
 
 Render provides `PORT`; the server reads it and binds `0.0.0.0`. Because the
 build output is served by the same process, app routes like `/lineups` and
@@ -70,6 +109,7 @@ Open the Render **Logs** tab. On boot you should see:
 
 ```
 [aria] storage: supabase → https://<project-ref>.supabase.co
+[aria] auth: supabase → https://<project-ref>.supabase.co
 Aria API listening on http://0.0.0.0:10000
 Store: https://<project-ref>.supabase.co (Postgres via service role)
 ```
@@ -109,7 +149,8 @@ diff — and the smoke test below asserts the round trip.
 ## Verify before you deploy
 
 ```bash
-npm run test:supabase
+npm run test:auth        # both auth drivers: register, login, reset, isolation
+npm run test:supabase    # storage round trip against real Postgres
 ```
 
 This starts a **real Postgres** (PGlite, compiled to WASM, in-process), applies
@@ -119,11 +160,34 @@ store, rows landing in Postgres, jsonb parts, the LRU clock being stamped on
 share, never-used lineups outranking recently-used ones, and data reloading
 intact from a fresh store. It needs no Supabase account and no network.
 
+## Authentication
+
+`server/auth.js` has two drivers behind one set of endpoints:
+
+| `ARIA_AUTH` | Behaviour |
+| --- | --- |
+| *(unset)* | Supabase when `SUPABASE_URL` + a service key exist, otherwise demo |
+| `supabase` | Supabase Auth: email + password, **Google**, emailed password resets |
+| `demo` | Local accounts: scrypt-hashed passwords, session tokens, in-UI reset links |
+
+Demo mode exists so the app runs with no cloud account. It deliberately has no
+Google button — OAuth needs a provider — and instead of emailing a reset link it
+shows the link once in the UI. Both drivers behave identically everywhere else.
+
+Endpoints: `GET /api/auth/config`, `GET /api/auth/session`, `POST /api/auth/register`,
+`POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/forgot`,
+`POST /api/auth/reset`, `POST /api/auth/password`. Every other route requires
+`Authorization: Bearer <token>`.
+
 ## Local development
 
 ```bash
-npm run dev          # file driver, data in server/data.json
+npm run dev          # demo accounts + file storage, no Supabase needed
 ```
+
+To use your real Supabase Auth locally, set `ARIA_AUTH=supabase` plus
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` — and add
+`http://localhost:5173/**` to the Supabase redirect URLs.
 
 To develop against your real Supabase project, export the two variables and use
 `ARIA_STORAGE=supabase` — but prefer a **second, empty Supabase project** for
@@ -136,10 +200,14 @@ this, since `npm run dev` writes to whatever database it is pointed at.
   both wake up on the next request.
 - **Chattiness**: every save rewrites the touched tables. Fine at this scale; if
   you grow past a few thousand songs, switch `persist()` to per-record upserts.
-- **Security model**: there is no login. A visitor's identity is a name kept in
-  `localStorage`, and team codes are the only access control. RLS is on with no
-  policies, so the anon key can read nothing — but a share link is public by
-  design for anyone holding the token. Do not store sensitive material.
+- **Accounts**: every request is identified by a verified token — Supabase's
+  access token in production, an Aria session token in demo mode. The API never
+  trusts an id from the request body, so one account cannot act as another.
+  Team codes still gate team membership, and a share link is public by design for
+  anyone holding the token.
+- **RLS**: enabled with no policies, so the anon key cannot read the data tables
+  directly. Only the server's service role key can — which is why it must never
+  reach the browser.
 - **Backups** are Supabase's job now: use **Database → Backups** in the
   dashboard, or `pg_dump` with the connection string from **Project Settings →
   Database**.

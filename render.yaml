@@ -21,8 +21,14 @@ services:
       # Postgres, so no disk is needed and nothing is lost on redeploy.
       - key: ARIA_STORAGE
         value: supabase
+      # Supabase Auth is the identity provider (email + Google).
+      - key: ARIA_AUTH
+        value: supabase
       # Project URL, e.g. https://abcdefghijkl.supabase.co
       - key: SUPABASE_URL
+        sync: false
+      # Public anon key — safe in the browser, needed for Google sign-in.
+      - key: SUPABASE_ANON_KEY
         sync: false
       # Service role key — server-side only. Never expose it to the browser.
       - key: SUPABASE_SERVICE_ROLE_KEY

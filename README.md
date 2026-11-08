@@ -46,6 +46,16 @@ theme leads the runner-up.
   one slow track.** The counter row shows fast/slow/song totals live.
 - Saving opens a read-only lineup page: the sequence in order, with the full lyrics of each part.
 
+### 0. Accounts
+
+Create an account with email + password, or **continue with Google**. Forgot your
+password? There is a reset link flow. Every request is identified by a verified
+token, so the API never trusts a user id sent by the browser.
+
+Auth runs on Supabase in production (`ARIA_AUTH=supabase`) and on local accounts
+in development (`ARIA_AUTH=demo`, no cloud account needed — Google and emailed
+resets need Supabase). See [DEPLOY.md](DEPLOY.md).
+
 ### 3. Teams, sharing and copying
 
 `Teams`
@@ -118,8 +128,10 @@ talks to one origin.
 
 ```
 server/index.js          API: users, teams + join codes, songs, lineups, sharing, LRU stamps
+server/auth.js           auth drivers: Supabase Auth, or local demo accounts
 server/storage.js        storage drivers: local JSON file or Supabase Postgres
 supabase/schema.sql      tables, indexes and RLS for Supabase (paste into SQL Editor)
+scripts/test-auth.mjs      end-to-end check of both auth drivers
 scripts/test-supabase.mjs  end-to-end check of the Supabase path on a real Postgres
 src/lib/nlp.ts           lyric classifier: lexicons, themes, tone, per-part signals, message
 src/lib/lru.ts           LRU ordering, sequence resolution, tempo mix, time helpers
@@ -132,7 +144,7 @@ src/styles.css           design tokens for both themes and the mobile-first layo
 
 ## Try it in a minute
 
-1. Open the app, enter a name, then join team **ARIA-123** on the Teams tab.
+1. Create an account, then join team **ARIA-123** on the Teams tab.
 2. Add a song: title, then Verse, Chorus, Bridge — one at a time — and hit **Generate class &
    message**.
 3. Go to **Lineups → Build a lineup**, filter by a class, and drag in a slow verse and a fast chorus
