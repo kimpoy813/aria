@@ -93,6 +93,11 @@ npm run build    # type-check + production bundle
 npm start        # serve the built app and the API from :5174
 ```
 
+### Deploying
+
+One Node service serves the API and the app together — see **[DEPLOY.md](DEPLOY.md)** for Render
+(blueprint or manual, plus the persistent-disk step so data survives deploys).
+
 The API stores its data in `server/data.json` (git-ignored, created on first run and seeded with the
 demo team `ARIA-123`). `npm run dev` proxies `/api` from Vite to the API, so the browser only ever
 talks to one origin.

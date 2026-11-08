@@ -1,0 +1,27 @@
+# Render blueprint for Aria.
+# In the Render dashboard: New → Blueprint → pick this repo → Apply.
+#
+# One Node service serves both the API and the built React app on the same port.
+services:
+  - type: web
+    name: aria
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      # Free instances use an ephemeral disk: data resets on every deploy.
+      # To keep teams, songs and lineups permanently, upgrade the service and
+      # uncomment ARIA_DATA_DIR plus the disk block below.
+      # - key: ARIA_DATA_DIR
+      #   value: /var/data
+    # disk:
+    #   name: aria-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

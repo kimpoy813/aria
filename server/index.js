@@ -5,9 +5,16 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = path.join(__dirname, 'data.json');
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 const PORT = Number(process.env.PORT || 5174);
+
+/**
+ * Where the JSON store lives. On Render attach a persistent disk and point
+ * ARIA_DATA_DIR at its mount path (e.g. /var/data) so data survives deploys.
+ * Without it the file sits next to the server and is lost on redeploy.
+ */
+const DATA_DIR = process.env.ARIA_DATA_DIR || __dirname;
+const DATA_FILE = path.join(DATA_DIR, 'data.json');
 
 const uid = (prefix = 'id') => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 const now = () => Date.now();
@@ -40,8 +47,12 @@ let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    try {
+      fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+      fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    } catch (err) {
+      console.error('Could not persist data to', DATA_FILE, err.message);
+    }
   }, 60);
 }
 
@@ -973,4 +984,8 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Aria API listening on http://0.0.0.0:${PORT}`);
+  console.log(`Store: ${DATA_FILE}`);
+  if (!fs.existsSync(DIST_DIR)) {
+    console.log('No dist/ build found — run "npm run build" to serve the app from this server.');
+  }
 });
