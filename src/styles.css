@@ -1415,20 +1415,200 @@ select {
   color: var(--ink-2);
 }
 
+/* --------------------------------------------------- admin & system banner */
+
+.admin-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.admin-pill-btn:hover,
+.admin-pill-btn.active {
+  background: var(--brand-soft);
+  border-color: var(--brand-soft-2);
+  color: var(--brand-text);
+}
+
+.sys-banner {
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-soft-2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sys-banner-warn {
+  background: var(--fast-bg);
+  border-color: var(--fast-border);
+}
+
+.sys-banner-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.sys-banner-msg {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.admin-kpi {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.admin-kpi:hover {
+  background: var(--surface-2);
+}
+
+.admin-kpi strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.tempo-meter {
+  height: 7px;
+  border-radius: 99px;
+  background: var(--slow-bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.tempo-meter-fast {
+  height: 100%;
+  background: var(--fast-dot);
+  transition: width 0.25s ease;
+}
+
+.admin-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+  padding: 4px 0;
+}
+
 /* ----------------------------------------------------- account & switches */
 
 .avatar-button {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  border: 1px solid var(--line-strong);
-  background: var(--surface-2);
-  color: var(--ink);
-  font-size: 12.5px;
+  border: 1px solid var(--brand-soft-2);
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+  transition: transform 0.12s ease, background 0.14s ease, border-color 0.14s ease;
+}
+
+.avatar-button:hover,
+.avatar-button.active {
+  border-color: var(--brand);
+}
+
+.avatar-button:active {
+  transform: scale(0.95);
+}
+
+.account-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-soft-2);
+  color: var(--brand-text);
+  font-size: 15px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.account-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.015em;
+}
+
+.account-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.account-delete-link {
+  border: 0;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.14s ease;
+}
+
+.account-delete-link:hover {
+  color: var(--danger);
 }
 
 .stat-strip {
@@ -1438,12 +1618,20 @@ select {
 }
 
 .stat-cell {
+  border: 1px solid var(--line);
   padding: 10px 6px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   text-align: center;
   display: flex;
   flex-direction: column;
+  gap: 1px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.stat-cell:hover {
+  background: var(--surface-3);
 }
 
 .stat-cell strong {
@@ -1517,6 +1705,13 @@ select {
   animation: slideUp 0.2s cubic-bezier(0.2, 0.9, 0.25, 1);
   border-top: 1px solid var(--line-strong);
   box-shadow: var(--shadow-lg);
+}
+
+@media (min-width: 431px) {
+  .sheet {
+    border-left: 1px solid var(--line-strong);
+    border-right: 1px solid var(--line-strong);
+  }
 }
 
 .sheet-grab {

@@ -116,7 +116,25 @@ export interface User {
   id: string;
   name: string;
   email?: string;
+  role?: 'admin' | 'user';
+  isAdmin?: boolean;
+  suspended?: boolean;
   createdAt: number;
+}
+
+export interface MaintenanceNotice {
+  enabled: boolean;
+  mode: 'info' | 'maintenance';
+  title: string;
+  message: string;
+  eta: string;
+  updatedAt: number | null;
+  updatedBy: string | null;
+}
+
+export interface SystemStatus {
+  maintenance: MaintenanceNotice;
+  allowRegistration: boolean;
 }
 
 export interface AppState {
@@ -124,6 +142,73 @@ export interface AppState {
   teams: Team[];
   songs: Song[];
   lineups: Lineup[];
+  system?: SystemStatus;
+}
+
+export interface AdminUserSummary extends User {
+  isBuiltInAdmin: boolean;
+  songsCount: number;
+  lineupsCount: number;
+  teamsCount: number;
+}
+
+export interface AdminOverview {
+  stats: {
+    totalUsers: number;
+    activeUsers: number;
+    suspendedUsers: number;
+    adminUsers: number;
+    totalSongs: number;
+    fastSongs: number;
+    slowSongs: number;
+    sharedSongs: number;
+    topThemes: { theme: string; count: number }[];
+    totalLineups: number;
+    sharedLineups: number;
+    usedLineups: number;
+    totalLineupUses: number;
+    totalTeams: number;
+    totalTeamMemberships: number;
+    storageDriver: string;
+    authDriver: string;
+  };
+  settings: SystemStatus;
+  adminEmail: string;
+  users: AdminUserSummary[];
+  songs: {
+    id: string;
+    title: string;
+    artist: string;
+    tempo: Tempo;
+    theme: string;
+    ownerId: string;
+    ownerName: string;
+    teamId: string | null;
+    partsCount: number;
+    createdAt: number;
+  }[];
+  lineups: {
+    id: string;
+    name: string;
+    theme: string;
+    ownerId: string;
+    ownerName: string;
+    teamId: string | null;
+    partsCount: number;
+    useCount: number;
+    lastUsedAt: number | null;
+    shareToken: string;
+    createdAt: number;
+  }[];
+  teams: {
+    id: string;
+    name: string;
+    code: string;
+    ownerId: string;
+    membersCount: number;
+    members: Member[];
+    createdAt: number;
+  }[];
 }
 
 export interface SharedLineupItem {

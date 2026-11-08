@@ -1,10 +1,14 @@
 import type {
+  AdminOverview,
+  AdminUserSummary,
   Analysis,
   AppState,
   Lineup,
   LineupItem,
+  MaintenanceNotice,
   SharedLineup,
   Song,
+  SystemStatus,
   Team,
   Tempo,
 } from './types';
@@ -138,6 +142,65 @@ export const api = {
 
   shared: (token: string) =>
     request<{ lineup: SharedLineup }>(`/shared/${encodeURIComponent(token)}`),
+
+  systemStatus: () => request<SystemStatus>('/system/status'),
+
+  adminOverview: () => request<AdminOverview>('/admin/overview'),
+
+  adminUpdateSettings: (payload: {
+    maintenance?: Partial<MaintenanceNotice>;
+    allowRegistration?: boolean;
+  }) =>
+    request<{ settings: SystemStatus }>('/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  adminCreateUser: (payload: {
+    name: string;
+    email: string;
+    password?: string;
+    role: 'user' | 'admin';
+  }) =>
+    request<{ user: AdminUserSummary }>('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  adminUpdateUser: (
+    id: string,
+    payload: { name?: string; role?: 'user' | 'admin'; suspended?: boolean },
+  ) =>
+    request<{ user: AdminUserSummary }>(`/admin/users/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  adminDeleteUser: (id: string) =>
+    request<{ ok: true }>(`/admin/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  adminSetPassword: (password: string) =>
+    request<{ ok: true; token?: string | null }>('/admin/password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+
+  adminDeleteSong: (id: string) =>
+    request<{ ok: true }>(`/admin/songs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  adminDeleteLineup: (id: string) =>
+    request<{ ok: true }>(`/admin/lineups/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  adminDeleteTeam: (id: string) =>
+    request<{ ok: true }>(`/admin/teams/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 };
 
 export type { LineupItem };

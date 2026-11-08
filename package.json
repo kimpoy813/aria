@@ -15,6 +15,7 @@
     "test:auth": "node scripts/test-auth.mjs",
     "test:lyrics": "node scripts/test-lyrics-and-sharing.mjs",
     "test:playstore": "node scripts/test-playstore.mjs",
+    "test:admin": "node scripts/test-admin.mjs",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {

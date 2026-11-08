@@ -3,6 +3,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './Icon';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -66,27 +67,32 @@ export function Sheet({
 }) {
   useEffect(() => {
     if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  const node = (
     <div
       className="sheet-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-label={title || 'Dialog'}>
         <div className="sheet-grab" />
         {(title || subtitle) && (
           <div className="sheet-head">
-            <div>
-              {title && <h2>{title}</h2>}
+            <div style={{ minWidth: 0 }}>
+              {title && <h2 className="truncate">{title}</h2>}
               {subtitle && <p className="small">{subtitle}</p>}
             </div>
             <IconButton label="Close" onClick={onClose} className="sheet-close">
@@ -98,11 +104,12 @@ export function Sheet({
       </div>
     </div>
   );
+  return typeof document !== 'undefined' ? createPortal(node, document.body) : node;
 }
 
 export function Toast({ message }: { message: string | null }) {
   if (!message) return null;
-  return (
+  const node = (
     <div className="toast-wrap" role="status" aria-live="polite">
       <div className="toast">
         <Icon name="check" size={14} />
@@ -110,6 +117,7 @@ export function Toast({ message }: { message: string | null }) {
       </div>
     </div>
   );
+  return typeof document !== 'undefined' ? createPortal(node, document.body) : node;
 }
 
 export function Empty({

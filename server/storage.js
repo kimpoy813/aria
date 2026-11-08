@@ -21,8 +21,41 @@ export const COLLECTIONS = ['users', 'teams', 'songs', 'lineups'];
 
 /* ------------------------------------------------------------------ helpers */
 
+export function defaultSettings() {
+  return {
+    maintenance: {
+      enabled: false,
+      mode: 'info',
+      title: 'Scheduled Maintenance',
+      message: '',
+      eta: '',
+      updatedAt: null,
+      updatedBy: null,
+    },
+    allowRegistration: true,
+  };
+}
+
+function normaliseSettings(raw) {
+  const base = defaultSettings();
+  if (!raw || typeof raw !== 'object') return base;
+  const m = raw.maintenance && typeof raw.maintenance === 'object' ? raw.maintenance : {};
+  return {
+    maintenance: {
+      enabled: Boolean(m.enabled),
+      mode: m.mode === 'maintenance' ? 'maintenance' : 'info',
+      title: typeof m.title === 'string' ? m.title : base.maintenance.title,
+      message: typeof m.message === 'string' ? m.message : '',
+      eta: typeof m.eta === 'string' ? m.eta : '',
+      updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : null,
+      updatedBy: typeof m.updatedBy === 'string' ? m.updatedBy : null,
+    },
+    allowRegistration: raw.allowRegistration === undefined ? true : Boolean(raw.allowRegistration),
+  };
+}
+
 function emptyState() {
-  return { users: [], teams: [], songs: [], lineups: [] };
+  return { users: [], teams: [], songs: [], lineups: [], settings: defaultSettings() };
 }
 
 /** Field name → Postgres column, per table. Explicit on purpose: a typo here
@@ -31,6 +64,9 @@ const COLUMNS = {
   users: {
     id: 'id',
     name: 'name',
+    email: 'email',
+    role: 'role',
+    suspended: 'suspended',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   },
@@ -89,15 +125,22 @@ const REQUIRED_DEFAULTS = {
   lineups: { name: '', theme: '', owner_id: '', owner_name: '', items: [], use_count: 0 },
   // note: team_id, source_*_id, last_used_at, copied_from and share_token are
   // intentionally nullable and are left as null.
-  users: { name: '' },
+  users: { name: '', role: 'user', suspended: false },
 };
 
-function toRow(collection, record) {
+function toRow(collection, record, options = {}) {
   const map = COLUMNS[collection];
   const defaults = REQUIRED_DEFAULTS[collection] || {};
   const row = {};
   for (const [field, column] of Object.entries(map)) {
     if (GENERATED.has(column)) continue;
+    if (
+      collection === 'users' &&
+      options.extendedUserCols === false &&
+      (column === 'email' || column === 'role' || column === 'suspended')
+    ) {
+      continue;
+    }
     const value = record[field];
     if (value === undefined || value === null) {
       // Never write null into a required column; let the column default stand
@@ -124,6 +167,9 @@ function fromRow(collection, row) {
   // Normalise the fields the app treats as optional.
   if (collection === 'users') {
     value.isDemo = !!row.is_demo;
+    value.email = row.email ?? undefined;
+    value.role = row.role === 'admin' ? 'admin' : 'user';
+    value.suspended = Boolean(row.suspended);
   }
   if (collection === 'teams') {
     value.members = row.members ?? [];
@@ -164,6 +210,7 @@ export class FileStore {
         teams: parsed.teams || [],
         songs: parsed.songs || [],
         lineups: parsed.lineups || [],
+        settings: normaliseSettings(parsed.settings),
       };
     } catch {
       return emptyState();
@@ -193,6 +240,8 @@ export class SupabaseStore {
     this.url = url;
     this.key = key;
     this.client = null;
+    this.hasExtendedUserCols = true;
+    this.hasSettingsTable = true;
   }
 
   async connect() {
@@ -200,12 +249,12 @@ export class SupabaseStore {
     // A test (or a future proxy) can inject a compatible client.
     if (globalThis.__ariaSupabaseClient) {
       this.client = globalThis.__ariaSupabaseClient;
-      return this.client;
+    } else {
+      const { createClient } = await import('@supabase/supabase-js');
+      this.client = createClient(this.url, this.key, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
     }
-    const { createClient } = await import('@supabase/supabase-js');
-    this.client = createClient(this.url, this.key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
     // Fail fast (and loudly) if the project is unreachable or keyed wrong.
     const { error } = await this.client.from('users').select('id').limit(1);
     if (error) {
@@ -213,6 +262,12 @@ export class SupabaseStore {
         `Supabase is not ready (${error.message}). Did you run supabase/schema.sql?`,
       );
     }
+    // Detect optional admin schema extensions so older un-migrated DBs never fail
+    const extProbe = await this.client.from('users').select('id, email, role, suspended').limit(1);
+    this.hasExtendedUserCols = !extProbe.error;
+    const setProbe = await this.client.from('system_settings').select('id').limit(1);
+    this.hasSettingsTable = !setProbe.error;
+
     return this.client;
   }
 
@@ -226,6 +281,13 @@ export class SupabaseStore {
         state[collection] = (data || []).map((row) => fromRow(collection, row));
       }),
     );
+    if (this.hasSettingsTable) {
+      const { data } = await client.from('system_settings').select('*');
+      const globalRow = (data || []).find((r) => r.id === 'global');
+      if (globalRow?.data) {
+        state.settings = normaliseSettings(globalRow.data);
+      }
+    }
     return state;
   }
 
@@ -239,7 +301,9 @@ export class SupabaseStore {
     for (const collection of COLLECTIONS) {
       const records = state[collection] || [];
       if (records.length > 0) {
-        const rows = records.map((record) => toRow(collection, record));
+        const rows = records.map((record) =>
+          toRow(collection, record, { extendedUserCols: this.hasExtendedUserCols }),
+        );
         const { error } = await client.from(collection).upsert(rows, { onConflict: 'id' });
         if (error) throw new Error(`Could not save ${collection}: ${error.message}`);
       }
@@ -251,6 +315,14 @@ export class SupabaseStore {
         const { error: deleteError } = await client.from(collection).delete().in('id', stale);
         if (deleteError) throw new Error(`Could not prune ${collection}: ${deleteError.message}`);
       }
+    }
+    if (this.hasSettingsTable && state.settings) {
+      const { error } = await client
+        .from('system_settings')
+        .upsert([{ id: 'global', data: normaliseSettings(state.settings) }], {
+          onConflict: 'id',
+        });
+      if (error) throw new Error(`Could not save system_settings: ${error.message}`);
     }
   }
 
@@ -266,7 +338,7 @@ export async function createStore({ log = console.log } = {}) {
   const wanted = cleanEnv(process.env.ARIA_STORAGE || '').toLowerCase();
   const { url, serviceRoleKey: key } = resolveSupabaseConfig();
   const dataDir = process.env.ARIA_DATA_DIR || path.join(process.cwd(), 'server');
-  const file = path.join(dataDir, 'data.json');
+  const file = process.env.ARIA_DATA_FILE || path.join(dataDir, 'data.json');
 
   const useSupabase = wanted === 'supabase' || (!wanted && Boolean(url && key));
 

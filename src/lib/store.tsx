@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api } from './api';
-import type { AppState, Lineup, Song, Team, User } from './types';
+import type { AppState, Lineup, Song, SystemStatus, Team, User } from './types';
 import {
   completePopupRelay,
   consumeOAuthError,
@@ -31,6 +31,19 @@ export type ThemeMode = 'light' | 'dark';
 export type ThemePreference = 'light' | 'dark' | 'system';
 type PopupStatus = 'idle' | 'completed' | 'error';
 
+const DEFAULT_SYSTEM_STATUS: SystemStatus = {
+  maintenance: {
+    enabled: false,
+    mode: 'info',
+    title: 'Scheduled Maintenance',
+    message: '',
+    eta: '',
+    updatedAt: null,
+    updatedBy: null,
+  },
+  allowRegistration: true,
+};
+
 interface StoreValue {
   loading: boolean;
   error: string | null;
@@ -39,6 +52,7 @@ interface StoreValue {
   teams: Team[];
   songs: Song[];
   lineups: Lineup[];
+  systemStatus: SystemStatus;
   theme: ThemeMode;
   themePreference: ThemePreference;
   config: AuthConfig;
@@ -52,6 +66,7 @@ interface StoreValue {
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
+  refreshSystemStatus: () => Promise<void>;
   joinTeam: (code: string) => Promise<Team>;
   createTeam: (name: string) => Promise<Team>;
   leaveTeam: (teamId: string) => Promise<void>;
@@ -72,6 +87,7 @@ function resolveSystemTheme(): ThemeMode {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus>(DEFAULT_SYSTEM_STATUS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [popupStatus, setPopupStatus] = useState<PopupStatus>('idle');
@@ -112,17 +128,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setThemePrefState(theme === 'dark' ? 'light' : 'dark');
   }, [theme]);
 
+  const refreshSystemStatus = useCallback(async () => {
+    try {
+      const status = await api.systemStatus();
+      setSystemStatus(status);
+    } catch {
+      /* ignore status fetch errors */
+    }
+  }, []);
+
   /** Load the signed-in account's library. No account -> empty state. */
   const refresh = useCallback(async () => {
     try {
       const next = await api.state();
       setState(next);
+      if (next.system) setSystemStatus(next.system);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not reach Aria.';
       if (message.toLowerCase().includes('sign in')) {
         storeToken(null);
         setState(null);
+      } else if (message.toLowerCase().includes('suspended')) {
+        await authLogout().catch(() => undefined);
+        setState(null);
+        setError(message);
       } else {
         setError(message);
       }
@@ -183,6 +213,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
+        void refreshSystemStatus();
         const loaded = await loadConfig();
         setConfig(loaded);
         const oauthErr = consumeOAuthError();
@@ -288,10 +319,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       teams: state?.teams ?? [],
       songs: state?.songs ?? [],
       lineups: state?.lineups ?? [],
+      systemStatus,
       theme,
       themePreference,
       config,
-      onboarded,
+      onboarded: onboarded || Boolean(state?.user?.isAdmin),
       clearError,
       toggleTheme,
       setThemePreference,
@@ -301,6 +333,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       signOut,
       deleteAccount,
       refresh,
+      refreshSystemStatus,
       joinTeam,
       createTeam,
       leaveTeam,
@@ -311,6 +344,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       error,
       popupStatus,
       state,
+      systemStatus,
       theme,
       themePreference,
       config,
@@ -324,6 +358,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       signOut,
       deleteAccount,
       refresh,
+      refreshSystemStatus,
       joinTeam,
       createTeam,
       leaveTeam,

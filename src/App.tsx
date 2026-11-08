@@ -8,7 +8,7 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { StoreProvider, useStore, type ThemePreference } from './lib/store';
-import { Button, Icon, IconButton, Sheet } from './components/ui';
+import { Button, Chip, Icon, IconButton, Sheet } from './components/ui';
 import type { IconName } from './components/Icon';
 import { LogoHero, Wordmark } from './components/Logo';
 import {
@@ -29,6 +29,7 @@ import { OnboardingPage } from './pages/OnboardingPage';
 import { SharedPage } from './pages/SharedPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { DeleteAccountPage } from './pages/DeleteAccountPage';
+import { AdminPage } from './pages/AdminPage';
 
 const TABS: { to: string; label: string; icon: IconName }[] = [
   { to: '/', label: 'Home', icon: 'home' },
@@ -47,6 +48,28 @@ function isTabActive(pathname: string, to: string) {
   return to === '/' ? pathname === '/' : pathname.startsWith(to);
 }
 
+function SystemBanner() {
+  const { systemStatus, user } = useStore();
+  const m = systemStatus.maintenance;
+  if (!m.enabled) return null;
+
+  return (
+    <div
+      className={`sys-banner ${m.mode === 'maintenance' ? 'sys-banner-warn' : ''}`}
+      role="status"
+    >
+      <div className="row-between" style={{ gap: 8 }}>
+        <strong className="sys-banner-title">{m.title || 'System Notice'}</strong>
+        {m.mode === 'maintenance' && user?.isAdmin && (
+          <span className="tiny">Admin bypass</span>
+        )}
+        {m.eta && <span className="tiny">{m.eta}</span>}
+      </div>
+      {m.message && <p className="sys-banner-msg">{m.message}</p>}
+    </div>
+  );
+}
+
 function TopBar() {
   const {
     theme,
@@ -60,6 +83,7 @@ function TopBar() {
     signOut,
   } = useStore();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -76,6 +100,18 @@ function TopBar() {
 
         <div className="push" />
 
+        {user?.isAdmin && (
+          <button
+            type="button"
+            className={`admin-pill-btn ${pathname.startsWith('/admin') ? 'active' : ''}`}
+            onClick={() => navigate('/admin')}
+            aria-label="Admin console"
+          >
+            <Icon name="shield" size={14} />
+            <span>Admin</span>
+          </button>
+        )}
+
         <IconButton
           label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           className="icon-btn-ghost"
@@ -87,37 +123,73 @@ function TopBar() {
         {user ? (
           <button
             type="button"
-            className="avatar-button"
+            className={`avatar-button ${menuOpen ? 'active' : ''}`}
             aria-label="Account"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
           >
-            {user.name.slice(0, 1).toUpperCase()}
+            {(user.name?.trim().slice(0, 1) || 'U').toUpperCase()}
           </button>
         ) : null}
       </div>
 
-      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={user?.name || 'Account'}>
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title="Account">
         <div className="stack">
-          {user?.email && <div className="small">{user.email}</div>}
-
-          <div className="stat-strip">
-            <div className="stat-cell">
-              <strong>{songs.length}</strong>
-              <span>Songs</span>
+          <div className="account-profile">
+            <div className="account-avatar" aria-hidden="true">
+              {(user?.name?.trim().slice(0, 1) || 'U').toUpperCase()}
             </div>
-            <div className="stat-cell">
-              <strong>{lineups.length}</strong>
-              <span>Lineups</span>
-            </div>
-            <div className="stat-cell">
-              <strong>{teams.length}</strong>
-              <span>Teams</span>
+            <div className="account-meta">
+              <div className="row" style={{ gap: 6 }}>
+                <div className="account-name truncate">{user?.name || 'Listener'}</div>
+                {user?.isAdmin && <Chip tone="brand">Admin</Chip>}
+              </div>
+              {user?.email ? (
+                <div className="tiny truncate">{user.email}</div>
+              ) : (
+                <div className="tiny">Signed in</div>
+              )}
             </div>
           </div>
 
+          <div className="stat-strip">
+            <button
+              type="button"
+              className="stat-cell"
+              onClick={() => {
+                setMenuOpen(false);
+                navigate('/songs');
+              }}
+            >
+              <strong>{songs.length}</strong>
+              <span>Songs</span>
+            </button>
+            <button
+              type="button"
+              className="stat-cell"
+              onClick={() => {
+                setMenuOpen(false);
+                navigate('/lineups');
+              }}
+            >
+              <strong>{lineups.length}</strong>
+              <span>Lineups</span>
+            </button>
+            <button
+              type="button"
+              className="stat-cell"
+              onClick={() => {
+                setMenuOpen(false);
+                navigate('/teams');
+              }}
+            >
+              <strong>{teams.length}</strong>
+              <span>Teams</span>
+            </button>
+          </div>
+
           <div className="field">
-            <span className="label">Theme</span>
+            <span className="label">Appearance</span>
             <div className="seg" role="radiogroup" aria-label="Theme preference">
               {THEME_OPTIONS.map((opt) => (
                 <button
@@ -135,25 +207,57 @@ function TopBar() {
             </div>
           </div>
 
-          <div className="stack-sm">
-            <Button
-              block
+          <div className="list-group">
+            {user?.isAdmin && (
+              <button
+                type="button"
+                className="list-row"
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate('/admin');
+                }}
+              >
+                <Icon name="shield" size={16} className="muted" />
+                <div className="list-row-body">
+                  <div className="list-row-title">Admin console</div>
+                  <div className="tiny">Statistics, notices &amp; user access</div>
+                </div>
+                <Icon name="chevronRight" size={16} className="muted" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="list-row"
               onClick={() => {
                 setMenuOpen(false);
                 navigate('/onboarding');
               }}
             >
-              How Aria works
-            </Button>
-            <Button
-              block
+              <Icon name="sparkle" size={16} className="muted" />
+              <div className="list-row-body">
+                <div className="list-row-title">How Aria works</div>
+              </div>
+              <Icon name="chevronRight" size={16} className="muted" />
+            </button>
+
+            <button
+              type="button"
+              className="list-row"
               onClick={() => {
                 setMenuOpen(false);
                 navigate('/privacy');
               }}
             >
-              Privacy policy
-            </Button>
+              <Icon name="lock" size={16} className="muted" />
+              <div className="list-row-body">
+                <div className="list-row-title">Privacy policy</div>
+              </div>
+              <Icon name="chevronRight" size={16} className="muted" />
+            </button>
+          </div>
+
+          <div className="account-actions">
             <Button
               block
               onClick={async () => {
@@ -161,18 +265,20 @@ function TopBar() {
                 await signOut();
               }}
             >
-              Sign out
+              <Icon name="logout" size={15} /> Sign out
             </Button>
-            <Button
-              variant="danger"
-              block
-              onClick={() => {
-                setMenuOpen(false);
-                navigate('/delete-account');
-              }}
-            >
-              Delete account
-            </Button>
+            {user?.id !== 'user_admin' && (
+              <button
+                type="button"
+                className="account-delete-link"
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate('/delete-account');
+                }}
+              >
+                Delete account
+              </button>
+            )}
           </div>
         </div>
       </Sheet>
@@ -216,7 +322,8 @@ function ScrollToTop() {
 }
 
 function Shell() {
-  const { loading, user, onboarded, popupStatus } = useStore();
+  const { loading, user, onboarded, popupStatus, systemStatus, refresh, signOut } =
+    useStore();
   const { pathname } = useLocation();
 
   if (pathname === '/auth/google') {
@@ -295,6 +402,42 @@ function Shell() {
     );
   }
 
+  if (
+    !user.isAdmin &&
+    systemStatus.maintenance.enabled &&
+    systemStatus.maintenance.mode === 'maintenance'
+  ) {
+    const m = systemStatus.maintenance;
+    return (
+      <div className="app">
+        <TopBar />
+        <main className="app-main no-nav" style={{ display: 'grid', alignItems: 'center' }}>
+          <div className="card stack" style={{ textAlign: 'center', padding: '24px 18px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <LogoHero size={48} />
+            </div>
+            <div className="stack-xs">
+              <h2>{m.title || 'Scheduled Maintenance'}</h2>
+              <p className="small">
+                {m.message ||
+                  'Aria is temporarily offline for scheduled maintenance. Please check back shortly.'}
+              </p>
+              {m.eta && <p className="tiny">{m.eta}</p>}
+            </div>
+            <div className="stack-sm">
+              <Button variant="primary" block onClick={() => void refresh()}>
+                <Icon name="refresh" size={15} /> Check status
+              </Button>
+              <Button variant="quiet" block onClick={() => void signOut()}>
+                Sign out
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (pathname === '/onboarding') {
     return (
       <div className="app">
@@ -316,10 +459,12 @@ function Shell() {
   return (
     <div className="app">
       <TopBar />
+      <SystemBanner />
       <ScrollToTop />
       <main className="app-main">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="/songs" element={<SongsPage />} />
           <Route path="/songs/new" element={<SongFormPage />} />
           <Route path="/songs/:id" element={<SongDetailPage />} />

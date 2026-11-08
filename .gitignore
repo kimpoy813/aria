@@ -7,3 +7,4 @@ server/data.json
 .vite
 tsconfig.tsbuildinfo
 server/auth.json
+server/admin-auth.json

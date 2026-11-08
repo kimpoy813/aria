@@ -141,6 +141,160 @@ export function emailProblem(email) {
 
 const token = () => crypto.randomBytes(32).toString('base64url');
 
+export const DEFAULT_ADMIN_EMAIL = 'admin@aria.app';
+export const DEFAULT_ADMIN_PASSWORD = 'AriaAdmin2026!';
+export const DEFAULT_ADMIN_NAME = 'System Admin';
+
+export class AdminGate {
+  constructor(file) {
+    this.file = file;
+    this.email = normaliseEmail(cleanEnv(process.env.ADMIN_EMAIL || '') || DEFAULT_ADMIN_EMAIL);
+    this.name =
+      cleanEnv(process.env.ADMIN_NAME || '').slice(0, 40) || DEFAULT_ADMIN_NAME;
+    const initialPassword =
+      cleanEnv(process.env.ADMIN_PASSWORD || '') || DEFAULT_ADMIN_PASSWORD;
+    this.envPassword = initialPassword;
+    this.extraAdminEmails = new Set(
+      cleanEnv(process.env.ADMIN_EMAILS || '')
+        .split(',')
+        .map((e) => normaliseEmail(e))
+        .filter(Boolean),
+    );
+    this.state = { salt: null, hash: null, revoked: [] };
+    this.load();
+  }
+
+  load() {
+    try {
+      if (!fs.existsSync(this.file)) return;
+      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      this.state = {
+        salt: typeof parsed.salt === 'string' ? parsed.salt : null,
+        hash: typeof parsed.hash === 'string' ? parsed.hash : null,
+        revoked: Array.isArray(parsed.revoked) ? parsed.revoked.slice(-200) : [],
+      };
+    } catch {
+      this.state = { salt: null, hash: null, revoked: [] };
+    }
+  }
+
+  save() {
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      fs.writeFileSync(this.file, JSON.stringify(this.state, null, 2));
+    } catch (err) {
+      console.error('[aria] could not write admin auth store:', err.message);
+    }
+  }
+
+  signingSecret() {
+    const custom =
+      cleanEnv(process.env.ADMIN_SESSION_SECRET || '') ||
+      resolveSupabaseConfig().serviceRoleKey ||
+      'aria-admin-signing-key';
+    const credKey = this.state.hash || this.envPassword;
+    return crypto.createHash('sha256').update(`${custom}:${this.email}:${credKey}`).digest();
+  }
+
+  matchesAdminEmail(email) {
+    return normaliseEmail(email) === this.email;
+  }
+
+  isConfiguredAdminEmail(email) {
+    const norm = normaliseEmail(email);
+    if (!norm) return false;
+    return norm === this.email || this.extraAdminEmails.has(norm);
+  }
+
+  authenticate(email, password) {
+    if (!this.matchesAdminEmail(email)) return null;
+    if (this.state.salt && this.state.hash) {
+      if (!checkPassword(password || '', this.state.salt, this.state.hash)) {
+        return null;
+      }
+    } else {
+      const a = Buffer.from(String(password || ''), 'utf8');
+      const b = Buffer.from(this.envPassword, 'utf8');
+      const hA = crypto.createHash('sha256').update(a).digest();
+      const hB = crypto.createHash('sha256').update(b).digest();
+      if (!crypto.timingSafeEqual(hA, hB)) return null;
+    }
+    return this.identity();
+  }
+
+  identity() {
+    return {
+      id: 'user_admin',
+      name: this.name,
+      email: this.email,
+      role: 'admin',
+      isAdmin: true,
+    };
+  }
+
+  createSession() {
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    const exp = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+    const payload = `${nonce}.${exp}`;
+    const sig = crypto
+      .createHmac('sha256', this.signingSecret())
+      .update(payload)
+      .digest('base64url');
+    return `adm.${payload}.${sig}`;
+  }
+
+  verifySession(rawToken) {
+    if (typeof rawToken !== 'string' || !rawToken.startsWith('adm.')) return null;
+    const parts = rawToken.split('.');
+    if (parts.length !== 4) return null;
+    const [, nonce, expStr, sig] = parts;
+    const exp = Number(expStr);
+    if (!nonce || !Number.isFinite(exp) || exp <= Date.now()) return null;
+    if (this.state.revoked.includes(nonce)) return null;
+
+    const expected = crypto
+      .createHmac('sha256', this.signingSecret())
+      .update(`${nonce}.${expStr}`)
+      .digest('base64url');
+    const bufA = Buffer.from(sig, 'utf8');
+    const bufB = Buffer.from(expected, 'utf8');
+    if (bufA.length !== bufB.length || !crypto.timingSafeEqual(bufA, bufB)) return null;
+
+    return this.identity();
+  }
+
+  revokeSession(rawToken) {
+    if (typeof rawToken !== 'string' || !rawToken.startsWith('adm.')) return;
+    const parts = rawToken.split('.');
+    if (parts.length === 4 && parts[1]) {
+      if (!this.state.revoked.includes(parts[1])) {
+        this.state.revoked.push(parts[1]);
+        if (this.state.revoked.length > 200) {
+          this.state.revoked = this.state.revoked.slice(-200);
+        }
+        this.save();
+      }
+    }
+  }
+
+  setPassword(newPassword) {
+    const issue = passwordProblem(newPassword);
+    if (issue) throw Object.assign(new Error(issue), { status: 400 });
+    const { salt, hash } = hashPassword(newPassword);
+    this.state.salt = salt;
+    this.state.hash = hash;
+    this.state.revoked = [];
+    this.save();
+  }
+}
+
+export function createAdminGate() {
+  loadDotEnv();
+  const dataDir = process.env.ARIA_DATA_DIR || path.join(process.cwd(), 'server');
+  const file = process.env.ARIA_ADMIN_FILE || path.join(dataDir, 'admin-auth.json');
+  return new AdminGate(file);
+}
+
 /* ----------------------------------------------------------- demo driver */
 
 export class DemoAuth {
@@ -245,6 +399,20 @@ export class DemoAuth {
   destroySession(value) {
     this.data.sessions = this.data.sessions.filter((s) => s.token !== value);
     this.save();
+  }
+
+  revokeUserSessions(userId) {
+    this.data.sessions = this.data.sessions.filter((s) => s.userId !== userId);
+    this.save();
+  }
+
+  listAccounts() {
+    return this.data.users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      createdAt: u.createdAt || 0,
+    }));
   }
 
   createReset(email) {
@@ -428,7 +596,7 @@ export async function createAuth({ log = console.log } = {}) {
   const wanted = cleanEnv(process.env.ARIA_AUTH || '').toLowerCase();
   const { url, anonKey, serviceRoleKey } = resolveSupabaseConfig();
   const dataDir = process.env.ARIA_DATA_DIR || path.join(process.cwd(), 'server');
-  const file = path.join(dataDir, 'auth.json');
+  const file = process.env.ARIA_AUTH_FILE || path.join(dataDir, 'auth.json');
 
   if (wanted === 'demo' || wanted === 'file') {
     log(`[aria] auth: demo → ${file} (email + password; Google needs Supabase)`);
