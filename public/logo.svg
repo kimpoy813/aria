@@ -1,6 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Aria">
-  <rect width="64" height="64" rx="18" fill="#157f56"/>
-  <path d="M24 44V22l20-6v22" stroke="#ffffff" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="20" cy="44" r="5" fill="#ffffff"/>
-  <circle cx="40" cy="38" r="5" fill="#ffffff"/>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a9163"/>
+      <stop offset="1" stop-color="#0f6644"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#tile)"/>
+  <rect width="64" height="64" rx="17" fill="url(#gloss)"/>
+  <g fill="#ffffff" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M26.2 44V17.5M48 38V11.5" stroke-width="4.6"/>
+    <path d="M26.2 16.6 48 10.6" stroke-width="5.2"/>
+    <ellipse cx="20.6" cy="44.5" rx="6" ry="4.9" transform="rotate(-18 20.6 44.5)"/>
+    <ellipse cx="42.4" cy="38.5" rx="6" ry="4.9" transform="rotate(-18 42.4 38.5)"/>
+  </g>
 </svg>

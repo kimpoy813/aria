@@ -38,7 +38,7 @@ export function SharedPage() {
     return (
       <div className="overlay-center">
         <div className="stack-sm" style={{ alignItems: 'center' }}>
-          <Icon.Music size={22} />
+          <Icon name="slow" size={22} />
           <p className="small">Opening lineup…</p>
         </div>
       </div>
@@ -87,7 +87,7 @@ export function SharedPage() {
             label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
+            {theme === 'dark' ? <Icon name="sun" /> : <Icon name="moon" />}
           </IconButton>
         </div>
       </header>
@@ -110,7 +110,7 @@ export function SharedPage() {
             onClick={() => setShowParts(!showParts)}
             aria-pressed={showParts}
           >
-            <Icon.Note2 size={13} /> {showParts ? 'Hide lyrics' : 'Show lyrics'}
+            <Icon name="lyrics" size={13} /> {showParts ? 'Hide lyrics' : 'Show lyrics'}
           </button>
           <button
             type="button"
@@ -128,7 +128,7 @@ export function SharedPage() {
               });
             }}
           >
-            <Icon.Share size={13} /> Copy
+            <Icon name="share" size={13} /> Copy
           </button>
         </div>
 
@@ -148,7 +148,7 @@ export function SharedPage() {
                     <div className="tiny muted">{item.artist}</div>
                   </div>
                   <span className={`chip ${item.tempo}`} style={{ fontSize: 11, flexShrink: 0 }}>
-                    {item.tempo === 'fast' ? <Icon.Bolt size={11} /> : <Icon.Wave size={11} />}
+                    {item.tempo === 'fast' ? <Icon name="fast" size={11} /> : <Icon name="slow" size={11} />}
                     {item.tempo}
                   </span>
                 </div>
@@ -177,7 +177,7 @@ export function SharedPage() {
           </p>
           <Link to="/">
             <Button size="sm" variant="soft" style={{ marginTop: 8 }}>
-              <Icon.Note size={14} /> Build your own lineup
+              <Icon name="songs" size={14} /> Build your own lineup
             </Button>
           </Link>
         </div>

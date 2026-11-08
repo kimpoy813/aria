@@ -56,7 +56,7 @@ export function AnalysisCard({ analysis, compact }: { analysis: Analysis; compac
 
       {!compact ? (
         <div className="row wrap tiny muted" style={{ gap: 4, marginTop: 2 }}>
-          <Icon.Sparkle size={13} />
+          <Icon name="sparkle" size={13} />
           <span>Tempo read: {analysis.suggestedTempo}</span>
           <span>·</span>
           <span>{analysis.wordCount} content words</span>

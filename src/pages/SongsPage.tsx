@@ -71,7 +71,7 @@ export function SongsPage() {
       <div className="row">
         <div className="search-wrap grow">
           <span className="search-icon">
-            <Icon.Search />
+            <Icon name="search" />
           </span>
           <input
             className="input"
@@ -82,7 +82,7 @@ export function SongsPage() {
           />
         </div>
         <Button variant="primary" className="btn-icon-only" ariaLabel="Add a song" onClick={() => navigate('/songs/new')}>
-          <Icon.Plus />
+          <Icon name="add" />
         </Button>
       </div>
 
@@ -121,7 +121,7 @@ export function SongsPage() {
           }
           action={
             <Button variant="primary" onClick={() => navigate('/songs/new')}>
-              <Icon.Plus /> Add a song
+              <Icon name="add" /> Add a song
             </Button>
           }
         />
@@ -147,7 +147,7 @@ export function SongsPage() {
               </div>
               <div className="meta">
                 <span className={`chip ${song.tempo}`}>
-                  {song.tempo === 'fast' ? <Icon.Bolt size={12} /> : <Icon.Wave size={12} />}
+                  {song.tempo === 'fast' ? <Icon name="fast" size={12} /> : <Icon name="slow" size={12} />}
                   {song.tempo}
                 </span>
                 <span className="tiny muted truncate">{partSummary(song)}</span>

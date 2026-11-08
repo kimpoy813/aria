@@ -92,7 +92,7 @@ export function SongDetailPage() {
         right={
           isMine ? (
             <IconButton label="Edit song" onClick={() => navigate(`/songs/${song.id}/edit`)}>
-              <Icon.Edit />
+              <Icon name="edit" />
             </IconButton>
           ) : undefined
         }
@@ -106,7 +106,7 @@ export function SongDetailPage() {
           <span className="small muted">{song.artist}</span>
           <span className="chip brand">{analysis.theme}</span>
           <span className={`chip ${song.tempo}`}>
-            {song.tempo === 'fast' ? <Icon.Bolt size={12} /> : <Icon.Wave size={12} />}
+            {song.tempo === 'fast' ? <Icon name="fast" size={12} /> : <Icon name="slow" size={12} />}
             {song.tempo}
           </span>
         </div>
@@ -120,15 +120,15 @@ export function SongDetailPage() {
 
       <div className="row" style={{ gap: 8 }}>
         <Button variant="soft" block onClick={() => setShareOpen(true)}>
-          <Icon.Share /> Share
+          <Icon name="share" /> Share
         </Button>
         {isMine ? (
           <Button block onClick={() => navigate('/lineups/new')}>
-            <Icon.List /> Use in lineup
+            <Icon name="lineup" /> Use in lineup
           </Button>
         ) : (
           <Button variant="primary" block onClick={copyToMine} disabled={busy}>
-            <Icon.Copy /> Copy
+            <Icon name="copy" /> Copy
           </Button>
         )}
       </div>
@@ -190,7 +190,7 @@ export function SongDetailPage() {
                       {l.items.filter((i) => i.songId === song.id).length === 1 ? '' : 's'} from this song
                     </span>
                   </div>
-                  <Icon.Chevron size={15} />
+                  <Icon name="chevronRight" size={15} />
                 </div>
               </button>
             ))}
@@ -200,7 +200,7 @@ export function SongDetailPage() {
 
       {isMine ? (
         <Button variant="danger" block onClick={remove} disabled={busy}>
-          <Icon.Trash /> Delete song
+          <Icon name="trash" /> Delete song
         </Button>
       ) : null}
 
@@ -214,7 +214,7 @@ export function SongDetailPage() {
           <div className="stack-sm">
             <p className="small muted">This song belongs to {song.ownerName}.</p>
             <Button variant="primary" block onClick={copyToMine} disabled={busy}>
-              <Icon.Copy /> Copy to my songs
+              <Icon name="copy" /> Copy to my songs
             </Button>
           </div>
         ) : teams.length === 0 ? (
@@ -238,7 +238,7 @@ export function SongDetailPage() {
                     <h3 style={{ fontSize: 14 }}>{t.name}</h3>
                     <span className="tiny muted">{t.members.length} member{t.members.length === 1 ? '' : 's'}</span>
                   </div>
-                  {song.teamId === t.id ? <Icon.Check /> : <Icon.Share size={16} />}
+                  {song.teamId === t.id ? <Icon name="check" /> : <Icon name="share" size={16} />}
                 </div>
               </button>
             ))}

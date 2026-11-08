@@ -261,7 +261,7 @@ export function SongFormPage() {
                   aria-label="Move part up"
                   disabled={index === 0}
                 >
-                  <Icon.Up />
+                  <Icon name="arrowUp" />
                 </button>
                 <button
                   type="button"
@@ -271,7 +271,7 @@ export function SongFormPage() {
                   aria-label="Move part down"
                   disabled={index === parts.length - 1}
                 >
-                  <Icon.Down />
+                  <Icon name="arrowDown" />
                 </button>
                 <button
                   type="button"
@@ -281,7 +281,7 @@ export function SongFormPage() {
                   aria-label="Remove part"
                   disabled={parts.length === 1}
                 >
-                  <Icon.Trash size={14} />
+                  <Icon name="trash" size={14} />
                 </button>
               </div>
             </div>
@@ -310,7 +310,7 @@ export function SongFormPage() {
         <div className="row wrap" style={{ gap: 6 }}>
           {(['verse', 'chorus', 'bridge', 'intro', 'prechorus', 'outro'] as PartKind[]).map((kind) => (
             <button key={kind} type="button" className="chip chip-button" onClick={() => addPart(kind)}>
-              <Icon.Plus size={12} /> {PART_LABELS[kind]}
+              <Icon name="add" size={12} /> {PART_LABELS[kind]}
             </button>
           ))}
         </div>
@@ -332,7 +332,7 @@ export function SongFormPage() {
       </div>
 
       <Button variant="soft" block onClick={runAnalysis} disabled={filledParts.length === 0}>
-        <Icon.Sparkle /> {analysis ? 'Re-run class & message' : 'Generate class & message'}
+        <Icon name="sparkle" /> {analysis ? 'Re-run class & message' : 'Generate class & message'}
       </Button>
 
       {analysis && !stale ? (
@@ -341,10 +341,10 @@ export function SongFormPage() {
           <p className="hint">Aria guessed “{analysis.suggestedTempo}”. Keep it or set it yourself.</p>
           <div className="row" style={{ gap: 8 }}>
             <Chip active={tempo === 'fast'} onClick={() => setTempo('fast')}>
-              <Icon.Bolt size={13} /> Fast
+              <Icon name="fast" size={13} /> Fast
             </Chip>
             <Chip active={tempo === 'slow'} onClick={() => setTempo('slow')}>
-              <Icon.Wave size={13} /> Slow
+              <Icon name="slow" size={13} /> Slow
             </Chip>
           </div>
         </div>

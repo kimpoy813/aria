@@ -21,6 +21,7 @@ import {
 } from './auth';
 
 const THEME_KEY = 'aria.theme';
+const ONBOARDING_KEY = 'aria.onboarded';
 
 type ThemeMode = 'light' | 'dark';
 
@@ -33,7 +34,10 @@ interface StoreValue {
   lineups: Lineup[];
   theme: ThemeMode;
   config: AuthConfig;
+  onboarded: boolean;
   toggleTheme: () => void;
+  completeOnboarding: () => void;
+  replayOnboarding: () => void;
   signInWithAccount: (account: Account) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -63,6 +67,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     resetMinutes: 30,
   });
   const bootstrapped = useRef(false);
+  const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDING_KEY) === '1');
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -172,6 +177,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const completeOnboarding = useCallback(() => {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+    setOnboarded(true);
+  }, []);
+
+  const replayOnboarding = useCallback(() => {
+    localStorage.removeItem(ONBOARDING_KEY);
+    setOnboarded(false);
+  }, []);
+
   const setUser = useCallback((user: User) => {
     setState((prev) => (prev ? { ...prev, user } : prev));
   }, []);
@@ -186,7 +201,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       lineups: state?.lineups ?? [],
       theme,
       config,
+      onboarded,
       toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
+      completeOnboarding,
+      replayOnboarding,
       signInWithAccount,
       signOut,
       refresh,
@@ -201,6 +219,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       state,
       theme,
       config,
+      onboarded,
+      completeOnboarding,
+      replayOnboarding,
       signInWithAccount,
       signOut,
       refresh,
