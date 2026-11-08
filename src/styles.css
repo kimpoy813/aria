@@ -265,8 +265,8 @@ select {
 
 .tabbar-inner {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
 }
 
 .tab {
@@ -547,31 +547,94 @@ select {
   border-left: 2px solid var(--brand-soft-2);
 }
 
-/* ------------------------------------------------------------- lru banner */
+/* ------------------------------------------------------------- home & lru */
 
-.lru-banner {
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
+.lru-card {
   background: var(--surface);
   border: 1px solid var(--brand-soft-2);
   border-radius: var(--radius);
-  padding: 12px 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  transition: background 0.14s ease;
+  gap: 14px;
 }
 
-.lru-banner:hover {
+.lru-card-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.lru-seq {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.lru-seq-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.lru-seq-num {
+  width: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.lru-seq-song {
+  flex: 1;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.home-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.home-stat {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.home-stat:hover {
   background: var(--surface-2);
 }
 
-.lru-title {
-  font-size: 15.5px;
+.home-stat:active {
+  background: var(--surface-3);
+}
+
+.home-stat strong {
+  font-size: 18px;
   font-weight: 600;
   color: var(--ink);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
+}
+
+.home-stat span {
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 /* ----------------------------------------------------------- chips & pills */
@@ -986,19 +1049,81 @@ select {
   flex-shrink: 0;
 }
 
-.lyric-line {
-  white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  font-size: 14px;
-  line-height: 1.95;
-  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
+.lyric-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.lyric-line::-webkit-scrollbar {
-  display: none;
+.lyric-stanza {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lyric-line {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font-size: 14.5px;
+  line-height: 1.68;
+  color: var(--ink);
+}
+
+.lyric-body-lg .lyric-line {
+  font-size: 17px;
+  line-height: 1.72;
+}
+
+.lyric-chord {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--brand-text);
+  font-weight: 500;
+}
+
+.text-size-btn {
+  height: 32px;
+  padding: 0 9px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.text-size-btn.active {
+  background: var(--brand-soft);
+  border-color: var(--brand-soft-2);
+  color: var(--brand-text);
+}
+
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.check-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+}
+
+.paste-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
 }
 
 /* ----------------------------------------------------- sequence & builder */

@@ -1,21 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type ClipboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnalysisCard } from '../components/AnalysisCard';
-import { BackBar, Button, Icon, IconButton, Sheet, Toast } from '../components/ui';
+import { BackBar, Button, Chip, Icon, IconButton, Sheet, Toast } from '../components/ui';
 import { api } from '../lib/api';
+import {
+  defaultPartLabel,
+  shouldAutoSplitPaste,
+  splitPastedLyrics,
+} from '../lib/lyricSplit';
 import { PART_KINDS, THEME_LIST, analyzeLyrics } from '../lib/nlp';
 import { useStore } from '../lib/store';
 import type { Analysis, PartKind, SongPart, Tempo } from '../lib/types';
-
-function defaultPartLabel(kind: PartKind, existing: SongPart[]): string {
-  const base = PART_KINDS.find((k) => k.kind === kind)?.label ?? 'Part';
-  if (kind === 'verse') {
-    const count = existing.filter((p) => p.kind === 'verse').length;
-    return `Verse ${count + 1}`;
-  }
-  const sameKind = existing.filter((p) => p.kind === kind).length;
-  return sameKind > 0 ? `${base} ${sameKind + 1}` : base;
-}
 
 function newPart(kind: PartKind, existing: SongPart[]): SongPart {
   return {
@@ -24,84 +19,6 @@ function newPart(kind: PartKind, existing: SongPart[]): SongPart {
     label: defaultPartLabel(kind, existing),
     lyrics: '',
   };
-}
-
-function detectKindFromHeading(raw: string): { kind: PartKind; label?: string } | null {
-  const cleaned = raw
-    .trim()
-    .replace(/^\[|\]$/g, '')
-    .replace(/:$/, '')
-    .trim();
-  if (!cleaned || cleaned.length > 36) return null;
-  const lower = cleaned.toLowerCase();
-  if (/^pre[-\s]?chorus\b/.test(lower)) return { kind: 'prechorus', label: cleaned };
-  if (/^refrain\b/.test(lower)) return { kind: 'refrain', label: cleaned };
-  if (/^chorus\b|^hook\b/.test(lower)) return { kind: 'chorus', label: cleaned };
-  if (/^verse\b|^stanza\b/.test(lower)) return { kind: 'verse', label: cleaned };
-  if (/^bridge\b/.test(lower)) return { kind: 'bridge', label: cleaned };
-  if (/^intro\b/.test(lower)) return { kind: 'intro', label: cleaned };
-  if (/^outro\b|^ending\b|^tag\b|^coda\b/.test(lower)) return { kind: 'outro', label: cleaned };
-  return null;
-}
-
-function parseFullLyrics(raw: string): SongPart[] {
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  const sections: { kind: PartKind; customLabel?: string; lines: string[] }[] = [];
-  let current: { kind: PartKind; customLabel?: string; lines: string[] } | null = null;
-  let sawExplicitHeader = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const isBracketed =
-      /^\[.+\]$/.test(trimmed) || /^[A-Za-z][A-Za-z0-9\s-]{1,24}:$/.test(trimmed);
-    const detected = isBracketed
-      ? detectKindFromHeading(trimmed)
-      : /^(verse|chorus|pre-?chorus|refrain|bridge|intro|outro)(\s+\d+)?$/i.test(trimmed)
-        ? detectKindFromHeading(trimmed)
-        : null;
-
-    if (detected) {
-      sawExplicitHeader = true;
-      if (current && current.lines.some((l) => l.trim())) {
-        sections.push(current);
-      }
-      current = { kind: detected.kind, customLabel: detected.label, lines: [] };
-      continue;
-    }
-
-    if (!sawExplicitHeader && trimmed === '') {
-      if (current && current.lines.some((l) => l.trim())) {
-        sections.push(current);
-        current = null;
-      }
-      continue;
-    }
-
-    if (!current) {
-      current = {
-        kind: sections.length === 1 ? 'chorus' : 'verse',
-        lines: [],
-      };
-    }
-    current.lines.push(line);
-  }
-
-  if (current && current.lines.some((l) => l.trim())) {
-    sections.push(current);
-  }
-
-  const built: SongPart[] = [];
-  for (const sec of sections) {
-    const text = sec.lines.join('\n').trim();
-    if (!text) continue;
-    built.push({
-      id: `local_${Math.random().toString(36).slice(2, 9)}`,
-      kind: sec.kind,
-      label: sec.customLabel || defaultPartLabel(sec.kind, built),
-      lyrics: text,
-    });
-  }
-  return built;
 }
 
 export function SongFormPage() {
@@ -129,6 +46,7 @@ export function SongFormPage() {
 
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteBuffer, setPasteBuffer] = useState('');
+  const [collapseRepeats, setCollapseRepeats] = useState(true);
 
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -142,8 +60,27 @@ export function SongFormPage() {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+    setTimeout(() => setToast(null), 2400);
   };
+
+  const runAutoClassify = (nextParts: SongPart[]) => {
+    if (!nextParts.some((p) => p.lyrics.trim().length > 0)) return;
+    const result = analyzeLyrics(nextParts);
+    setAnalysis(result);
+    setTheme((prev) => prev || result.theme);
+    if (!tempoTouched && result.suggestedTempo) {
+      setTempo(result.suggestedTempo);
+    }
+    setDirtyLyrics(false);
+  };
+
+  const pastePreview = useMemo(() => {
+    if (!pasteBuffer.trim()) return null;
+    return splitPastedLyrics(pasteBuffer, {
+      songTitle: title,
+      collapseRepeats,
+    });
+  }, [pasteBuffer, title, collapseRepeats]);
 
   const addPart = (kind: PartKind) => {
     setParts((prev) => [...prev, newPart(kind, prev)]);
@@ -189,17 +126,110 @@ export function SongFormPage() {
     setDirtyLyrics(true);
   };
 
+  /**
+   * Intercepts multi-section lyrics pasted straight into any part textarea
+   * and automatically splits them into Verse, Chorus, Bridge, etc.
+   */
+  const handlePartPaste = (index: number, e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = e.clipboardData?.getData('text/plain') ?? '';
+    if (!pasted) return;
+
+    const target = parts[index];
+    if (!target) return;
+
+    const el = e.currentTarget;
+    const selectionCoversAll =
+      target.lyrics.length > 0 &&
+      el.selectionStart === 0 &&
+      el.selectionEnd >= target.lyrics.length;
+
+    if (!shouldAutoSplitPaste(pasted, target.lyrics, selectionCoversAll)) {
+      return;
+    }
+
+    const split = splitPastedLyrics(pasted, {
+      songTitle: title,
+      collapseRepeats: true,
+    });
+    if (split.parts.length === 0) return;
+
+    // Only intercept if we actually split into >= 2 parts OR stripped an explicit header
+    if (split.parts.length < 2 && !split.hadExplicitHeaders) {
+      return;
+    }
+
+    e.preventDefault();
+
+    const otherPartsEmpty = parts.every(
+      (p, idx) => idx === index || p.lyrics.trim().length === 0,
+    );
+
+    let nextParts: SongPart[];
+    if (otherPartsEmpty) {
+      nextParts = split.parts;
+    } else {
+      const before = parts.slice(0, index);
+      const after = parts.slice(index + 1);
+      const merged: SongPart[] = [...before];
+      for (const sp of split.parts) {
+        const collision = merged.some(
+          (m) => m.label.toLowerCase() === sp.label.toLowerCase(),
+        );
+        merged.push({
+          ...sp,
+          label: collision ? defaultPartLabel(sp.kind, merged) : sp.label,
+        });
+      }
+      for (const ap of after) {
+        const collision = merged.some(
+          (m) => m.label.toLowerCase() === ap.label.toLowerCase(),
+        );
+        merged.push({
+          ...ap,
+          label: collision ? defaultPartLabel(ap.kind, merged) : ap.label,
+        });
+      }
+      nextParts = merged;
+    }
+
+    setParts(nextParts);
+    runAutoClassify(nextParts);
+
+    const summary = nextParts
+      .slice(0, 3)
+      .map((p) => p.label)
+      .join(' · ');
+    const more = nextParts.length > 3 ? ` +${nextParts.length - 3}` : '';
+    showToast(`Auto-split: ${summary}${more}`);
+  };
+
+  const pasteFromClipboard = async () => {
+    try {
+      const clip = await navigator.clipboard.readText();
+      if (clip.trim()) {
+        setPasteBuffer(clip);
+      } else {
+        showToast('Clipboard is empty');
+      }
+    } catch {
+      showToast('Long-press the text box to paste');
+    }
+  };
+
   const applyPastedLyrics = () => {
-    const parsed = parseFullLyrics(pasteBuffer);
-    if (parsed.length === 0) {
+    const split = splitPastedLyrics(pasteBuffer, {
+      songTitle: title,
+      collapseRepeats,
+    });
+    if (split.parts.length === 0) {
       showToast('Paste some lyrics first');
       return;
     }
-    setParts(parsed);
-    setDirtyLyrics(true);
+    setParts(split.parts);
+    runAutoClassify(split.parts);
     setPasteBuffer('');
     setPasteOpen(false);
-    showToast(`Split into ${parsed.length} parts`);
+    showToast(`Split into ${split.parts.length} parts`);
   };
 
   const hasLyrics = parts.some((p) => p.lyrics.trim().length > 0);
@@ -260,7 +290,8 @@ export function SongFormPage() {
   return (
     <div className="stack">
       <BackBar
-        onBack={() => navigate(editing && existing ? `/songs/${existing.id}` : '/')}
+        onBack={() => navigate(editing && existing ? `/songs/${existing.id}` : '/songs')}
+        label={editing ? 'Song' : 'Songs'}
         right={
           <Button onClick={() => setPasteOpen(true)}>
             <Icon name="paste" size={14} /> Paste lyrics
@@ -346,7 +377,22 @@ export function SongFormPage() {
       </div>
 
       <div className="stack-sm">
-        <span className="label">Parts ({parts.length})</span>
+        <div className="row-between">
+          <span className="label">Parts ({parts.length})</span>
+          <button
+            type="button"
+            className="link-button tiny"
+            onClick={() => setPasteOpen(true)}
+          >
+            Auto-split full lyrics
+          </button>
+        </div>
+
+        {!hasLyrics && (
+          <div className="tiny">
+            Paste full song lyrics into any box below — Aria automatically splits Verses, Chorus, and Bridge.
+          </div>
+        )}
 
         {parts.map((part, i) => (
           <div key={part.id} className="part-block">
@@ -400,8 +446,13 @@ export function SongFormPage() {
               <textarea
                 className="textarea"
                 rows={4}
-                placeholder={`${part.label} lyrics…`}
+                placeholder={
+                  i === 0 && !hasLyrics
+                    ? 'Paste full song lyrics here (auto-splits Verse, Chorus, Bridge…) or type Verse 1…'
+                    : `${part.label} lyrics…`
+                }
                 value={part.lyrics}
+                onPaste={(e) => handlePartPaste(i, e)}
                 onChange={(e) => updatePart(i, { lyrics: e.target.value })}
               />
             </div>
@@ -469,7 +520,7 @@ export function SongFormPage() {
 
       <div className="sticky-bar">
         <Button
-          onClick={() => navigate(editing && existing ? `/songs/${existing.id}` : '/')}
+          onClick={() => navigate(editing && existing ? `/songs/${existing.id}` : '/songs')}
           style={{ flex: 1 }}
         >
           Cancel
@@ -487,19 +538,71 @@ export function SongFormPage() {
       <Sheet
         open={pasteOpen}
         onClose={() => setPasteOpen(false)}
-        title="Paste lyrics"
-        subtitle="Use [Verse] / [Chorus] headers or blank lines between sections."
+        title="Paste full lyrics"
+        subtitle="No manual formatting needed — Aria detects Verses, Chorus, Bridge, and more."
       >
         <div className="stack">
+          <div className="row-between">
+            <span className="tiny">Supports raw lyrics or [Verse] / [Chorus] tags</span>
+            <button
+              type="button"
+              className="link-button tiny"
+              onClick={pasteFromClipboard}
+            >
+              Paste clipboard
+            </button>
+          </div>
+
           <textarea
             className="textarea"
-            rows={9}
-            placeholder={`[Verse 1]\nOpening lines…\n\n[Chorus]\nChorus lines…`}
+            rows={8}
+            placeholder={`Paste entire song lyrics here…\n\nStanzas separated by blank lines or [Verse] / [Chorus] headers are split automatically.`}
             value={pasteBuffer}
             onChange={(e) => setPasteBuffer(e.target.value)}
           />
-          <Button variant="primary" block onClick={applyPastedLyrics}>
-            Split into parts
+
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={collapseRepeats}
+              onChange={(e) => setCollapseRepeats(e.target.checked)}
+            />
+            <span className="small">Merge identical repeated choruses</span>
+          </label>
+
+          {pastePreview && pastePreview.parts.length > 0 && (
+            <div className="paste-preview">
+              <div className="row-between">
+                <span className="tiny">
+                  Detected {pastePreview.parts.length}{' '}
+                  {pastePreview.parts.length === 1 ? 'section' : 'sections'}
+                </span>
+                {pastePreview.collapsedCount > 0 && (
+                  <span className="tiny">
+                    {pastePreview.collapsedCount} repeat
+                    {pastePreview.collapsedCount > 1 ? 's' : ''} merged
+                  </span>
+                )}
+              </div>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 5 }}>
+                {pastePreview.parts.map((p) => (
+                  <Chip key={p.id} tone={p.kind === 'chorus' ? 'brand' : undefined}>
+                    {p.label}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <Button
+            variant="primary"
+            block
+            disabled={!pastePreview || pastePreview.parts.length === 0}
+            onClick={applyPastedLyrics}
+          >
+            {pastePreview && pastePreview.parts.length > 0
+              ? `Split into ${pastePreview.parts.length} parts`
+              : 'Split into parts'}
           </Button>
         </div>
       </Sheet>

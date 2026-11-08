@@ -142,22 +142,64 @@ function visibleRecords(records, userId) {
   return records.filter((r) => canView(r, userId));
 }
 
+function resolvePartFromSong(song, item) {
+  if (!song || !Array.isArray(song.parts)) return null;
+  let part = song.parts.find((p) => p.id === item.partId);
+  if (!part && item.partLabel) {
+    const targetLabel = String(item.partLabel).toLowerCase();
+    part = song.parts.find((p) => String(p.label || '').toLowerCase() === targetLabel);
+  }
+  if (!part && item.partKind) {
+    part = song.parts.find((p) => p.kind === item.partKind);
+  }
+  return part || null;
+}
+
+function snapshotSlot(song, part, slotId = uid('slot')) {
+  return {
+    id: slotId,
+    songId: song.id,
+    partId: part.id,
+    songTitle: song.title,
+    artist: song.artist || 'Unknown artist',
+    tempo: song.tempo === 'fast' ? 'fast' : 'slow',
+    partKind: part.kind || 'verse',
+    partLabel: part.label || 'Part',
+    lyrics: part.lyrics || '',
+  };
+}
+
 function publicLineup(lineup, songs) {
   const items = [];
+  const songKeys = new Set();
+
   for (const item of lineup.items) {
     const song = songs.find((s) => s.id === item.songId);
-    if (!song) continue;
-    const part = song.parts.find((p) => p.id === item.partId);
-    if (!part) continue;
-    items.push({
-      songTitle: song.title,
-      artist: song.artist,
-      tempo: song.tempo,
-      partKind: part.kind,
-      partLabel: part.label,
-      lyrics: part.lyrics,
-    });
+    const part = resolvePartFromSong(song, item);
+
+    if (song && part && part.lyrics) {
+      songKeys.add(song.id);
+      items.push({
+        songTitle: song.title,
+        artist: song.artist || 'Unknown artist',
+        tempo: song.tempo === 'fast' ? 'fast' : 'slow',
+        partKind: part.kind || 'verse',
+        partLabel: part.label || 'Part',
+        lyrics: part.lyrics,
+      });
+    } else if (item && item.lyrics) {
+      songKeys.add(item.songId || item.songTitle || item.id);
+      items.push({
+        songTitle: song?.title || item.songTitle || 'Untitled song',
+        artist: song?.artist || item.artist || 'Unknown artist',
+        tempo: (song?.tempo || item.tempo) === 'fast' ? 'fast' : 'slow',
+        partKind: item.partKind || 'verse',
+        partLabel: item.partLabel || 'Part',
+        lyrics: item.lyrics,
+      });
+    }
   }
+
   return {
     name: lineup.name,
     theme: lineup.theme,
@@ -166,7 +208,7 @@ function publicLineup(lineup, songs) {
     updatedAt: lineup.updatedAt,
     lastUsedAt: lineup.lastUsedAt,
     useCount: lineup.useCount,
-    songCount: new Set(lineup.items.map((i) => i.songId)).size,
+    songCount: songKeys.size || new Set(lineup.items.map((i) => i.songId)).size,
     items,
   };
 }
@@ -240,7 +282,7 @@ function copyLineup(lineup, user, teamId = null) {
 
     const part = mapped.partsByOldId.get(item.partId);
     if (!part) continue;
-    items.push({ id: uid('slot'), songId: mapped.song.id, partId: part.id });
+    items.push(snapshotSlot(mapped.song, part));
   }
 
   const sourceSongs = db.songs.filter((s) => songMap.has(s.id));
@@ -548,11 +590,16 @@ api.get('/state', (req, res) => {
   const user = req.user;
   const userId = user.id;
   const teams = myTeams(userId);
+  const lineups = visibleRecords(db.lineups, userId);
+  const referencedSongIds = new Set(
+    lineups.flatMap((l) => (Array.isArray(l.items) ? l.items.map((i) => i.songId) : [])),
+  );
+  const songs = db.songs.filter((s) => canView(s, userId) || referencedSongIds.has(s.id));
   res.json({
     user,
     teams: teams.map((t) => teamView(t, userId)),
-    songs: visibleRecords(db.songs, userId),
-    lineups: visibleRecords(db.lineups, userId),
+    songs,
+    lineups,
   });
 });
 
@@ -685,20 +732,59 @@ api.patch('/songs/:id', (req, res) => {
   if (body.theme !== undefined) song.theme = clean(body.theme, 40);
   if (body.analysis !== undefined) song.analysis = body.analysis;
   if (Array.isArray(body.parts)) {
+    const oldParts = Array.isArray(song.parts) ? song.parts : [];
+    const usedIds = new Set();
     song.parts = body.parts
       .filter((p) => p && clean(p.lyrics, 5000))
-      .map((p) => ({
-        id: p.id && song.parts.some((x) => x.id === p.id) ? p.id : uid('part'),
-        kind: clean(p.kind, 20) || 'verse',
-        label: clean(p.label, 40) || 'Part',
-        lyrics: clean(p.lyrics, 5000),
-      }));
+      .map((p) => {
+        const kind = clean(p.kind, 20) || 'verse';
+        const label = clean(p.label, 40) || 'Part';
+        let matchedId = null;
+        if (p.id && oldParts.some((x) => x.id === p.id) && !usedIds.has(p.id)) {
+          matchedId = p.id;
+        } else {
+          const byLabel = oldParts.find(
+            (x) =>
+              !usedIds.has(x.id) &&
+              String(x.label || '').toLowerCase() === label.toLowerCase(),
+          );
+          const byKind = oldParts.find((x) => !usedIds.has(x.id) && x.kind === kind);
+          matchedId = byLabel?.id || byKind?.id || null;
+        }
+        const finalId = matchedId || uid('part');
+        usedIds.add(finalId);
+        return {
+          id: finalId,
+          kind,
+          label,
+          lyrics: clean(p.lyrics, 5000),
+        };
+      });
   }
   if (body.teamId !== undefined) {
     song.teamId = body.teamId && getTeam(body.teamId) ? body.teamId : null;
   }
   song.lyrics = song.parts.map((p) => p.lyrics).join('\n');
   song.updatedAt = now();
+
+  // Keep lineup slot snapshots in sync with updated song metadata & lyrics
+  for (const lineup of db.lineups) {
+    if (!Array.isArray(lineup.items)) continue;
+    lineup.items = lineup.items.map((item) => {
+      if (item.songId !== song.id) return item;
+      const part = resolvePartFromSong(song, item);
+      if (!part) {
+        return {
+          ...item,
+          songTitle: song.title,
+          artist: song.artist,
+          tempo: song.tempo,
+        };
+      }
+      return snapshotSlot(song, part, item.id);
+    });
+  }
+
   save();
   res.json({ song });
 });
@@ -764,9 +850,9 @@ api.post('/lineups', (req, res) => {
     ? body.items
         .map((i) => {
           const song = db.songs.find((s) => s.id === i.songId);
-          const part = song?.parts.find((p) => p.id === i.partId);
+          const part = song ? resolvePartFromSong(song, i) : null;
           if (!song || !part || !canView(song, user.id)) return null;
-          return { id: uid('slot'), songId: song.id, partId: part.id };
+          return snapshotSlot(song, part);
         })
         .filter(Boolean)
     : [];
@@ -811,12 +897,20 @@ api.patch('/lineups/:id', (req, res) => {
     lineup.teamId = body.teamId && getTeam(body.teamId) ? body.teamId : null;
   }
   if (Array.isArray(body.items)) {
+    const visibleSongIds = new Set(
+      (lineup.items || []).map((existingItem) => existingItem.songId),
+    );
     const items = body.items
       .map((i) => {
         const song = db.songs.find((s) => s.id === i.songId);
-        const part = song?.parts.find((p) => p.id === i.partId);
-        if (!song || !part || !canView(song, user.id)) return null;
-        return { id: uid('slot'), songId: song.id, partId: part.id };
+        const part = song ? resolvePartFromSong(song, i) : null;
+        if (!song || !part || (!canView(song, user.id) && !visibleSongIds.has(song.id))) {
+          const prev = (lineup.items || []).find(
+            (x) => x.songId === i.songId && x.partId === i.partId && x.lyrics,
+          );
+          return prev ? { ...prev, id: uid('slot') } : null;
+        }
+        return snapshotSlot(song, part);
       })
       .filter(Boolean);
     lineup.items = items;
@@ -853,6 +947,9 @@ api.post('/lineups/:id/share', (req, res) => {
   const isTeammate = !!ownerTeam && !!user && ownerTeam.members.some((m) => m.userId === user.id);
   if (!user || (lineup.ownerId !== user.id && !isTeammate)) {
     return res.status(403).json({ error: 'Only the owner or a teammate can share this lineup.' });
+  }
+  if (!lineup.shareToken) {
+    lineup.shareToken = crypto.randomBytes(6).toString('base64url');
   }
   const channel = req.body?.channel === 'team' ? 'team' : 'link';
   if (channel === 'team') {
@@ -902,7 +999,11 @@ api.get('/lru', (req, res) => {
 });
 
 api.get('/shared/:token', (req, res) => {
-  const lineup = db.lineups.find((l) => l.shareToken === req.params.token);
+  const rawToken = String(req.params.token || '').trim();
+  const cleanToken = rawToken.replace(/[.,;:!?)]+$/, '');
+  const lineup =
+    db.lineups.find((l) => l.shareToken === rawToken) ||
+    (cleanToken ? db.lineups.find((l) => l.shareToken === cleanToken) : null);
   if (!lineup) return res.status(404).json({ error: 'This lineup link is not valid.' });
   const songs = db.songs;
   // Opening a shared link counts as using the lineup.

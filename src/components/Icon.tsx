@@ -12,6 +12,7 @@
 import type { CSSProperties } from 'react';
 
 export type IconName =
+  | 'home'
   | 'songs'
   | 'lineup'
   | 'teams'
@@ -56,6 +57,12 @@ function snap(size: number) {
 }
 
 const PATHS: Record<IconName, JSX.Element> = {
+  home: (
+    <>
+      <path d="M4 10.6 12 4l8 6.6v8.2a1.4 1.4 0 0 1-1.4 1.4H5.4A1.4 1.4 0 0 1 4 18.8Z" />
+      <path d="M9.6 20.2v-5.6h4.8v5.6" />
+    </>
+  ),
   songs: (
     <>
       <path d="M9 18V6.2l10-1.9v11.4" />

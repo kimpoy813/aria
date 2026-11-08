@@ -17,6 +17,7 @@ import {
   PopupStatusPage,
   ResetPasswordPage,
 } from './pages/AuthPage';
+import { HomePage } from './pages/HomePage';
 import { SongsPage } from './pages/SongsPage';
 import { SongFormPage } from './pages/SongFormPage';
 import { SongDetailPage } from './pages/SongDetailPage';
@@ -28,7 +29,8 @@ import { OnboardingPage } from './pages/OnboardingPage';
 import { SharedPage } from './pages/SharedPage';
 
 const TABS: { to: string; label: string; icon: IconName }[] = [
-  { to: '/', label: 'Songs', icon: 'songs' },
+  { to: '/', label: 'Home', icon: 'home' },
+  { to: '/songs', label: 'Songs', icon: 'songs' },
   { to: '/lineups', label: 'Lineups', icon: 'lineup' },
   { to: '/teams', label: 'Teams', icon: 'teams' },
 ];
@@ -40,7 +42,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IconName }[]
 ];
 
 function isTabActive(pathname: string, to: string) {
-  return to === '/' ? pathname === '/' || pathname.startsWith('/songs') : pathname.startsWith(to);
+  return to === '/' ? pathname === '/' : pathname.startsWith(to);
 }
 
 function TopBar() {
@@ -277,7 +279,8 @@ function Shell() {
       <ScrollToTop />
       <main className="app-main">
         <Routes>
-          <Route path="/" element={<SongsPage />} />
+          <Route path="/" element={<HomePage />} />
+          <Route path="/songs" element={<SongsPage />} />
           <Route path="/songs/new" element={<SongFormPage />} />
           <Route path="/songs/:id" element={<SongDetailPage />} />
           <Route path="/songs/:id/edit" element={<SongFormPage />} />

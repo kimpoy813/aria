@@ -30,17 +30,47 @@ export function resolveSequence(lineup: Lineup, songs: Song[]): SequenceEntry[] 
   const entries: SequenceEntry[] = [];
   for (const item of lineup.items) {
     const song = songs.find((s) => s.id === item.songId);
-    if (!song) continue;
-    const part = song.parts.find((p) => p.id === item.partId);
-    if (!part) continue;
-    entries.push({
-      itemId: item.id,
-      song,
-      partId: part.id,
-      partKind: part.kind,
-      partLabel: part.label,
-      lyrics: part.lyrics,
-    });
+    const part =
+      song?.parts.find((p) => p.id === item.partId) ??
+      (item.partLabel
+        ? song?.parts.find((p) => p.label.toLowerCase() === item.partLabel!.toLowerCase())
+        : undefined) ??
+      (item.partKind ? song?.parts.find((p) => p.kind === item.partKind) : undefined);
+
+    if (song && part) {
+      entries.push({
+        itemId: item.id,
+        song,
+        partId: part.id,
+        partKind: part.kind,
+        partLabel: part.label,
+        lyrics: part.lyrics,
+      });
+    } else if (item.lyrics) {
+      const fallbackSong: Song = song ?? {
+        id: item.songId,
+        title: item.songTitle || 'Untitled song',
+        artist: item.artist || 'Unknown artist',
+        tempo: item.tempo === 'fast' ? 'fast' : 'slow',
+        theme: lineup.theme || '',
+        parts: [],
+        analysis: null,
+        ownerId: lineup.ownerId,
+        ownerName: lineup.ownerName,
+        teamId: lineup.teamId,
+        sourceSongId: null,
+        createdAt: lineup.createdAt,
+        updatedAt: lineup.updatedAt,
+      };
+      entries.push({
+        itemId: item.id,
+        song: fallbackSong,
+        partId: item.partId,
+        partKind: String(item.partKind || 'verse'),
+        partLabel: item.partLabel || 'Part',
+        lyrics: item.lyrics,
+      });
+    }
   }
   return entries;
 }
