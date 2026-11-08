@@ -348,5 +348,115 @@ console.log('\n2. Supabase driver (tokens verified server-side)');
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
+/* --------------------------------- part 3: Google OAuth & out-of-box config */
+
+console.log('\n3. Google OAuth config, anon-only boot & popup relay');
+{
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-google-'));
+  const port = await freePort();
+  delete process.env.ARIA_AUTH;
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_ANON_KEY;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const { api } = await bootServer({
+    PORT: String(port),
+    ARIA_STORAGE: 'supabase', // missing service role key must fall back cleanly, not crash
+    ARIA_DATA_DIR: dataDir,
+  });
+
+  const config = await api('GET', '/api/auth/config');
+  check(
+    'defaults to supabase driver for Google sign-in',
+    config.data?.driver === 'supabase',
+    config.data?.driver,
+  );
+  check(
+    'exposes default Supabase URL and publishable key',
+    Boolean(config.data?.supabaseUrl && config.data?.supabaseAnonKey),
+  );
+
+  // Single-use popup OAuth relay for iframe environments
+  const badNonce = await api('POST', '/api/auth/relay', null, {
+    nonce: 'short',
+    accessToken: 'tok',
+  });
+  check('rejects short relay nonces', badNonce.status === 400);
+
+  const nonce = 'relay_nonce_1234567890abcdef';
+  const before = await api('GET', `/api/auth/relay/${nonce}`);
+  check('relay starts pending', before.data?.pending === true);
+
+  const posted = await api('POST', '/api/auth/relay', null, {
+    nonce,
+    accessToken: 'token-alice',
+    refreshToken: 'refresh-alice',
+  });
+  check('relay accepts valid OAuth payload', posted.status === 200 && posted.data?.ok === true);
+
+  const firstRead = await api('GET', `/api/auth/relay/${nonce}`);
+  check(
+    'relay delivers tokens once',
+    firstRead.data?.pending === false && firstRead.data?.accessToken === 'token-alice',
+  );
+
+  const replayRead = await api('GET', `/api/auth/relay/${nonce}`);
+  check('relay is single-use and cleared after read', replayRead.data?.pending === true);
+
+  const session = await api('GET', '/api/auth/session', 'token-alice');
+  check(
+    'relayed Google token signs in and preserves email',
+    session.status === 200 && session.data?.user?.email === 'alice@example.com',
+  );
+
+  // Verify SupabaseAuth behaviour when __ariaSupabaseClient is removed (real client)
+  delete globalThis.__ariaSupabaseClient;
+  const { SupabaseAuth, DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } = await import(
+    path.join(root, 'server', 'auth.js')
+  );
+  const sbAuth = new SupabaseAuth({
+    url: DEFAULT_SUPABASE_URL,
+    key: DEFAULT_SUPABASE_ANON_KEY,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+  });
+
+  const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const validJwt = [
+    b64({ alg: 'HS256', typ: 'JWT' }),
+    b64({
+      iss: `${DEFAULT_SUPABASE_URL}/auth/v1`,
+      aud: 'authenticated',
+      sub: '11111111-2222-3333-4444-555555555555',
+      email: 'googleuser@gmail.com',
+      user_metadata: { full_name: 'Google User' },
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }),
+    'sig',
+  ].join('.');
+
+  const expiredJwt = [
+    b64({ alg: 'HS256', typ: 'JWT' }),
+    b64({
+      iss: `${DEFAULT_SUPABASE_URL}/auth/v1`,
+      aud: 'authenticated',
+      sub: '11111111-2222-3333-4444-555555555555',
+      email: 'googleuser@gmail.com',
+      exp: Math.floor(Date.now() / 1000) - 60,
+    }),
+    'sig',
+  ].join('.');
+
+  check('expired JWT is rejected', (await sbAuth.verify(expiredJwt)) === null);
+
+  process.env.RENDER = 'true';
+  check(
+    'production/Render never accepts unverified JWT when offline',
+    (await sbAuth.verify(validJwt)) === null,
+  );
+  delete process.env.RENDER;
+
+  fs.rmSync(dataDir, { recursive: true, force: true });
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

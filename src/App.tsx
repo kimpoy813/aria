@@ -11,7 +11,12 @@ import { StoreProvider, useStore } from './lib/store';
 import { Button, Icon, IconButton, Sheet } from './components/ui';
 import type { IconName } from './components/Icon';
 import { LogoHero, Wordmark } from './components/Logo';
-import { AuthPage, ResetPasswordPage } from './pages/AuthPage';
+import {
+  AuthPage,
+  GooglePopupStartPage,
+  PopupStatusPage,
+  ResetPasswordPage,
+} from './pages/AuthPage';
 import { SongsPage } from './pages/SongsPage';
 import { SongFormPage } from './pages/SongFormPage';
 import { SongDetailPage } from './pages/SongDetailPage';
@@ -129,8 +134,21 @@ function ScrollToTop() {
 }
 
 function Shell() {
-  const { loading, user, onboarded } = useStore();
+  const { loading, user, onboarded, popupStatus } = useStore();
   const { pathname } = useLocation();
+
+  // OAuth popup entry & completion screens run outside the session gate.
+  if (pathname === '/auth/google') {
+    return (
+      <Routes>
+        <Route path="/auth/google" element={<GooglePopupStartPage />} />
+      </Routes>
+    );
+  }
+
+  if (popupStatus !== 'idle') {
+    return <PopupStatusPage />;
+  }
 
   // Password recovery works whether or not a session exists.
   if (pathname === '/reset') {

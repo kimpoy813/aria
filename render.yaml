@@ -26,10 +26,10 @@ services:
         value: supabase
       # Project URL, e.g. https://abcdefghijkl.supabase.co
       - key: SUPABASE_URL
-        sync: false
-      # Public anon key — safe in the browser, needed for Google sign-in.
+        value: https://ilnahwdfbyzlcxnojxdb.supabase.co
+      # Public publishable/anon key — safe in the browser, needed for Google sign-in.
       - key: SUPABASE_ANON_KEY
-        sync: false
+        value: sb_publishable_eidHjQkRdAIhPOea4MsYpg_C9t-Ul_p
       # Service role key — server-side only. Never expose it to the browser.
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
