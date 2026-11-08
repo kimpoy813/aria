@@ -1,7 +1,54 @@
-# Deploying Aria on Render
+# Deploying Aria on Render + Supabase
 
-Aria is one Node service that serves **both** the API and the built React app on a single port, so
-it needs exactly one Render web service — no separate static site, no CORS setup.
+Two services, one job each:
+
+```
+phone / browser
+      │
+      ▼
+Render  ── aria (Node) ── serves the React build + /api
+      │
+      ▼
+Supabase ── Postgres ─── users, teams, songs, lineups
+```
+
+Render runs the app. Supabase stores the data, so nothing is lost when Render
+redeploys or spins the free instance down. The browser never talks to Supabase
+directly — the API holds the service role key and is the only gatekeeper, which
+keeps team codes and ownership rules working exactly as they do locally.
+
+---
+
+## Step 1 — Create the Supabase database
+
+1. Go to [supabase.com](https://supabase.com) → **New project**. Pick a name, a
+   strong database password, and the region closest to your Render region
+   (Singapore in `render.yaml`).
+2. Wait for provisioning, then open **SQL Editor → New query**.
+3. Paste the contents of [`supabase/schema.sql`](supabase/schema.sql) and press
+   **Run**. It creates four tables, indexes, and turns on Row Level Security. It
+   is idempotent, so running it twice is harmless.
+4. Open **Project Settings → API** and copy two values:
+   - **Project URL** — `https://<project-ref>.supabase.co`
+   - **service_role** secret key (under *Project API keys*, click reveal)
+
+> **Never** use the `anon` key here, and never put the service role key in the
+> frontend. It bypasses RLS by design and is only safe on the server.
+
+The schema also works on any plain Postgres (Neon, RDS, a VPS) if you point
+`SUPABASE_URL` at a PostgREST/Supabase-compatible endpoint later.
+
+## Step 2 — Deploy on Render
+
+### Blueprint (fastest)
+
+1. Push this repo to GitHub.
+2. Render → **New → Blueprint** → pick the repository → **Apply**.
+3. When prompted for the two `sync: false` variables, paste the **Project URL**
+   and the **service_role** key from step 1.
+4. Deploy. First boot creates the demo team `ARIA-123` and its six songs.
+
+### Manual web service
 
 | Setting | Value |
 | --- | --- |
@@ -9,71 +56,93 @@ it needs exactly one Render web service — no separate static site, no CORS set
 | Build command | `npm ci && npm run build` |
 | Start command | `npm start` |
 | Health check path | `/api/health` |
-| Port | Render provides `PORT`; the server reads it and binds `0.0.0.0` |
+| `ARIA_STORAGE` | `supabase` |
+| `SUPABASE_URL` | your project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | your service role key |
 
-The server picks up `dist/` automatically when it exists, sends `index.html` for app routes (so
-`/lineups`, `/teams` and `/s/<token>` survive a refresh), and falls back to the JSON API under
-`/api`.
+Render provides `PORT`; the server reads it and binds `0.0.0.0`. Because the
+build output is served by the same process, app routes like `/lineups` and
+`/s/<token>` work on a hard refresh.
 
----
+## Step 3 — Confirm it is actually using Supabase
 
-## Option A — Blueprint (fastest)
-
-`render.yaml` is already in the repo.
-
-1. Push this repo to GitHub.
-2. In Render: **New → Blueprint**.
-3. Pick the repository, confirm the `aria` service, click **Apply**.
-4. Wait for the first build; your app is live at `https://<service-name>.onrender.com`.
-
-## Option B — Manual web service
-
-1. Render dashboard → **New → Web Service** → connect the repository.
-2. Set **Build Command** to `npm ci && npm run build`.
-3. Set **Start Command** to `npm start`.
-4. Health check path: `/api/health`.
-5. **Create Web Service**.
-
-Either way, the first boot seeds the demo team `ARIA-123` with six songs and three lineups.
-
----
-
-## Persistence — read this before sharing the link
-
-Render's **free** instances have an **ephemeral filesystem**. Aria stores its data in a JSON file
-(`server/data.json`) by default, so on a free instance:
-
-- data survives while the instance runs,
-- data is **lost on every deploy or restart**, and the store re-seeds to the demo state.
-
-That is fine for a demo. To keep real teams, songs and lineups:
-
-1. Upgrade the service to a paid plan (disks are not available on free).
-2. Add a **disk**: mount path `/var/data`, any size (1 GB is plenty).
-3. Add an environment variable `ARIA_DATA_DIR` = `/var/data`.
-4. Redeploy.
-
-In `render.yaml` those three lines are already written out — just uncomment the `ARIA_DATA_DIR`
-env var and the `disk:` block. After that, the startup log confirms the location:
+Open the Render **Logs** tab. On boot you should see:
 
 ```
+[aria] storage: supabase → https://<project-ref>.supabase.co
 Aria API listening on http://0.0.0.0:10000
-Store: /var/data/data.json
+Store: https://<project-ref>.supabase.co (Postgres via service role)
 ```
 
-If you see `Store: /opt/render/project/src/server/data.json`, the disk is not wired up yet and data
-will reset on the next deploy.
+If you instead see `[aria] storage: file → …`, the two Supabase variables are
+missing (or spelled differently) and the app is writing to a throwaway file.
 
-## Notes
+Then prove persistence end to end:
 
-- **Node version** is pinned with `.node-version` (22) and the `NODE_VERSION` env var in the
-  blueprint, so Render matches what the app was built against.
-- **Cold starts**: free instances sleep after inactivity; the first request afterwards takes a few
-  seconds. The health check path keeps Render's own probes cheap.
-- **Share links** are absolute URLs built from the page origin, so they work on the Render domain
-  with no extra configuration.
-- **Not handled**: there is no login system — a visitor's identity is a name stored in their
-  browser's `localStorage`. Team codes are the only access control. That is fine for a small group,
-  but do not treat team codes as secrets for sensitive material.
-- **Backup**: with a disk attached, `data.json` is a single file you can copy off the disk at any
-  time. Without one, expect a reset.
+1. Open the site, enter a name, join team `ARIA-123`.
+2. Add a song with a verse and a chorus, save it.
+3. In Supabase → **Table Editor**, open `songs`: your row is there, with the
+   parts visible inside the `parts` column as JSON.
+4. In Render, **Manual Deploy → Deploy latest commit** (a full restart).
+5. Reload the site: you are still signed in and the song is still there.
+
+## How the storage layer chooses a driver
+
+`server/storage.js` implements two drivers behind one interface:
+
+| `ARIA_STORAGE` | Behaviour |
+| --- | --- |
+| *(unset)* | Supabase when `SUPABASE_URL` + a service key are present, otherwise file |
+| `file` | JSON file at `ARIA_DATA_DIR/data.json` (default `server/data.json`) |
+| `supabase` | Postgres through `@supabase/supabase-js` with the service role key |
+
+The API keeps working against in-memory arrays and mirrors them to the driver
+after each change (writes are debounced ~60 ms and serialised so two quick taps
+cannot interleave). That is why every existing route behaves identically on both
+drivers.
+
+Persistence strategy: each save **upserts every row** and then **prunes rows that
+no longer exist** in memory, so deletes propagate. Row counts here are tiny (a
+handful of songs and lineups), so the simplicity is worth more than a bespoke
+diff — and the smoke test below asserts the round trip.
+
+## Verify before you deploy
+
+```bash
+npm run test:supabase
+```
+
+This starts a **real Postgres** (PGlite, compiled to WASM, in-process), applies
+`supabase/schema.sql` exactly as you would paste it, then boots the actual API
+with the Supabase driver and checks 30 assertions: seeding only on an empty
+store, rows landing in Postgres, jsonb parts, the LRU clock being stamped on
+share, never-used lineups outranking recently-used ones, and data reloading
+intact from a fresh store. It needs no Supabase account and no network.
+
+## Local development
+
+```bash
+npm run dev          # file driver, data in server/data.json
+```
+
+To develop against your real Supabase project, export the two variables and use
+`ARIA_STORAGE=supabase` — but prefer a **second, empty Supabase project** for
+this, since `npm run dev` writes to whatever database it is pointed at.
+
+## Notes and limits
+
+- **Free Render instances sleep** after inactivity; the first request afterwards
+  takes a few seconds. Supabase free projects also pause after long inactivity —
+  both wake up on the next request.
+- **Chattiness**: every save rewrites the touched tables. Fine at this scale; if
+  you grow past a few thousand songs, switch `persist()` to per-record upserts.
+- **Security model**: there is no login. A visitor's identity is a name kept in
+  `localStorage`, and team codes are the only access control. RLS is on with no
+  policies, so the anon key can read nothing — but a share link is public by
+  design for anyone holding the token. Do not store sensitive material.
+- **Backups** are Supabase's job now: use **Database → Backups** in the
+  dashboard, or `pg_dump` with the connection string from **Project Settings →
+  Database**.
+- **Migrations**: `schema.sql` is additive and idempotent. When you change a
+  column later, add a new numbered file (`supabase/002_....sql`) rather than
+  editing the original, so both your project and fresh installs converge.
