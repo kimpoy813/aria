@@ -134,7 +134,8 @@ export const api = {
       ordered: { id: string; name: string; lastUsedAt: number | null; useCount: number }[];
     }>(`/lru${theme ? `?theme=${encodeURIComponent(theme)}` : ''}`),
 
-  shared: (token: string) => request<{ lineup: SharedLineup }>(`/shared/${token}`),
+  shared: (token: string) =>
+    request<{ lineup: SharedLineup }>(`/shared/${encodeURIComponent(token)}`),
 };
 
 export type { LineupItem };

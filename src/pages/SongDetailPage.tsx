@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnalysisCard } from '../components/AnalysisCard';
+import { LyricView } from '../components/LyricView';
 import {
   BackBar,
   Button,
@@ -27,7 +28,7 @@ export function SongDetailPage() {
   if (!song) {
     return (
       <div className="stack">
-        <BackBar onBack={() => navigate('/')} />
+        <BackBar onBack={() => navigate('/songs')} label="Songs" />
         <Empty icon="songs" title="Song not found" body="It may have been removed." />
       </div>
     );
@@ -86,7 +87,7 @@ export function SongDetailPage() {
     try {
       await api.deleteSong(song.id);
       await refresh();
-      navigate('/');
+      navigate('/songs');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not delete');
       setBusy(false);
@@ -96,7 +97,7 @@ export function SongDetailPage() {
   return (
     <div className="stack">
       <BackBar
-        onBack={() => navigate('/')}
+        onBack={() => navigate('/songs')}
         label="Songs"
         right={
           mine ? (
@@ -139,32 +140,25 @@ export function SongDetailPage() {
       ) : null}
 
       <div className="stack-sm">
-        {song.parts.map((part) => {
-          const lines = part.lyrics.split(/\r?\n/);
-          return (
-            <div key={part.id} className="part-block">
-              <div className="part-head">
-                <span className="part-title">{part.label}</span>
-                <span className="push" />
-                <IconButton
-                  label={`Copy ${part.label}`}
-                  className="icon-btn-ghost"
-                  onClick={() => copyPartLyrics(part.label, part.lyrics)}
-                  style={{ width: 30, height: 30 }}
-                >
-                  <Icon name="copy" size={14} />
-                </IconButton>
-              </div>
-              <div className="part-body">
-                {lines.map((line, i) => (
-                  <div key={i} className="lyric-line">
-                    {line || '\u00A0'}
-                  </div>
-                ))}
-              </div>
+        {song.parts.map((part) => (
+          <div key={part.id} className="part-block">
+            <div className="part-head">
+              <span className="part-title">{part.label}</span>
+              <span className="push" />
+              <IconButton
+                label={`Copy ${part.label}`}
+                className="icon-btn-ghost"
+                onClick={() => copyPartLyrics(part.label, part.lyrics)}
+                style={{ width: 30, height: 30 }}
+              >
+                <Icon name="copy" size={14} />
+              </IconButton>
             </div>
-          );
-        })}
+            <div className="part-body">
+              <LyricView lyrics={part.lyrics} />
+            </div>
+          </div>
+        ))}
       </div>
 
       <Sheet

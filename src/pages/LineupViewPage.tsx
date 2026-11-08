@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { LyricView } from '../components/LyricView';
 import {
   BackBar,
   Button,
@@ -11,13 +12,17 @@ import {
   Toast,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { timeAgo } from '../lib/lru';
+import { resolveSequence, timeAgo } from '../lib/lru';
 import { useStore } from '../lib/store';
 
 export function LineupViewPage() {
   const { id } = useParams();
   const { lineups, songs, teams, user, refresh } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromHome = (location.state as { from?: string } | null)?.from === 'home';
+  const backTo = fromHome ? '/' : '/lineups';
+  const backLabel = fromHome ? 'Home' : 'Lineups';
 
   const [shareOpen, setShareOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -26,16 +31,10 @@ export function LineupViewPage() {
 
   const lineup = lineups.find((l) => l.id === id);
 
-  const resolved = useMemo(() => {
-    if (!lineup) return [];
-    return lineup.items
-      .map((it) => {
-        const song = songs.find((s) => s.id === it.songId);
-        const part = song?.parts.find((p) => p.id === it.partId);
-        return song && part ? { id: it.id, song, part } : null;
-      })
-      .filter((x): x is NonNullable<typeof x> => Boolean(x));
-  }, [lineup, songs]);
+  const resolved = useMemo(
+    () => (lineup ? resolveSequence(lineup, songs) : []),
+    [lineup, songs],
+  );
 
   const showToast = (m: string) => {
     setToast(m);
@@ -45,7 +44,7 @@ export function LineupViewPage() {
   if (!lineup) {
     return (
       <div className="stack">
-        <BackBar onBack={() => navigate('/lineups')} label="Lineups" />
+        <BackBar onBack={() => navigate(backTo)} label={backLabel} />
         <Empty icon="lineup" title="Lineup not found" body="It may have been removed." />
       </div>
     );
@@ -103,7 +102,7 @@ export function LineupViewPage() {
     try {
       await api.deleteLineup(lineup.id);
       await refresh();
-      navigate('/lineups');
+      navigate(backTo);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not delete');
       setBusy(false);
@@ -113,8 +112,8 @@ export function LineupViewPage() {
   return (
     <div className="stack">
       <BackBar
-        onBack={() => navigate('/lineups')}
-        label="Lineups"
+        onBack={() => navigate(backTo)}
+        label={backLabel}
         right={
           <div className="row" style={{ gap: 6 }}>
             <Button variant="primary" onClick={() => setShareOpen(true)}>
@@ -152,30 +151,23 @@ export function LineupViewPage() {
       </div>
 
       <div className="stack-sm">
-        {resolved.map((r, i) => {
-          const lines = r.part.lyrics.split(/\r?\n/);
-          return (
-            <div key={r.id} className="part-block">
-              <div className="part-head">
-                <span className="part-index">{i + 1}</span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="part-title truncate">{r.song.title}</div>
-                  <div className="tiny">{r.part.label}</div>
-                </div>
-                <Chip tone={r.song.tempo}>
-                  {r.song.tempo === 'fast' ? 'Fast' : 'Slow'}
-                </Chip>
+        {resolved.map((r, i) => (
+          <div key={r.itemId} className="part-block">
+            <div className="part-head">
+              <span className="part-index">{i + 1}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="part-title truncate">{r.song.title}</div>
+                <div className="tiny">{r.partLabel}</div>
               </div>
-              <div className="part-body">
-                {lines.map((line, li) => (
-                  <div key={li} className="lyric-line">
-                    {line || '\u00A0'}
-                  </div>
-                ))}
-              </div>
+              <Chip tone={r.song.tempo}>
+                {r.song.tempo === 'fast' ? 'Fast' : 'Slow'}
+              </Chip>
             </div>
-          );
-        })}
+            <div className="part-body">
+              <LyricView lyrics={r.lyrics} />
+            </div>
+          </div>
+        ))}
       </div>
 
       <Sheet

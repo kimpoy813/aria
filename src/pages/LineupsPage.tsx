@@ -31,7 +31,6 @@ export function LineupsPage() {
   }, [lineups, scope, themeFilter, user?.id]);
 
   const ordered = useMemo(() => orderByLRU(scoped), [scoped]);
-  const nextUp = ordered[0] ?? null;
 
   const describe = (l: Lineup) => {
     const songIds = new Set<string>();
@@ -100,23 +99,6 @@ export function LineupsPage() {
             </button>
           ))}
         </div>
-      )}
-
-      {nextUp && ordered.length > 1 && (
-        <button
-          type="button"
-          className="lru-banner"
-          onClick={() => navigate(`/lineups/${nextUp.id}`)}
-        >
-          <div className="row-between">
-            <span className="eyebrow">Suggested next</span>
-            <span className="tiny">{timeAgo(nextUp.lastUsedAt)}</span>
-          </div>
-          <div className="row-between" style={{ gap: 8 }}>
-            <span className="lru-title truncate">{nextUp.name}</span>
-            <Icon name="chevronRight" size={16} className="muted" />
-          </div>
-        </button>
       )}
 
       {ordered.length === 0 ? (

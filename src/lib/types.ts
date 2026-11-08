@@ -69,6 +69,12 @@ export interface LineupItem {
   id: string;
   songId: string;
   partId: string;
+  songTitle?: string;
+  artist?: string;
+  tempo?: Tempo;
+  partKind?: PartKind | string;
+  partLabel?: string;
+  lyrics?: string;
 }
 
 export interface Lineup {
