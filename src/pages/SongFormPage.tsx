@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ClipboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnalysisCard } from '../components/AnalysisCard';
 import { BackBar, Button, Chip, Icon, IconButton, Sheet, type ToastTone } from '../components/ui';
@@ -34,6 +34,7 @@ export function SongFormPage() {
   const [tempo, setTempo] = useState<Tempo>(existing?.tempo ?? 'slow');
   const [tempoTouched, setTempoTouched] = useState(Boolean(existing));
   const [theme, setTheme] = useState(existing?.theme ?? '');
+  const [themeTouched, setThemeTouched] = useState(Boolean(existing?.theme));
   const [teamId, setTeamId] = useState<string>(existing?.teamId ?? '');
   const [parts, setParts] = useState<SongPart[]>(() => {
     if (existing?.parts.length) return existing.parts.map((p) => ({ ...p }));
@@ -42,7 +43,6 @@ export function SongFormPage() {
     return [v, c];
   });
   const [analysis, setAnalysis] = useState<Analysis | null>(existing?.analysis ?? null);
-  const [dirtyLyrics, setDirtyLyrics] = useState(false);
 
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteBuffer, setPasteBuffer] = useState('');
@@ -50,6 +50,9 @@ export function SongFormPage() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const handledClipboardPasteRef = useRef(false);
 
   useEffect(() => {
     if (existing && existing.ownerId !== user?.id) {
@@ -61,15 +64,43 @@ export function SongFormPage() {
     notify(msg, tone);
   };
 
-  const runAutoClassify = (nextParts: SongPart[]) => {
-    if (!nextParts.some((p) => p.lyrics.trim().length > 0)) return;
-    const result = analyzeLyrics(nextParts, title);
+  const hasLyrics = useMemo(
+    () => parts.some((p) => p.lyrics.trim().length > 0),
+    [parts],
+  );
+
+  // Automatically classify lyrics whenever song parts or title change
+  useEffect(() => {
+    const filled = parts.filter((p) => p.lyrics.trim().length > 0);
+    if (filled.length === 0) {
+      setAnalysis(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const result = analyzeLyrics(filled, title);
+      setAnalysis(result);
+      if (!themeTouched) {
+        setTheme(result.theme);
+      }
+      if (!tempoTouched && result.suggestedTempo) {
+        setTempo(result.suggestedTempo);
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [parts, title, themeTouched, tempoTouched]);
+
+  const runAutoClassifyImmediate = (nextParts: SongPart[], nextTitle = title) => {
+    const filled = nextParts.filter((p) => p.lyrics.trim().length > 0);
+    if (filled.length === 0) return null;
+    const result = analyzeLyrics(filled, nextTitle);
     setAnalysis(result);
-    setTheme((prev) => prev || result.theme);
+    if (!themeTouched) {
+      setTheme(result.theme);
+    }
     if (!tempoTouched && result.suggestedTempo) {
       setTempo(result.suggestedTempo);
     }
-    setDirtyLyrics(false);
+    return result;
   };
 
   const pastePreview = useMemo(() => {
@@ -82,7 +113,6 @@ export function SongFormPage() {
 
   const addPart = (kind: PartKind) => {
     setParts((prev) => [...prev, newPart(kind, prev)]);
-    setDirtyLyrics(true);
   };
 
   const duplicatePart = (index: number) => {
@@ -99,13 +129,11 @@ export function SongFormPage() {
       next.splice(index + 1, 0, copy);
       return next;
     });
-    setDirtyLyrics(true);
-    showToast('Duplicated');
+    showToast('Duplicated part', 'info');
   };
 
   const updatePart = (index: number, patch: Partial<SongPart>) => {
     setParts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
-    if ('lyrics' in patch || 'kind' in patch) setDirtyLyrics(true);
   };
 
   const movePart = (index: number, delta: -1 | 1) => {
@@ -121,7 +149,50 @@ export function SongFormPage() {
 
   const removePart = (index: number) => {
     setParts((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
-    setDirtyLyrics(true);
+  };
+
+  const mergeSplitPartsAt = (index: number, splitParts: SongPart[]) => {
+    const otherPartsEmpty = parts.every(
+      (p, idx) => idx === index || p.lyrics.trim().length === 0,
+    );
+
+    let nextParts: SongPart[];
+    if (otherPartsEmpty) {
+      nextParts = splitParts;
+    } else {
+      const before = parts.slice(0, index);
+      const after = parts.slice(index + 1);
+      const merged: SongPart[] = [...before];
+      for (const sp of splitParts) {
+        const collision = merged.some(
+          (m) => m.label.toLowerCase() === sp.label.toLowerCase(),
+        );
+        merged.push({
+          ...sp,
+          label: collision ? defaultPartLabel(sp.kind, merged) : sp.label,
+        });
+      }
+      for (const ap of after) {
+        const collision = merged.some(
+          (m) => m.label.toLowerCase() === ap.label.toLowerCase(),
+        );
+        merged.push({
+          ...ap,
+          label: collision ? defaultPartLabel(ap.kind, merged) : ap.label,
+        });
+      }
+      nextParts = merged;
+    }
+
+    setParts(nextParts);
+    runAutoClassifyImmediate(nextParts);
+
+    const summary = nextParts
+      .slice(0, 3)
+      .map((p) => p.label)
+      .join(' · ');
+    const more = nextParts.length > 3 ? ` +${nextParts.length - 3}` : '';
+    showToast(`Auto-split: ${summary}${more}`, 'success');
   };
 
   /**
@@ -151,54 +222,44 @@ export function SongFormPage() {
     });
     if (split.parts.length === 0) return;
 
-    // Only intercept if we actually split into >= 2 parts OR stripped an explicit header
     if (split.parts.length < 2 && !split.hadExplicitHeaders) {
       return;
     }
 
     e.preventDefault();
+    handledClipboardPasteRef.current = true;
+    window.setTimeout(() => {
+      handledClipboardPasteRef.current = false;
+    }, 80);
 
-    const otherPartsEmpty = parts.every(
-      (p, idx) => idx === index || p.lyrics.trim().length === 0,
-    );
+    mergeSplitPartsAt(index, split.parts);
+  };
 
-    let nextParts: SongPart[];
-    if (otherPartsEmpty) {
-      nextParts = split.parts;
-    } else {
-      const before = parts.slice(0, index);
-      const after = parts.slice(index + 1);
-      const merged: SongPart[] = [...before];
-      for (const sp of split.parts) {
-        const collision = merged.some(
-          (m) => m.label.toLowerCase() === sp.label.toLowerCase(),
-        );
-        merged.push({
-          ...sp,
-          label: collision ? defaultPartLabel(sp.kind, merged) : sp.label,
-        });
+  /**
+   * Handles both typing AND mobile keyboard clipboard-bar insertions
+   * (such as Android Gboard / Samsung Keyboard chips that bypass DOM `paste`).
+   */
+  const handlePartChange = (index: number, nextLyrics: string) => {
+    const prevLyrics = parts[index]?.lyrics ?? '';
+
+    if (
+      !handledClipboardPasteRef.current &&
+      prevLyrics.trim().length === 0 &&
+      nextLyrics.length >= 30 &&
+      nextLyrics.includes('\n') &&
+      shouldAutoSplitPaste(nextLyrics, prevLyrics, false)
+    ) {
+      const split = splitPastedLyrics(nextLyrics, {
+        songTitle: title,
+        collapseRepeats: true,
+      });
+      if (split.parts.length >= 2 || split.hadExplicitHeaders) {
+        mergeSplitPartsAt(index, split.parts);
+        return;
       }
-      for (const ap of after) {
-        const collision = merged.some(
-          (m) => m.label.toLowerCase() === ap.label.toLowerCase(),
-        );
-        merged.push({
-          ...ap,
-          label: collision ? defaultPartLabel(ap.kind, merged) : ap.label,
-        });
-      }
-      nextParts = merged;
     }
 
-    setParts(nextParts);
-    runAutoClassify(nextParts);
-
-    const summary = nextParts
-      .slice(0, 3)
-      .map((p) => p.label)
-      .join(' · ');
-    const more = nextParts.length > 3 ? ` +${nextParts.length - 3}` : '';
-    showToast(`Auto-split: ${summary}${more}`);
+    updatePart(index, { lyrics: nextLyrics });
   };
 
   const pasteFromClipboard = async () => {
@@ -207,10 +268,10 @@ export function SongFormPage() {
       if (clip.trim()) {
         setPasteBuffer(clip);
       } else {
-        showToast('Clipboard is empty');
+        showToast('Clipboard is empty', 'info');
       }
     } catch {
-      showToast('Long-press the text box to paste');
+      showToast('Long-press the text box to paste', 'info');
     }
   };
 
@@ -220,32 +281,31 @@ export function SongFormPage() {
       collapseRepeats,
     });
     if (split.parts.length === 0) {
-      showToast('Paste some lyrics first');
+      showToast('Paste some lyrics first', 'error');
       return;
     }
     setParts(split.parts);
-    runAutoClassify(split.parts);
+    runAutoClassifyImmediate(split.parts);
     setPasteBuffer('');
     setPasteOpen(false);
-    showToast(`Split into ${split.parts.length} parts`);
+    showToast(`Split into ${split.parts.length} parts`, 'success');
   };
-
-  const hasLyrics = parts.some((p) => p.lyrics.trim().length > 0);
-  const canSave = Boolean(title.trim()) && hasLyrics && Boolean(analysis) && !dirtyLyrics;
 
   const generate = () => {
     setError(null);
     if (!hasLyrics) {
       setError('Add lyrics to at least one part.');
+      showToast('Add lyrics to at least one part', 'error');
       return;
     }
-    const result = analyzeLyrics(parts, title);
+    const filled = parts.filter((p) => p.lyrics.trim().length > 0);
+    const result = analyzeLyrics(filled, title);
     setAnalysis(result);
     setTheme(result.theme);
+    setThemeTouched(false);
     if (!tempoTouched && result.suggestedTempo) {
       setTempo(result.suggestedTempo);
     }
-    setDirtyLyrics(false);
     showToast(`Classified: ${result.theme}`, 'success');
   };
 
@@ -253,28 +313,31 @@ export function SongFormPage() {
     setError(null);
     if (!title.trim()) {
       setError('Enter a song title.');
+      titleInputRef.current?.focus();
       return showToast('Enter a song title', 'error');
     }
     const filled = parts.filter((p) => p.lyrics.trim().length > 0);
     if (filled.length === 0) {
       setError('Add lyrics to at least one part.');
-      return showToast('Add lyrics to at least one part', 'error');
+      return showToast('Paste or type lyrics into at least one part', 'error');
     }
-    if (!analysis || dirtyLyrics) {
-      setError('Classify the lyrics before saving.');
-      return showToast('Tap Classify lyrics before saving', 'info');
-    }
+
+    // Compute fresh analysis automatically so the user never has to click Classify manually first
+    const finalAnalysis = analyzeLyrics(filled, title.trim());
+    setAnalysis(finalAnalysis);
+    const finalTheme = (themeTouched && theme.trim()) ? theme.trim() : finalAnalysis.theme;
+    const finalTempo = tempoTouched ? tempo : (finalAnalysis.suggestedTempo || tempo);
 
     setBusy(true);
     try {
       const payload = {
         title: title.trim(),
         artist: artist.trim() || 'Unknown artist',
-        tempo,
-        theme: theme.trim() || analysis.theme,
+        tempo: finalTempo,
+        theme: finalTheme,
         teamId: teamId || null,
         parts: filled,
-        analysis,
+        analysis: finalAnalysis,
       };
       if (editing && existing) {
         await api.updateSong(existing.id, payload);
@@ -316,10 +379,14 @@ export function SongFormPage() {
         <div className="field">
           <label htmlFor="song-title">Title</label>
           <input
+            ref={titleInputRef}
             id="song-title"
             className="input"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (error) setError(null);
+            }}
             placeholder="Song title"
           />
         </div>
@@ -462,7 +529,10 @@ export function SongFormPage() {
                 }
                 value={part.lyrics}
                 onPaste={(e) => handlePartPaste(i, e)}
-                onChange={(e) => updatePart(i, { lyrics: e.target.value })}
+                onChange={(e) => {
+                  handlePartChange(i, e.target.value);
+                  if (error) setError(null);
+                }}
               />
             </div>
           </div>
@@ -484,30 +554,23 @@ export function SongFormPage() {
 
       <div className="card stack">
         <div className="row-between">
-          <span className="label">Classification</span>
-          {dirtyLyrics && analysis && <span className="tiny">Outdated</span>}
+          <span className="label">Worship Classification</span>
+          {hasLyrics && <span className="tiny">Auto-detected</span>}
         </div>
 
-        <Button
-          variant={analysis && !dirtyLyrics ? 'default' : 'primary'}
-          block
-          disabled={!hasLyrics}
-          onClick={generate}
-        >
-          <Icon name="sparkle" size={14} />
-          {analysis ? (dirtyLyrics ? 'Re-classify lyrics' : 'Refresh analysis') : 'Classify lyrics'}
-        </Button>
-
-        {analysis && (
+        {analysis && hasLyrics ? (
           <>
             <AnalysisCard analysis={analysis} />
             <div className="field">
-              <label htmlFor="song-class">Class</label>
+              <label htmlFor="song-class">Worship Theme</label>
               <select
                 id="song-class"
                 className="select"
                 value={theme || analysis.theme}
-                onChange={(e) => setTheme(e.target.value)}
+                onChange={(e) => {
+                  setTheme(e.target.value);
+                  setThemeTouched(true);
+                }}
               >
                 {(theme && !THEME_LIST.includes(theme) ? [theme, ...THEME_LIST] : THEME_LIST).map(
                   (c) => (
@@ -519,7 +582,14 @@ export function SongFormPage() {
                 )}
               </select>
             </div>
+            <Button variant="default" block onClick={generate}>
+              <Icon name="sparkle" size={14} /> Refresh analysis
+            </Button>
           </>
+        ) : (
+          <p className="tiny">
+            Paste or type your song lyrics above — Aria automatically classifies the Christian worship theme and core message.
+          </p>
         )}
       </div>
 
@@ -539,7 +609,7 @@ export function SongFormPage() {
         <Button
           variant="primary"
           onClick={submit}
-          disabled={busy || !canSave}
+          disabled={busy}
           style={{ flex: 2 }}
         >
           {busy ? 'Saving…' : 'Save'}

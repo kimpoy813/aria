@@ -5,7 +5,7 @@
  * - Uses network-first for HTML navigations and stale-while-revalidate for static assets.
  */
 
-const CACHE_NAME = 'aria-shell-v2';
+const CACHE_NAME = 'aria-shell-v4';
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',
@@ -15,11 +15,23 @@ const PRECACHE_URLS = [
   '/icons/icon-maskable-512.png',
 ];
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then((cache) =>
+        Promise.all(
+          PRECACHE_URLS.map((u) =>
+            fetch(u, { cache: 'no-cache' }).then((res) => (res.ok ? cache.put(u, res) : undefined)),
+          ),
+        ),
+      )
       .catch(() => undefined)
       .then(() => self.skipWaiting()),
   );
@@ -43,8 +55,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache API, OAuth popup, or Digital Asset Links responses
+  // Never cache API, OAuth popup, service worker script, or Digital Asset Links responses
   if (
+    url.pathname === '/sw.js' ||
+    url.pathname === '/manifest.webmanifest' ||
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/auth/') ||
     url.pathname.startsWith('/.well-known/')
@@ -52,10 +66,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for HTML navigations so deploys appear immediately
+  // Network-first (bypassing browser HTTP cache) for HTML navigations so deploys appear immediately
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .then((response) => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put('/', clone));

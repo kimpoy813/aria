@@ -1673,8 +1673,26 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
 app.use('/api', api);
 
 if (fs.existsSync(DIST_DIR)) {
-  app.use(express.static(DIST_DIR));
-  app.get('*', (_req, res) => res.sendFile(path.join(DIST_DIR, 'index.html')));
+  app.use(
+    express.static(DIST_DIR, {
+      setHeaders: (res, filePath) => {
+        const base = path.basename(filePath);
+        if (
+          base === 'sw.js' ||
+          base === 'index.html' ||
+          base === 'manifest.webmanifest'
+        ) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    }),
+  );
+  app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
 }
 
 app.use((err, _req, res, _next) => {

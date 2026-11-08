@@ -83,9 +83,10 @@ async function run() {
       .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
       .join('\n');
     check(
-      'HTML & CSS enforce color-scheme: only light and #ffffff white light mode against mobile auto-dark',
+      'HTML & CSS enforce color-scheme: only light, prefers-color-scheme signal, and #ffffff white light mode against mobile auto-dark',
       htmlText.includes('name="color-scheme" content="only light"') &&
         cssBundle.includes('only light') &&
+        cssBundle.includes('prefers-color-scheme') &&
         cssBundle.includes('forced-color-adjust:none') &&
         /--bg:\s*#fff/i.test(cssBundle),
     );
@@ -98,7 +99,13 @@ async function run() {
 
     const swRes = await fetch(`${base}/sw.js`);
     const swText = await swRes.text();
+    const swCacheHeader = swRes.headers.get('cache-control') || '';
+    const htmlCacheHeader = htmlRes.headers.get('cache-control') || '';
     check('service worker /sw.js is served and skips /api/', swRes.ok && swText.includes('/api/'));
+    check(
+      '/sw.js and / index.html disable HTTP caching (no-store) so installed phone apps update immediately',
+      swCacheHeader.includes('no-store') && htmlCacheHeader.includes('no-store'),
+    );
 
     for (const iconPath of [
       '/icons/icon-192.png',

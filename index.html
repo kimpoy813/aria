@@ -38,6 +38,7 @@
           var mode = dark ? 'dark' : 'light';
           document.documentElement.dataset.theme = mode;
           document.documentElement.style.colorScheme = dark ? 'dark' : 'only light';
+          document.documentElement.style.backgroundColor = dark ? '#0b0c10' : '#ffffff';
           var meta = document.querySelector('meta[name="theme-color"]');
           if (meta) meta.setAttribute('content', dark ? '#0b0c10' : '#ffffff');
           var cs = document.querySelector('meta[name="color-scheme"]');
