@@ -29,6 +29,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   state: () => request<AppState>('/state'),
 
+  deleteAccount: () => request<{ ok: true }>('/auth/account', { method: 'DELETE' }),
+
   createTeam: (name: string) =>
     request<{ team: Team }>('/teams', {
       method: 'POST',

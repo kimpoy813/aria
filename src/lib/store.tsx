@@ -50,6 +50,7 @@ interface StoreValue {
   replayOnboarding: () => void;
   signInWithAccount: (account: Account) => Promise<void>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
   joinTeam: (code: string) => Promise<Team>;
   createTeam: (name: string) => Promise<Team>;
@@ -152,6 +153,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    await authLogout();
+    setState(null);
+    setError(null);
+  }, []);
+
+  const deleteAccount = useCallback(async () => {
+    await api.deleteAccount();
     await authLogout();
     setState(null);
     setError(null);
@@ -291,6 +299,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       replayOnboarding,
       signInWithAccount,
       signOut,
+      deleteAccount,
       refresh,
       joinTeam,
       createTeam,
@@ -313,6 +322,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       replayOnboarding,
       signInWithAccount,
       signOut,
+      deleteAccount,
       refresh,
       joinTeam,
       createTeam,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { LogoHero, Wordmark } from '../components/Logo';
 import { Button, Icon, IconButton } from '../components/ui';
 import { useStore } from '../lib/store';
@@ -37,6 +37,15 @@ function Shell({ children }: { children: React.ReactNode }) {
           </IconButton>
         </div>
         <div className="auth-main">{children}</div>
+        <div className="row" style={{ justifyContent: 'center', gap: 14, paddingBottom: 14 }}>
+          <Link to="/privacy" className="link-button tiny">
+            Privacy Policy
+          </Link>
+          <span className="tiny">·</span>
+          <Link to="/delete-account" className="link-button tiny">
+            Delete Account
+          </Link>
+        </div>
       </div>
     </div>
   );

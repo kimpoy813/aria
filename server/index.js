@@ -585,6 +585,77 @@ api.post('/auth/password', (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Permanently delete the signed-in user's account and all associated content
+ * (required by Google Play Data Safety Account Deletion policy).
+ */
+api.delete('/auth/account', async (req, res) => {
+  if (!requireUser(req, res)) return;
+  const userId = req.user.id;
+  const authId = req.authId;
+
+  try {
+    const deletedSongIds = new Set(
+      db.songs.filter((s) => s.ownerId === userId).map((s) => s.id),
+    );
+
+    // 1. Delete all songs and lineups owned by this user
+    db.songs = db.songs.filter((s) => s.ownerId !== userId);
+    db.lineups = db.lineups.filter((l) => l.ownerId !== userId);
+
+    // Clean up deleted song references in any remaining lineups without losing snapshot lyrics
+    for (const l of db.lineups) {
+      if (!Array.isArray(l.items)) continue;
+      l.items = l.items.filter((i) => !deletedSongIds.has(i.songId) || Boolean(i.lyrics));
+    }
+
+    // 2. Remove user from teams; transfer ownership or remove empty teams
+    const emptyTeamIds = new Set();
+    for (const team of db.teams) {
+      if (!Array.isArray(team.members)) continue;
+      const hadUser = team.members.some((m) => m.userId === userId);
+      if (!hadUser) continue;
+      team.members = team.members.filter((m) => m.userId !== userId);
+      if (team.members.length === 0) {
+        emptyTeamIds.add(team.id);
+      } else if (team.ownerId === userId) {
+        team.ownerId = team.members[0].userId;
+        team.members[0].role = 'owner';
+      }
+    }
+    if (emptyTeamIds.size > 0) {
+      db.teams = db.teams.filter((t) => !emptyTeamIds.has(t.id));
+      db.songs.forEach((s) => {
+        if (s.teamId && emptyTeamIds.has(s.teamId)) s.teamId = null;
+      });
+      db.lineups.forEach((l) => {
+        if (l.teamId && emptyTeamIds.has(l.teamId)) l.teamId = null;
+      });
+    }
+
+    // 3. Remove user profile row
+    db.users = db.users.filter((u) => u.id !== userId);
+
+    // 4. Persist state deletion immediately
+    clearTimeout(saveTimer);
+    if (store) {
+      saveChain = saveChain.then(() => store.persist(db));
+      await saveChain;
+    }
+
+    // 5. Remove credentials / auth identity
+    if (auth?.driver === 'demo') {
+      auth.deleteAccount(userId);
+    } else if (auth?.deleteAccount) {
+      await auth.deleteAccount(authId);
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Could not delete account.' });
+  }
+});
+
 api.get('/state', (req, res) => {
   if (!requireUser(req, res)) return;
   const user = req.user;
@@ -1012,6 +1083,65 @@ api.get('/shared/:token', (req, res) => {
 });
 
 api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
+
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+/**
+ * Google Play Trusted Web Activity (TWA) Digital Asset Links endpoint.
+ * Set ANDROID_PACKAGE_NAME and ANDROID_SHA256_FINGERPRINTS (comma-separated)
+ * in Render environment variables to verify full-screen Android mode without
+ * editing static files.
+ */
+app.get('/.well-known/assetlinks.json', (_req, res) => {
+  const pkg = clean(process.env.ANDROID_PACKAGE_NAME || 'app.aria.lineups', 120);
+  const rawFingerprints = String(process.env.ANDROID_SHA256_FINGERPRINTS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+
+  if (rawFingerprints.length > 0 && pkg) {
+    return res.send(
+      JSON.stringify(
+        [
+          {
+            relation: ['delegate_permission/common.handle_all_urls'],
+            target: {
+              namespace: 'android_app',
+              package_name: pkg,
+              sha256_cert_fingerprints: rawFingerprints,
+            },
+          },
+        ],
+        null,
+        2,
+      ),
+    );
+  }
+
+  const staticCandidates = [
+    path.join(DIST_DIR, '.well-known', 'assetlinks.json'),
+    path.join(PUBLIC_DIR, '.well-known', 'assetlinks.json'),
+  ];
+  for (const candidate of staticCandidates) {
+    if (fs.existsSync(candidate)) {
+      return res.sendFile(candidate);
+    }
+  }
+
+  return res.json([
+    {
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: {
+        namespace: 'android_app',
+        package_name: pkg,
+        sha256_cert_fingerprints: [],
+      },
+    },
+  ]);
+});
 
 app.use('/api', api);
 
