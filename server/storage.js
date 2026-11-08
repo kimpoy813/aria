@@ -428,6 +428,14 @@ export class SupabaseCallerBridge {
       }
     }
 
+    const teammateIds = new Set();
+    for (const t of remoteTeams) {
+      if (t.ownerId && t.ownerId !== userId) teammateIds.add(t.ownerId);
+      for (const m of t.members || []) {
+        if (m.userId && m.userId !== userId) teammateIds.add(m.userId);
+      }
+    }
+
     const remoteTeamIds = new Set(remoteTeams.map((t) => t.id));
     db.teams = [
       ...db.teams.filter(
@@ -441,13 +449,23 @@ export class SupabaseCallerBridge {
 
     const remoteSongIds = new Set(remoteSongs.map((s) => s.id));
     db.songs = [
-      ...db.songs.filter((s) => s.ownerId !== userId && !remoteSongIds.has(s.id)),
+      ...db.songs.filter(
+        (s) =>
+          s.ownerId !== userId &&
+          !teammateIds.has(s.ownerId) &&
+          !remoteSongIds.has(s.id),
+      ),
       ...remoteSongs,
     ];
 
     const remoteLineupIds = new Set(remoteLineups.map((l) => l.id));
     db.lineups = [
-      ...db.lineups.filter((l) => l.ownerId !== userId && !remoteLineupIds.has(l.id)),
+      ...db.lineups.filter(
+        (l) =>
+          l.ownerId !== userId &&
+          !teammateIds.has(l.ownerId) &&
+          !remoteLineupIds.has(l.id),
+      ),
       ...remoteLineups,
     ];
 
@@ -456,10 +474,19 @@ export class SupabaseCallerBridge {
     }
   }
 
-  async hydrateCaller(accessToken, userId, db, { force = false } = {}) {
+  async hydrateCaller(
+    accessToken,
+    userId,
+    db,
+    { force = false, immediate = false } = {},
+  ) {
     if (!accessToken || !userId || !userId.startsWith('sb_')) return false;
     const last = this.hydratedAt.get(userId) || 0;
-    if (this.hydratedUsers.has(userId) && (!force || Date.now() - last < 1500)) {
+    if (
+      this.hydratedUsers.has(userId) &&
+      !immediate &&
+      (!force || Date.now() - last < 1500)
+    ) {
       return true;
     }
     if (this.inflightHydrate.has(userId)) {
@@ -563,10 +590,8 @@ export class SupabaseCallerBridge {
         }
         return null;
       }
-      if (op === 'delete_account') {
-        for (const uid of [...this.hydratedUsers]) {
-          this.hydratedAt.delete(uid);
-        }
+      if (op === 'create' || op === 'join' || op === 'leave' || op === 'delete_account') {
+        this.hydratedAt.clear();
       }
       if ((op === 'create' || op === 'join') && data && data.id) {
         return fromRow('teams', data);

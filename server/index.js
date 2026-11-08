@@ -156,8 +156,20 @@ function teamView(team, userId) {
   };
 }
 
+function areTeammates(ownerId, viewerId) {
+  if (!ownerId || !viewerId) return false;
+  if (ownerId === viewerId) return true;
+  return db.teams.some(
+    (t) =>
+      Array.isArray(t.members) &&
+      t.members.some((m) => m.userId === ownerId) &&
+      t.members.some((m) => m.userId === viewerId),
+  );
+}
+
 function canView(record, userId) {
   if (record.ownerId === userId) return true;
+  if (areTeammates(record.ownerId, userId)) return true;
   if (record.teamId) {
     const team = getTeam(record.teamId);
     return !!team && team.members.some((m) => m.userId === userId);
@@ -283,31 +295,46 @@ function copySong(song, user, teamId = null) {
 
 /** Deep copy a lineup (and the songs it needs) into a user's library. */
 function copyLineup(lineup, user, teamId = null) {
-  const songMap = new Map(); // oldSongId -> { newSong, partsByOldId }
+  const songMap = new Map(); // oldSongId -> { song, partsByOldId }
   const items = [];
 
   for (const item of lineup.items) {
     const source = db.songs.find((s) => s.id === item.songId);
-    if (!source) continue;
+    if (!source) {
+      if (item && item.lyrics) {
+        items.push({ ...item, id: uid('slot') });
+      }
+      continue;
+    }
 
     let mapped = songMap.get(source.id);
     if (!mapped) {
-      // Re-use an earlier copy of the same source song so a copied lineup
-      // never duplicates the same track twice in the library.
-      let existing = db.songs.find(
-        (s) => s.ownerId === user.id && s.sourceSongId === (source.sourceSongId || source.id),
-      );
+      let existing =
+        source.ownerId === user.id
+          ? source
+          : db.songs.find(
+              (s) =>
+                s.ownerId === user.id &&
+                (s.id === source.id ||
+                  s.sourceSongId === (source.sourceSongId || source.id)),
+            );
       if (!existing) existing = copySong(source, user, teamId);
       const partsByOldId = new Map();
       source.parts.forEach((p, index) => {
-        const target = existing.parts[index];
+        const target =
+          existing.parts[index] ||
+          resolvePartFromSong(existing, { partId: p.id, partLabel: p.label, partKind: p.kind });
         if (target) partsByOldId.set(p.id, target);
       });
       mapped = { song: existing, partsByOldId };
       songMap.set(source.id, mapped);
     }
 
-    const part = mapped.partsByOldId.get(item.partId);
+    const sourcePart = resolvePartFromSong(source, item);
+    const part =
+      mapped.partsByOldId.get(item.partId) ||
+      (sourcePart ? mapped.partsByOldId.get(sourcePart.id) : null) ||
+      resolvePartFromSong(mapped.song, item);
     if (!part) continue;
     items.push(snapshotSlot(mapped.song, part));
   }
@@ -1277,7 +1304,10 @@ api.post('/teams/join', async (req, res) => {
       if (idx >= 0) db.teams[idx] = remoteTeam;
       else db.teams.push(remoteTeam);
       team = remoteTeam;
-      await callerBridge.hydrateCaller(req.supabaseAccessToken, user.id, db, { force: true });
+      await callerBridge.hydrateCaller(req.supabaseAccessToken, user.id, db, {
+        force: true,
+        immediate: true,
+      });
     }
   }
 
@@ -1313,8 +1343,12 @@ api.post('/teams/:id/leave', async (req, res) => {
   }
   if (team.members.length === 0) {
     db.teams = db.teams.filter((t) => t.id !== team.id);
-    db.songs = db.songs.filter((s) => s.teamId !== team.id);
-    db.lineups = db.lineups.filter((l) => l.teamId !== team.id);
+    db.songs.forEach((s) => {
+      if (s.teamId === team.id) s.teamId = null;
+    });
+    db.lineups.forEach((l) => {
+      if (l.teamId === team.id) l.teamId = null;
+    });
   }
   if (callerBridge && req.supabaseAccessToken && userId.startsWith('sb_')) {
     await callerBridge.teamOp(req.supabaseAccessToken, {
@@ -1602,8 +1636,7 @@ api.post('/lineups/:id/share', async (req, res) => {
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
   // The owner can always share; teammates can pass on a lineup shared with them.
-  const ownerTeam = lineup.teamId ? getTeam(lineup.teamId) : null;
-  const isTeammate = !!ownerTeam && !!user && ownerTeam.members.some((m) => m.userId === user.id);
+  const isTeammate = !!user && lineup.ownerId !== user.id && canView(lineup, user.id);
   if (!user || (lineup.ownerId !== user.id && !isTeammate)) {
     return res.status(403).json({ error: 'Only the owner or a teammate can share this lineup.' });
   }

@@ -28,7 +28,7 @@ function newPart(kind: PartKind, existing: SongPart[]): SongPart {
 
 export function SongFormPage() {
   const { id } = useParams();
-  const { songs, teams, refresh, user, notify } = useStore();
+  const { songs, refresh, user, notify } = useStore();
   const navigate = useNavigate();
 
   const existing = id ? songs.find((s) => s.id === id) : undefined;
@@ -44,7 +44,6 @@ export function SongFormPage() {
   const [messageTouched, setMessageTouched] = useState(
     Boolean(existing?.analysis?.manualOverride),
   );
-  const [teamId, setTeamId] = useState<string>(existing?.teamId ?? '');
   const [parts, setParts] = useState<SongPart[]>(() => {
     if (existing?.parts.length) return existing.parts.map((p) => ({ ...p }));
     const v = newPart('verse', []);
@@ -381,7 +380,7 @@ export function SongFormPage() {
         artist: artist.trim() || 'Unknown artist',
         tempo: finalTempo,
         theme: finalTheme,
-        teamId: teamId || null,
+        teamId: existing?.teamId ?? null,
         parts: filled,
         analysis: finalAnalysis,
       };
@@ -477,25 +476,6 @@ export function SongFormPage() {
             </button>
           </div>
         </div>
-
-        {teams.length > 0 && (
-          <div className="field">
-            <label htmlFor="song-team">Visibility</label>
-            <select
-              id="song-team"
-              className="select"
-              value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
-            >
-              <option value="">Personal</option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       <div className="stack-sm">

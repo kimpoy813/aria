@@ -32,7 +32,7 @@ interface TouchDragState {
 
 export function BuilderPage() {
   const { id } = useParams();
-  const { lineups, songs, teams, user, refresh, notify } = useStore();
+  const { lineups, songs, user, refresh, notify } = useStore();
   const navigate = useNavigate();
 
   const existing = id ? lineups.find((l) => l.id === id) : undefined;
@@ -40,7 +40,6 @@ export function BuilderPage() {
 
   const [name, setName] = useState(existing?.name ?? '');
   const [theme, setTheme] = useState(existing?.theme ?? '');
-  const [teamId, setTeamId] = useState<string>(existing?.teamId ?? '');
   const [items, setItems] = useState<LineupItem[]>(() =>
     existing ? existing.items.map((x) => ({ ...x })) : [],
   );
@@ -321,7 +320,7 @@ export function BuilderPage() {
       const payload = {
         name: name.trim(),
         theme: theme || suggestedTheme || '',
-        teamId: teamId || null,
+        teamId: existing?.teamId ?? null,
         items: resolved.map((r) => r.item),
       };
       if (editing && existing) {
@@ -379,46 +378,24 @@ export function BuilderPage() {
           />
         </div>
 
-        <div className="row" style={{ gap: 8 }}>
-          <div className="field" style={{ flex: 1 }}>
-            <label htmlFor="lineup-theme">Worship theme</label>
-            <select
-              id="lineup-theme"
-              aria-label="Lineup class"
-              className="select"
-              value={theme}
-              onChange={(e) => setTheme(e.target.value)}
-            >
-              <option value="">
-                {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto-detect'}
+        <div className="field">
+          <label htmlFor="lineup-theme">Worship theme</label>
+          <select
+            id="lineup-theme"
+            aria-label="Lineup class"
+            className="select"
+            value={theme}
+            onChange={(e) => setTheme(e.target.value)}
+          >
+            <option value="">
+              {suggestedTheme ? `Auto (${suggestedTheme})` : 'Auto-detect'}
+            </option>
+            {THEME_LIST.map((c) => (
+              <option key={c} value={c}>
+                {c}
               </option>
-              {THEME_LIST.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {teams.length > 0 && (
-            <div className="field" style={{ flex: 1 }}>
-              <label htmlFor="lineup-team">Visibility</label>
-              <select
-                id="lineup-team"
-                aria-label="Visibility"
-                className="select"
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
-              >
-                <option value="">Personal</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+            ))}
+          </select>
         </div>
 
         <div className="guardrail-bar" aria-label="Requirements">

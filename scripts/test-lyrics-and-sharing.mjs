@@ -572,22 +572,74 @@ My anchor is holding secure
         sharedAfterEdit.items[1].lyrics.includes('Deep within my soul'),
     );
 
-    // Share lineup to a team even though underlying songs were personal (teamId: null)
+    // Automatic team sharing: as soon as User B joins User A's team (without manual share calls!),
+    // every song and lineup owned by User A & User B is shared across all team members.
+    const extraSongA = (
+      await apiCall(
+        '/songs',
+        'POST',
+        {
+          title: 'Private Before Team',
+          artist: 'User A',
+          tempo: 'slow',
+          parts: [{ kind: 'chorus', label: 'Chorus', lyrics: 'Shared automatically with team' }],
+        },
+        userA.token,
+      )
+    ).song;
+
+    const songFromB = (
+      await apiCall(
+        '/songs',
+        'POST',
+        {
+          title: 'Member B Worship Song',
+          artist: 'User B',
+          tempo: 'fast',
+          parts: [{ kind: 'chorus', label: 'Chorus', lyrics: 'Lift up the name of Jesus' }],
+        },
+        userB.token,
+      )
+    ).song;
+
     const team = (await apiCall('/teams', 'POST', { name: 'Worship Band' }, userA.token)).team;
     await apiCall('/teams/join', 'POST', { code: team.code }, userB.token);
-    await apiCall(
-      `/lineups/${lineup.id}/share`,
-      'POST',
-      { channel: 'team', teamId: team.id },
-      userA.token,
-    );
 
     const stateB = await apiCall('/state', 'GET', null, userB.token);
     const sharedLineupForB = stateB.lineups.find((l) => l.id === lineup.id);
     const songsForB = new Set(stateB.songs.map((s) => s.id));
     check(
-      'teammate receives the shared lineup AND its referenced songs so lyrics render completely',
-      Boolean(sharedLineupForB) && songsForB.has(slowSong.id) && songsForB.has(fastSong.id),
+      'joining a team automatically shares all member songs and lineups without manual per-item sharing',
+      Boolean(sharedLineupForB) &&
+        songsForB.has(slowSong.id) &&
+        songsForB.has(fastSong.id) &&
+        songsForB.has(extraSongA.id),
+    );
+
+    const stateA = await apiCall('/state', 'GET', null, userA.token);
+    check(
+      'existing team members also immediately see newly joined member songs',
+      stateA.songs.some((s) => s.id === songFromB.id),
+    );
+
+    // Teammate copies a song and a lineup onto their own account
+    const copiedSongRes = await apiCall(`/songs/${extraSongA.id}/copy`, 'POST', {}, userB.token);
+    const copiedLineupRes = await apiCall(`/lineups/${lineup.id}/copy`, 'POST', {}, userB.token);
+    check(
+      'teammate can copy a shared song and lineup onto their own account',
+      copiedSongRes.song?.ownerId === stateB.user.id &&
+        copiedLineupRes.lineup?.ownerId === stateB.user.id &&
+        copiedLineupRes.lineup?.items?.length === 3,
+    );
+
+    // Even if User B leaves the team, copied items stay permanently on User B's account
+    await apiCall(`/teams/${team.id}/leave`, 'POST', {}, userB.token);
+    const stateBAfterLeave = await apiCall('/state', 'GET', null, userB.token);
+    check(
+      'copied songs and lineups remain on the member account even after leaving the team',
+      stateBAfterLeave.songs.some((s) => s.id === copiedSongRes.song.id) &&
+        stateBAfterLeave.lineups.some((l) => l.id === copiedLineupRes.lineup.id) &&
+        !stateBAfterLeave.songs.some((s) => s.id === extraSongA.id),
     );
   } finally {
     proc.kill();
