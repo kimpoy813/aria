@@ -4,7 +4,6 @@ import { LyricView } from '../components/LyricView';
 import {
   BackBar,
   Button,
-  Chip,
   Empty,
   Icon,
   IconButton,
@@ -12,7 +11,7 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { resolveSequence, timeAgo } from '../lib/lru';
+import { groupLineupSongBlocks, resolveSequence, timeAgo } from '../lib/lru';
 import { useStore } from '../lib/store';
 
 export function LineupViewPage() {
@@ -33,6 +32,19 @@ export function LineupViewPage() {
   const resolved = useMemo(
     () => (lineup ? resolveSequence(lineup, songs) : []),
     [lineup, songs],
+  );
+
+  const songBlocks = useMemo(
+    () =>
+      groupLineupSongBlocks(
+        resolved.map((r) => ({
+          songKey: r.song.id,
+          songTitle: r.song.title,
+          partLabel: r.partLabel,
+          lyrics: r.lyrics,
+        })),
+      ),
+    [resolved],
   );
 
   const showToast = (m: string, tone: ToastTone = 'success') => {
@@ -108,6 +120,13 @@ export function LineupViewPage() {
     }
   };
 
+  const metaParts = [
+    `${songBlocks.length} ${songBlocks.length === 1 ? 'song' : 'songs'}`,
+    lineup.theme || null,
+    team?.name || null,
+    timeAgo(lineup.lastUsedAt),
+  ].filter(Boolean);
+
   return (
     <div className="stack">
       <BackBar
@@ -141,29 +160,32 @@ export function LineupViewPage() {
 
       <div className="stack-xs">
         <h1 className="detail-title">{lineup.name}</h1>
-        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-          {lineup.theme && <Chip tone="brand">{lineup.theme}</Chip>}
-          <Chip>{resolved.length} parts</Chip>
-          {team && <Chip>{team.name}</Chip>}
-          <span className="tiny">{timeAgo(lineup.lastUsedAt)}</span>
-        </div>
+        <div className="tiny">{metaParts.join(' · ')}</div>
       </div>
 
-      <div className="stack-sm">
-        {resolved.map((r, i) => (
-          <div key={r.itemId} className="part-block">
-            <div className="part-head">
+      <div className="stack">
+        {songBlocks.map((block, i) => (
+          <div key={block.key} className="song-group-block">
+            <div className="song-group-head">
               <span className="part-index">{i + 1}</span>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="part-title truncate">{r.song.title}</div>
-                <div className="tiny">{r.partLabel}</div>
-              </div>
-              <Chip tone={r.song.tempo}>
-                {r.song.tempo === 'fast' ? 'Fast' : 'Slow'}
-              </Chip>
+              <h2 className="song-group-title truncate">{block.songTitle}</h2>
             </div>
-            <div className="part-body">
-              <LyricView lyrics={r.lyrics} />
+            <div className="song-group-sections">
+              {block.sections.map((sec) =>
+                sec.isRepeat ? (
+                  <div key={sec.key} className="song-section-repeat">
+                    ↻ {sec.partLabel}
+                  </div>
+                ) : (
+                  <div key={sec.key} className="song-section">
+                    {!(
+                      block.sections.length === 1 &&
+                      sec.partLabel.toLowerCase() === 'part'
+                    ) && <div className="song-section-label">{sec.partLabel}</div>}
+                    <LyricView lyrics={sec.lyrics} />
+                  </div>
+                ),
+              )}
             </div>
           </div>
         ))}
@@ -173,7 +195,7 @@ export function LineupViewPage() {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         title="Share lineup"
-        subtitle="Anyone with the link can view the full lyrics."
+        subtitle="Anyone with the link can read the lyrics cleanly."
       >
         <div className="stack">
           <div className="share-link-box">

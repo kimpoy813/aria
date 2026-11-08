@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
 import {
-  lineupTempoMix,
   orderByLRU,
   reasonLabel,
   resolveSequence,
+  summarizeLineupSongs,
+  summarizeSongsUsed,
   timeAgo,
 } from '../lib/lru';
 import { useStore } from '../lib/store';
@@ -15,6 +16,7 @@ export function HomePage() {
   const { lineups, songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
   const [themeFilter, setThemeFilter] = useState<string>('all');
+  const [songScope, setSongScope] = useState<'used' | 'all'>('used');
   const [sharing, setSharing] = useState(false);
 
   const showToast = (msg: string, tone: ToastTone = 'success') => {
@@ -42,14 +44,21 @@ export function HomePage() {
     () => (featured ? resolveSequence(featured, songs) : []),
     [featured, songs],
   );
-  const featuredMix = useMemo(
-    () => (featured ? lineupTempoMix(featured, songs) : { fast: 0, slow: 0, total: 0 }),
+  const featuredSongs = useMemo(
+    () => (featured ? summarizeLineupSongs(featured, songs) : []),
     [featured, songs],
   );
-  const featuredSongCount = useMemo(
-    () => new Set(featuredEntries.map((e) => e.song.id)).size,
-    [featuredEntries],
+
+  const allSongStats = useMemo(
+    () => summarizeSongsUsed(songs, filtered),
+    [songs, filtered],
   );
+  const songsInLineups = useMemo(
+    () => allSongStats.filter((s) => s.inLineupsCount > 0),
+    [allSongStats],
+  );
+  const displayedSongStats =
+    songScope === 'used' && songsInLineups.length > 0 ? songsInLineups : allSongStats;
 
   const hasFast = songs.some((s) => s.tempo === 'fast');
   const hasSlow = songs.some((s) => s.tempo === 'slow');
@@ -95,7 +104,7 @@ export function HomePage() {
           <h1>Home</h1>
           <p>
             {lineups.length > 0
-              ? 'Least recently used lineup'
+              ? 'Least recently used lineup & songs'
               : `Hi ${firstName} — build your rotation`}
           </p>
         </div>
@@ -144,31 +153,38 @@ export function HomePage() {
           <div className="stack-xs">
             <h2 className="lru-card-title">{featured.name}</h2>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-              {featured.theme && <Chip tone="brand">{featured.theme}</Chip>}
+              {featured.theme && <Chip>{featured.theme}</Chip>}
               <Chip>
-                {featuredEntries.length} parts · {featuredSongCount} songs
+                {featuredSongs.length} {featuredSongs.length === 1 ? 'song' : 'songs'} ·{' '}
+                {featuredEntries.length} parts
               </Chip>
-              <Chip tone="fast">{featuredMix.fast} fast</Chip>
-              <Chip tone="slow">{featuredMix.slow} slow</Chip>
               {teamName(featured.teamId) && <Chip>{teamName(featured.teamId)}</Chip>}
             </div>
           </div>
 
-          {featuredEntries.length > 0 && (
+          {featuredSongs.length > 0 && (
             <div className="lru-seq">
-              {featuredEntries.slice(0, 5).map((entry, idx) => (
-                <div key={entry.itemId} className="lru-seq-row">
-                  <span className="lru-seq-num">{idx + 1}</span>
-                  <span className={`tempo-dot ${entry.song.tempo}`} />
-                  <span className="lru-seq-song truncate">{entry.song.title}</span>
-                  <span className="tiny">{entry.partLabel}</span>
-                </div>
-              ))}
-              {featuredEntries.length > 5 && (
-                <div className="tiny" style={{ paddingLeft: 24 }}>
-                  +{featuredEntries.length - 5} more parts
-                </div>
-              )}
+              <div className="lru-seq-head">
+                <span className="tiny" style={{ fontWeight: 600 }}>
+                  Songs used ({featuredSongs.length})
+                </span>
+              </div>
+              {featuredSongs.map(({ song, parts }, idx) => {
+                return (
+                  <div key={`${song.id}_${idx}`} className="lru-song-item">
+                    <span className="lru-seq-num">{idx + 1}</span>
+                    <div className="lru-song-body">
+                      <div className="row-between" style={{ gap: 6 }}>
+                        <span className="lru-seq-song truncate">{song.title}</span>
+                        <span className="tiny">
+                          {song.tempo === 'fast' ? 'Fast' : 'Slow'}
+                        </span>
+                      </div>
+                      <div className="tiny truncate">{parts.join(' · ')}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -197,7 +213,7 @@ export function HomePage() {
           title="No LRU lineup yet"
           body={
             canBuildLineup
-              ? 'Create your first lineup and Aria will keep your least recently used set right here.'
+              ? 'Create your first lineup and Aria will keep your least recently used set and songs right here.'
               : 'Add at least one fast song and one slow song, then build a lineup to start your LRU rotation.'
           }
           action={
@@ -229,24 +245,96 @@ export function HomePage() {
           </div>
 
           <div className="list-group">
-            {upNext.map((l, i) => (
-              <button
-                key={l.id}
-                type="button"
-                className="list-row"
-                onClick={() => navigate(`/lineups/${l.id}`, { state: { from: 'home' } })}
-              >
-                <span className="part-index">{i + 2}</span>
-                <div className="list-row-body">
-                  <div className="list-row-title truncate">{l.name}</div>
-                  <div className="tiny truncate">
-                    {l.items.length} parts · {timeAgo(l.lastUsedAt)}
+            {upNext.map((l, i) => {
+              const usedSongs = summarizeLineupSongs(l, songs);
+              const songNames = usedSongs.map((u) => u.song.title).join(' · ');
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  className="list-row"
+                  onClick={() => navigate(`/lineups/${l.id}`, { state: { from: 'home' } })}
+                >
+                  <span className="part-index">{i + 2}</span>
+                  <div className="list-row-body">
+                    <div className="list-row-title truncate">{l.name}</div>
+                    {songNames && (
+                      <div className="small truncate" style={{ fontSize: 12.5 }}>
+                        {songNames}
+                      </div>
+                    )}
+                    <div className="tiny truncate">
+                      {usedSongs.length} {usedSongs.length === 1 ? 'song' : 'songs'} ·{' '}
+                      {l.items.length} parts · {timeAgo(l.lastUsedAt)}
+                    </div>
                   </div>
-                </div>
-                {l.theme && <Chip tone="brand">{l.theme}</Chip>}
-                <Icon name="chevronRight" size={16} className="muted" />
+                  {l.theme && <Chip>{l.theme}</Chip>}
+                  <Icon name="chevronRight" size={16} className="muted" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Songs Used (LRU Song Rotation) */}
+      {songs.length > 0 && (
+        <div className="stack-sm">
+          <div className="row-between">
+            <span className="label">
+              {songsInLineups.length > 0 && songScope === 'used'
+                ? `Songs used in lineups (${songsInLineups.length})`
+                : `Song rotation (${allSongStats.length})`}
+            </span>
+            <div className="row" style={{ gap: 10 }}>
+              {songsInLineups.length > 0 && songsInLineups.length < allSongStats.length && (
+                <button
+                  type="button"
+                  className="link-button tiny"
+                  onClick={() =>
+                    setSongScope((prev) => (prev === 'used' ? 'all' : 'used'))
+                  }
+                >
+                  {songScope === 'used' ? 'Show all songs' : 'Used only'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="link-button tiny"
+                onClick={() => navigate('/songs')}
+              >
+                Library
               </button>
-            ))}
+            </div>
+          </div>
+
+          <div className="list-group">
+            {displayedSongStats.slice(0, 8).map((stat) => {
+              const statusText = stat.lastUsedAt
+                ? `Last used ${timeAgo(stat.lastUsedAt)}${
+                    stat.lastLineupName ? ` · ${stat.lastLineupName}` : ''
+                  }`
+                : stat.inLineupsCount > 0
+                  ? `In ${stat.inLineupsCount} ${
+                      stat.inLineupsCount === 1 ? 'lineup' : 'lineups'
+                    } (${stat.lineupNames.slice(0, 2).join(', ')}) · never shared`
+                  : 'Not in a lineup yet';
+              return (
+                <button
+                  key={stat.song.id}
+                  type="button"
+                  className="list-row"
+                  onClick={() => navigate(`/songs/${stat.song.id}`)}
+                >
+                  <div className="list-row-body">
+                    <div className="list-row-title truncate">{stat.song.title}</div>
+                    <div className="tiny truncate">{statusText}</div>
+                  </div>
+                  <Chip>{stat.song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
+                  <Icon name="chevronRight" size={16} className="muted" />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

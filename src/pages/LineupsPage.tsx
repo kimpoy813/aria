@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon } from '../components/ui';
-import { orderByLRU, timeAgo } from '../lib/lru';
+import { orderByLRU, summarizeLineupSongs, timeAgo } from '../lib/lru';
 import { useStore } from '../lib/store';
 import type { Lineup } from '../lib/types';
 
@@ -33,12 +33,12 @@ export function LineupsPage() {
   const ordered = useMemo(() => orderByLRU(scoped), [scoped]);
 
   const describe = (l: Lineup) => {
-    const songIds = new Set<string>();
-    for (const it of l.items) {
-      const s = songs.find((x) => x.id === it.songId);
-      if (s) songIds.add(s.id);
-    }
-    return { parts: l.items.length, songs: songIds.size };
+    const usedSongs = summarizeLineupSongs(l, songs);
+    return {
+      parts: l.items.length,
+      songs: usedSongs.length,
+      songNames: usedSongs.map((u) => u.song.title).join(' · '),
+    };
   };
 
   return (
@@ -140,12 +140,18 @@ export function LineupsPage() {
               >
                 <div className="list-row-body">
                   <div className="list-row-title truncate">{l.name}</div>
+                  {d.songNames && (
+                    <div className="small truncate" style={{ fontSize: 12.5 }}>
+                      {d.songNames}
+                    </div>
+                  )}
                   <div className="tiny truncate">
-                    {d.parts} parts · {d.songs} songs · {timeAgo(l.lastUsedAt)}
+                    {d.songs} {d.songs === 1 ? 'song' : 'songs'} · {d.parts} parts ·{' '}
+                    {timeAgo(l.lastUsedAt)}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                  {l.theme && <Chip tone="brand">{l.theme}</Chip>}
+                  {l.theme && <Chip>{l.theme}</Chip>}
                   <Icon name="chevronRight" size={16} className="muted" />
                 </div>
               </button>

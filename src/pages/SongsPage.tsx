@@ -199,18 +199,19 @@ export function SongsPage() {
               className="list-row"
               onClick={() => navigate(`/songs/${song.id}`)}
             >
-              <span className={`tempo-dot ${song.tempo}`} aria-hidden="true" />
               <div className="list-row-body">
                 <div className="list-row-title truncate">{song.title}</div>
                 <div className="tiny truncate">
-                  {song.artist || 'Unknown artist'} · {song.parts.length}{' '}
-                  {song.parts.length === 1 ? 'part' : 'parts'}
+                  {[
+                    song.artist && song.artist !== 'Unknown artist' ? song.artist : null,
+                    song.theme || null,
+                    `${song.parts.length} ${song.parts.length === 1 ? 'part' : 'parts'}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </div>
               </div>
-              <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                {song.theme && <Chip tone="brand">{song.theme}</Chip>}
-                <Chip tone={song.tempo}>{song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
-              </div>
+              <Chip>{song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
             </button>
           ))}
         </div>

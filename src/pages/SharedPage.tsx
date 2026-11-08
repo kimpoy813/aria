@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { LyricView } from '../components/LyricView';
 import { Wordmark } from '../components/Logo';
-import { Button, Chip, Empty, Icon, IconButton, type ToastTone } from '../components/ui';
+import { Button, Empty, Icon, IconButton, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
+import { groupLineupSongBlocks } from '../lib/lru';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
 
@@ -32,10 +33,9 @@ export function SharedPage() {
     notify(msg, tone);
   };
 
-  const tempoCounts = useMemo(() => {
-    if (!lineup) return { fast: 0, slow: 0 };
-    const fast = lineup.items.filter((i) => i.tempo === 'fast').length;
-    return { fast, slow: lineup.items.length - fast };
+  const songBlocks = useMemo(() => {
+    if (!lineup) return [];
+    return groupLineupSongBlocks(lineup.items);
   }, [lineup]);
 
   const copyUrl = async () => {
@@ -48,18 +48,21 @@ export function SharedPage() {
   };
 
   const copyAllLyrics = async () => {
-    if (!lineup) return;
+    if (!lineup || songBlocks.length === 0) return;
     const formatted = [
       lineup.name,
-      lineup.theme ? `Class: ${lineup.theme}` : '',
       '',
-      ...lineup.items.map(
-        (it, idx) =>
-          `${idx + 1}. ${it.songTitle} — ${it.partLabel} (${it.tempo === 'fast' ? 'Fast' : 'Slow'})\n${it.lyrics.trim()}`,
-      ),
-    ]
-      .filter((line, idx) => idx !== 1 || Boolean(line))
-      .join('\n\n');
+      ...songBlocks.map((block, idx) => {
+        const body = block.sections
+          .map((sec) =>
+            sec.isRepeat
+              ? `↻ ${sec.partLabel}`
+              : `${sec.partLabel}\n${sec.lyrics.trim()}`,
+          )
+          .join('\n\n');
+        return `${idx + 1}. ${block.songTitle}\n\n${body}`;
+      }),
+    ].join('\n\n');
 
     try {
       await navigator.clipboard.writeText(formatted);
@@ -125,52 +128,47 @@ export function SharedPage() {
           <div className="stack">
             <div className="stack-xs">
               <h1 className="detail-title">{lineup.name}</h1>
-              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-                {lineup.theme && <Chip tone="brand">{lineup.theme}</Chip>}
-                <Chip>
-                  {lineup.items.length} parts · {lineup.songCount} songs
-                </Chip>
-                {tempoCounts.fast > 0 && <Chip tone="fast">{tempoCounts.fast} fast</Chip>}
-                {tempoCounts.slow > 0 && <Chip tone="slow">{tempoCounts.slow} slow</Chip>}
-              </div>
-              {lineup.ownerName && (
-                <span className="tiny">Shared by {lineup.ownerName}</span>
-              )}
+              <span className="tiny">
+                {songBlocks.length} {songBlocks.length === 1 ? 'song' : 'songs'}
+              </span>
             </div>
 
-            {lineup.items.length === 0 ? (
+            {songBlocks.length === 0 ? (
               <Empty
                 icon="lyrics"
-                title="No parts in this lineup"
+                title="No songs in this lineup"
                 body="The sender has not added lyric sections to this lineup yet."
               />
             ) : (
-              <div className="stack-sm">
-                {lineup.items.map((item, i) => {
-                  const showArtist =
-                    Boolean(item.artist) &&
-                    item.artist.toLowerCase() !== 'unknown artist';
-                  return (
-                    <article key={i} className="part-block">
-                      <div className="part-head">
-                        <span className="part-index">{i + 1}</span>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div className="part-title truncate">{item.songTitle}</div>
-                          <div className="tiny truncate">
-                            {item.partLabel}
-                            {showArtist ? ` · ${item.artist}` : ''}
+              <div className="stack">
+                {songBlocks.map((block, i) => (
+                  <article key={block.key} className="song-group-block">
+                    <div className="song-group-head">
+                      <span className="part-index">{i + 1}</span>
+                      <h2 className="song-group-title truncate">{block.songTitle}</h2>
+                    </div>
+
+                    <div className="song-group-sections">
+                      {block.sections.map((sec) =>
+                        sec.isRepeat ? (
+                          <div key={sec.key} className="song-section-repeat">
+                            ↻ {sec.partLabel}
                           </div>
-                        </div>
-                        <Chip tone={item.tempo}>
-                          {item.tempo === 'fast' ? 'Fast' : 'Slow'}
-                        </Chip>
-                      </div>
-                      <div className="part-body">
-                        <LyricView lyrics={item.lyrics} large={largeText} />
-                      </div>
-                    </article>
-                  );
-                })}
+                        ) : (
+                          <div key={sec.key} className="song-section">
+                            {!(
+                              block.sections.length === 1 &&
+                              sec.partLabel.toLowerCase() === 'part'
+                            ) && (
+                              <div className="song-section-label">{sec.partLabel}</div>
+                            )}
+                            <LyricView lyrics={sec.lyrics} large={largeText} />
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </article>
+                ))}
               </div>
             )}
 

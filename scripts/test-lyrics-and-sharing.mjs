@@ -237,6 +237,145 @@ My anchor is holding secure
         /worship|Lord|praise/i.test(praiseAnalysis.message),
       `${praiseAnalysis.theme}: ${praiseAnalysis.message}`,
     );
+
+    const { summarizeLineupSongs, summarizeSongsUsed, groupLineupSongBlocks } =
+      await vite.ssrLoadModule('/src/lib/lru.ts');
+    const mockSongs = [
+      {
+        id: 's1',
+        title: 'Goodness of God',
+        artist: 'Bethel Music',
+        tempo: 'slow',
+        theme: "God's Love",
+        parts: [
+          { id: 's1_v1', kind: 'verse', label: 'Verse 1', lyrics: 'I love You Lord' },
+          { id: 's1_c', kind: 'chorus', label: 'Chorus', lyrics: 'All my life You have been faithful' },
+          { id: 's1_v2', kind: 'verse', label: 'Verse 2', lyrics: 'I love Your voice' },
+          { id: 's1_b', kind: 'bridge', label: 'Bridge', lyrics: 'Your goodness is running after me' },
+        ],
+        analysis: null,
+        ownerId: 'u1',
+        ownerName: 'Ana',
+        teamId: null,
+        sourceSongId: null,
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+      {
+        id: 's2',
+        title: 'Praise',
+        artist: 'Elevation Worship',
+        tempo: 'fast',
+        theme: 'Praise & Adoration',
+        parts: [
+          { id: 's2_v1', kind: 'verse', label: 'Verse 1', lyrics: 'Let everything that has breath' },
+          { id: 's2_c', kind: 'chorus', label: 'Chorus', lyrics: 'Praise the Lord oh my soul' },
+        ],
+        analysis: null,
+        ownerId: 'u1',
+        ownerName: 'Ana',
+        teamId: null,
+        sourceSongId: null,
+        createdAt: 2000,
+        updatedAt: 2000,
+      },
+      {
+        id: 's3',
+        title: 'Cornerstone',
+        artist: 'Hillsong',
+        tempo: 'slow',
+        theme: 'Faith & Trust',
+        parts: [
+          { id: 's3_c', kind: 'chorus', label: 'Chorus', lyrics: 'Christ alone Cornerstone' },
+        ],
+        analysis: null,
+        ownerId: 'u1',
+        ownerName: 'Ana',
+        teamId: null,
+        sourceSongId: null,
+        createdAt: 3000,
+        updatedAt: 3000,
+      },
+    ];
+    const mockLineup = {
+      id: 'l1',
+      name: 'Sunday Morning Worship',
+      theme: 'Praise & Adoration',
+      ownerId: 'u1',
+      ownerName: 'Ana',
+      teamId: null,
+      items: [
+        { id: 'i1', songId: 's1', partId: 's1_v1' },
+        { id: 'i2', songId: 's1', partId: 's1_c' },
+        { id: 'i3', songId: 's1', partId: 's1_v2' },
+        { id: 'i4', songId: 's1', partId: 's1_c' },
+        { id: 'i5', songId: 's1', partId: 's1_b' },
+        { id: 'i6', songId: 's1', partId: 's1_c' },
+        { id: 'i7', songId: 's2', partId: 's2_v1' },
+        { id: 'i8', songId: 's2', partId: 's2_c' },
+        { id: 'i9', songId: 's3', partId: 's3_c' },
+      ],
+      shareToken: 'tok1',
+      sourceLineupId: null,
+      createdAt: 5000,
+      updatedAt: 5000,
+      lastUsedAt: 9000,
+      useCount: 2,
+      lastUsedReason: 'link_shared',
+    };
+
+    const usedInLineup = summarizeLineupSongs(mockLineup, mockSongs);
+    check(
+      'summarizeLineupSongs surfaces all 3 unique songs in order even when Song 1 has 6 parts',
+      usedInLineup.length === 3 &&
+        usedInLineup[0].song.title === 'Goodness of God' &&
+        usedInLineup[0].parts.length === 6 &&
+        usedInLineup[1].song.title === 'Praise' &&
+        usedInLineup[2].song.title === 'Cornerstone',
+    );
+
+    const songStats = summarizeSongsUsed(mockSongs, [mockLineup]);
+    check(
+      'summarizeSongsUsed tracks lastUsedAt, useCount, and lineup names for used songs',
+      songStats.length === 3 &&
+        songStats.every((st) => st.inLineupsCount === 1 && st.lastUsedAt === 9000 && st.useCount === 2),
+    );
+
+    const groupedBlocks = groupLineupSongBlocks([
+      { songTitle: 'Goodness of God', partLabel: 'Verse 1', lyrics: 'I love You Lord' },
+      { songTitle: 'Goodness of God', partLabel: 'Chorus', lyrics: 'All my life You have been faithful' },
+      { songTitle: 'Goodness of God', partLabel: 'Verse 2', lyrics: 'I love Your voice' },
+      { songTitle: 'Goodness of God', partLabel: 'Chorus', lyrics: 'All my life You have been faithful' },
+      { songTitle: 'Praise', partLabel: 'Chorus', lyrics: 'Praise the Lord oh my soul' },
+    ]);
+    check(
+      'groupLineupSongBlocks shows each song title once and marks repeated identical sections cleanly',
+      groupedBlocks.length === 2 &&
+        groupedBlocks[0].songTitle === 'Goodness of God' &&
+        groupedBlocks[0].sections.length === 4 &&
+        groupedBlocks[0].sections[1].isRepeat === false &&
+        groupedBlocks[0].sections[3].isRepeat === true &&
+        groupedBlocks[1].songTitle === 'Praise',
+    );
+
+    const builderSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'pages', 'BuilderPage.tsx'),
+      'utf8',
+    );
+    const stylesSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'styles.css'),
+      'utf8',
+    );
+    check(
+      'BuilderPage keeps all song parts expanded by default (no songs.slice(0, 3) collapse)',
+      !builderSrc.includes('songs.slice(0, 3)') &&
+        builderSrc.includes('const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})') &&
+        /\.part-chip\s*\{[\s\S]*?touch-action:\s*manipulation/m.test(stylesSrc),
+    );
+    check(
+      'App CSS enforces a disciplined neutral + single brand accent palette (no orange/blue tempo rainbow)',
+      !/#d97706|#b45309|#fbbf24|#1d4ed8|#3b82f6|#60a5fa/i.test(stylesSrc),
+    );
   } finally {
     await vite.close();
   }
