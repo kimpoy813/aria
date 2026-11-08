@@ -426,5 +426,249 @@ console.log('\n5. Data survives a restart');
 
 fs.rmSync(dataDir, { recursive: true, force: true });
 
+console.log('\n6. Anon-only Render mode (no SUPABASE_SERVICE_ROLE_KEY) survives container wipe');
+{
+  const { PGlite } = await import('@electric-sql/pglite');
+  const { SupabaseCallerBridge } = await import(path.join(root, 'server', 'storage.js'));
+  const pgRls = new PGlite();
+
+  // Emulate Supabase's auth.uid() and Postgres roles so schema.sql installs all RPCs
+  await pgRls.exec(`
+    do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then
+        create role anon;
+      end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+        create role authenticated;
+      end if;
+      if not exists (select 1 from pg_roles where rolname = 'service_role') then
+        create role service_role;
+      end if;
+    end $$;
+    create schema if not exists auth;
+    create or replace function auth.uid() returns uuid language sql stable as $$
+      select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+    $$;
+  `);
+
+  const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
+  await pgRls.exec(schemaSql);
+
+  const tokenToUuid = new Map([
+    ['jwt-kim', '533b0cd4-fe74-4a8b-bfa1-52e873a26848'],
+    ['jwt-teammate', '22222222-3333-4444-5555-666666666666'],
+  ]);
+
+  globalThis.__ariaCallerClientFactory = (accessToken) => ({
+    async rpc(fnName, args = {}) {
+      const sub = accessToken ? tokenToUuid.get(accessToken) || '' : '';
+      await pgRls.exec(`select set_config('request.jwt.claim.sub', '${sub}', false);`);
+      let res;
+      if (fnName === 'aria_load_caller_state') {
+        res = await pgRls.query(`select public.aria_load_caller_state() as res`);
+      } else if (fnName === 'aria_sync_caller_state') {
+        res = await pgRls.query(
+          `select public.aria_sync_caller_state($1::jsonb, $2::jsonb, $3::jsonb) as res`,
+          [
+            JSON.stringify(args.p_user || {}),
+            JSON.stringify(args.p_songs || []),
+            JSON.stringify(args.p_lineups || []),
+          ],
+        );
+      } else if (fnName === 'aria_team_op') {
+        res = await pgRls.query(
+          `select public.aria_team_op($1::text, $2::jsonb, $3::text, $4::text, $5::text) as res`,
+          [
+            args.p_op || null,
+            args.p_team ? JSON.stringify(args.p_team) : null,
+            args.p_code || null,
+            args.p_team_id || null,
+            args.p_member_name || null,
+          ],
+        );
+      } else if (fnName === 'aria_get_shared_lineup') {
+        res = await pgRls.query(`select public.aria_get_shared_lineup($1::text) as res`, [
+          args.p_token || '',
+        ]);
+      } else {
+        return { data: null, error: { message: `Unknown RPC ${fnName}` } };
+      }
+      return { data: res.rows?.[0]?.res ?? null, error: null };
+    },
+  });
+
+  // Container #1: user creates songs, a lineup, and shares it
+  const bridge1 = new SupabaseCallerBridge({
+    url: 'http://pglite.local',
+    anonKey: 'anon-key',
+    log: () => {},
+  });
+  const mem1 = { users: [], teams: [], songs: [], lineups: [], settings: null };
+  const kim = {
+    id: 'sb_533b0cd4-fe74-4a8b-bfa1-52e873a26848',
+    name: 'Kim Rafael',
+    email: 'kimdaverafael154@gmail.com',
+  };
+
+  const hydrated1 = await bridge1.hydrateCaller('jwt-kim', kim.id, mem1);
+  check('caller bridge hydrates cleanly on empty DB', hydrated1 === true);
+
+  mem1.songs.push(
+    {
+      id: 'song_goodness',
+      title: 'Goodness of God',
+      artist: 'Bethel Music',
+      tempo: 'slow',
+      theme: 'Gratitude & Thanksgiving',
+      parts: [
+        { id: 'p_v1', kind: 'verse', label: 'Verse 1', lyrics: 'I love You Lord\nOh Your mercy never fails me' },
+        { id: 'p_ch', kind: 'chorus', label: 'Chorus', lyrics: 'All my life You have been faithful' },
+      ],
+      analysis: null,
+      lyrics: 'I love You Lord\nAll my life You have been faithful',
+      ownerId: kim.id,
+      ownerName: kim.name,
+      teamId: null,
+      sourceSongId: null,
+      copiedFrom: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+    },
+    {
+      id: 'song_praise',
+      title: 'Praise',
+      artist: 'Elevation Worship',
+      tempo: 'fast',
+      theme: 'Praise & Exaltation',
+      parts: [
+        { id: 'p_p1', kind: 'chorus', label: 'Chorus', lyrics: 'Praise the Lord oh my soul' },
+      ],
+      analysis: null,
+      lyrics: 'Praise the Lord oh my soul',
+      ownerId: kim.id,
+      ownerName: kim.name,
+      teamId: null,
+      sourceSongId: null,
+      copiedFrom: null,
+      createdAt: 1001,
+      updatedAt: 1001,
+    },
+  );
+  mem1.lineups.push({
+    id: 'lineup_sunday',
+    name: 'Sunday Morning Worship',
+    theme: 'Praise & Exaltation',
+    ownerId: kim.id,
+    ownerName: kim.name,
+    teamId: null,
+    items: [
+      {
+        id: 'slot_1',
+        songId: 'song_praise',
+        partId: 'p_p1',
+        songTitle: 'Praise',
+        artist: 'Elevation Worship',
+        tempo: 'fast',
+        partKind: 'chorus',
+        partLabel: 'Chorus',
+        lyrics: 'Praise the Lord oh my soul',
+      },
+      {
+        id: 'slot_2',
+        songId: 'song_goodness',
+        partId: 'p_ch',
+        songTitle: 'Goodness of God',
+        artist: 'Bethel Music',
+        tempo: 'slow',
+        partKind: 'chorus',
+        partLabel: 'Chorus',
+        lyrics: 'All my life You have been faithful',
+      },
+    ],
+    shareToken: 'sh_sunday123',
+    sourceLineupId: null,
+    copiedFrom: null,
+    lastUsedAt: null,
+    useCount: 0,
+    lastUsedReason: null,
+    createdAt: 1002,
+    updatedAt: 1002,
+  });
+
+  const synced1 = await bridge1.syncCaller('jwt-kim', kim, mem1);
+  check('caller bridge syncs songs and lineups without service role key', synced1 === true);
+
+  // Container #2: simulate Render redeploy wiping in-memory & file state completely!
+  const bridge2 = new SupabaseCallerBridge({
+    url: 'http://pglite.local',
+    anonKey: 'anon-key',
+    log: () => {},
+  });
+  const mem2 = { users: [], teams: [], songs: [], lineups: [], settings: null };
+
+  // Public share link works BEFORE owner signs in on new container
+  const sharedAfterWipe = await bridge2.loadSharedLineup('sh_sunday123');
+  check(
+    'shared link survives container wipe via RPC before owner signs in',
+    sharedAfterWipe?.lineup?.name === 'Sunday Morning Worship' &&
+      sharedAfterWipe?.songs?.length === 2,
+  );
+  check(
+    'shared link increments useCount in Postgres',
+    sharedAfterWipe?.lineup?.useCount === 1,
+    String(sharedAfterWipe?.lineup?.useCount),
+  );
+
+  // Owner signs in on fresh container and hydrates everything back
+  const hydrated2 = await bridge2.hydrateCaller('jwt-kim', kim.id, mem2);
+  check('owner state hydrates after container wipe', hydrated2 === true);
+  check(
+    'both added songs survived container wipe',
+    mem2.songs.length === 2 && mem2.songs.some((s) => s.title === 'Goodness of God'),
+    `songs=${mem2.songs.length}`,
+  );
+  check(
+    'created lineup and LRU stamp survived container wipe',
+    mem2.lineups.length === 1 && mem2.lineups[0].useCount === 1,
+    `lineups=${mem2.lineups.length}`,
+  );
+
+  // Adding a 3rd song after redeploy preserves the first 2 songs
+  mem2.songs.push({
+    id: 'song_holy',
+    title: 'Holy Forever',
+    artist: 'Chris Tomlin',
+    tempo: 'slow',
+    theme: 'Adoration & Reverence',
+    parts: [{ id: 'p_h1', kind: 'chorus', label: 'Chorus', lyrics: 'You will always be Holy forever' }],
+    analysis: null,
+    lyrics: 'You will always be Holy forever',
+    ownerId: kim.id,
+    ownerName: kim.name,
+    teamId: null,
+    sourceSongId: null,
+    copiedFrom: null,
+    createdAt: 2000,
+    updatedAt: 2000,
+  });
+  await bridge2.syncCaller('jwt-kim', kim, mem2);
+
+  const mem3 = { users: [], teams: [], songs: [], lineups: [], settings: null };
+  const bridge3 = new SupabaseCallerBridge({
+    url: 'http://pglite.local',
+    anonKey: 'anon-key',
+    log: () => {},
+  });
+  await bridge3.hydrateCaller('jwt-kim', kim.id, mem3);
+  check(
+    'adding a song after redeploy keeps all 3 songs intact',
+    mem3.songs.length === 3,
+    `songs=${mem3.songs.length}`,
+  );
+
+  delete globalThis.__ariaCallerClientFactory;
+  await pgRls.close();
+}
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

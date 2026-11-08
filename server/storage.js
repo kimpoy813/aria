@@ -331,6 +331,298 @@ export class SupabaseStore {
   }
 }
 
+/* -------------------------- caller-scoped Supabase RPC persistence */
+
+function isNetworkFailure(err) {
+  const msg = String(err?.message || err || '');
+  return /fetch failed|enotfound|econnrefused|etimedout|aborted|timeout|network/i.test(msg);
+}
+
+/**
+ * When SUPABASE_SERVICE_ROLE_KEY is omitted (for example on Render when only
+ * SUPABASE_URL + SUPABASE_ANON_KEY are configured), SupabaseCallerBridge
+ * persists each signed-in Supabase user's songs, lineups, and teams directly
+ * to Postgres using their verified Supabase JWT and strict auth.uid() RPCs.
+ */
+export class SupabaseCallerBridge {
+  constructor({ url, anonKey, log = console.log }) {
+    this.url = url;
+    this.anonKey = anonKey;
+    this.log = log;
+    this.createClientFn = null;
+    this.hydratedUsers = new Set();
+    this.hydratedAt = new Map();
+    this.inflightHydrate = new Map();
+    this.syncChains = new Map();
+    this.unreachableUntil = 0;
+    this.lastWarn = '';
+  }
+
+  warnOnce(prefix, err) {
+    const msg = `${prefix}: ${err?.message || String(err)}`;
+    if (msg !== this.lastWarn) {
+      this.lastWarn = msg;
+      console.error(`[aria] ${msg}`);
+    }
+  }
+
+  async clientFor(accessToken = null) {
+    if (typeof globalThis.__ariaCallerClientFactory === 'function') {
+      return globalThis.__ariaCallerClientFactory(accessToken);
+    }
+    if (globalThis.__ariaSupabaseClient) {
+      return null;
+    }
+    if (Date.now() < this.unreachableUntil) {
+      return null;
+    }
+    if (!this.createClientFn) {
+      const mod = await import('@supabase/supabase-js');
+      this.createClientFn = mod.createClient;
+    }
+    const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+    return this.createClientFn(this.url, this.anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        headers,
+        fetch: (input, init = {}) =>
+          fetch(input, {
+            ...init,
+            signal: init.signal || AbortSignal.timeout(4500),
+          }),
+      },
+    });
+  }
+
+  isHydrated(userId) {
+    return this.hydratedUsers.has(userId);
+  }
+
+  mergeHydratedState(userId, payload, db) {
+    if (!payload || typeof payload !== 'object') return;
+
+    const remoteUsers = Array.isArray(payload.users)
+      ? payload.users.map((r) => fromRow('users', r))
+      : [];
+    const remoteTeams = Array.isArray(payload.teams)
+      ? payload.teams.map((r) => fromRow('teams', r))
+      : [];
+    const remoteSongs = Array.isArray(payload.songs)
+      ? payload.songs.map((r) => fromRow('songs', r))
+      : [];
+    const remoteLineups = Array.isArray(payload.lineups)
+      ? payload.lineups.map((r) => fromRow('lineups', r))
+      : [];
+
+    for (const ru of remoteUsers) {
+      const idx = db.users.findIndex((u) => u.id === ru.id);
+      if (idx >= 0) {
+        const prev = db.users[idx];
+        db.users[idx] = {
+          ...prev,
+          ...ru,
+          role: prev.role === 'admin' ? 'admin' : ru.role || prev.role || 'user',
+        };
+      } else {
+        db.users.push(ru);
+      }
+    }
+
+    const remoteTeamIds = new Set(remoteTeams.map((t) => t.id));
+    db.teams = [
+      ...db.teams.filter(
+        (t) =>
+          !remoteTeamIds.has(t.id) &&
+          t.ownerId !== userId &&
+          !(Array.isArray(t.members) && t.members.some((m) => m.userId === userId)),
+      ),
+      ...remoteTeams,
+    ];
+
+    const remoteSongIds = new Set(remoteSongs.map((s) => s.id));
+    db.songs = [
+      ...db.songs.filter((s) => s.ownerId !== userId && !remoteSongIds.has(s.id)),
+      ...remoteSongs,
+    ];
+
+    const remoteLineupIds = new Set(remoteLineups.map((l) => l.id));
+    db.lineups = [
+      ...db.lineups.filter((l) => l.ownerId !== userId && !remoteLineupIds.has(l.id)),
+      ...remoteLineups,
+    ];
+
+    if (payload.settings && typeof payload.settings === 'object') {
+      db.settings = normaliseSettings(payload.settings);
+    }
+  }
+
+  async hydrateCaller(accessToken, userId, db, { force = false } = {}) {
+    if (!accessToken || !userId || !userId.startsWith('sb_')) return false;
+    const last = this.hydratedAt.get(userId) || 0;
+    if (this.hydratedUsers.has(userId) && (!force || Date.now() - last < 1500)) {
+      return true;
+    }
+    if (this.inflightHydrate.has(userId)) {
+      return this.inflightHydrate.get(userId);
+    }
+
+    const run = (async () => {
+      try {
+        const client = await this.clientFor(accessToken);
+        if (!client || typeof client.rpc !== 'function') return false;
+        const { data, error } = await client.rpc('aria_load_caller_state');
+        if (error) {
+          if (isNetworkFailure(error)) {
+            this.unreachableUntil = Date.now() + 15000;
+          } else {
+            this.warnOnce('supabase caller load failed', error);
+          }
+          return false;
+        }
+        this.mergeHydratedState(userId, data, db);
+        this.hydratedUsers.add(userId);
+        this.hydratedAt.set(userId, Date.now());
+        return true;
+      } catch (err) {
+        if (isNetworkFailure(err)) {
+          this.unreachableUntil = Date.now() + 15000;
+        } else {
+          this.warnOnce('supabase caller load error', err);
+        }
+        return false;
+      } finally {
+        this.inflightHydrate.delete(userId);
+      }
+    })();
+
+    this.inflightHydrate.set(userId, run);
+    return run;
+  }
+
+  async syncCaller(accessToken, user, db) {
+    if (!accessToken || !user?.id || !user.id.startsWith('sb_')) return false;
+    if (!this.hydratedUsers.has(user.id)) return false;
+
+    const prev = this.syncChains.get(user.id) || Promise.resolve(true);
+    const next = prev.catch(() => false).then(async () => {
+      try {
+        const client = await this.clientFor(accessToken);
+        if (!client || typeof client.rpc !== 'function') return false;
+        const ownedSongs = db.songs.filter((s) => s.ownerId === user.id);
+        const ownedLineups = db.lineups.filter((l) => l.ownerId === user.id);
+        const { error } = await client.rpc('aria_sync_caller_state', {
+          p_user: {
+            id: user.id,
+            name: user.name,
+            email: user.email || null,
+          },
+          p_songs: ownedSongs,
+          p_lineups: ownedLineups,
+        });
+        if (error) {
+          if (isNetworkFailure(error)) {
+            this.unreachableUntil = Date.now() + 15000;
+          } else {
+            this.warnOnce('supabase caller sync failed', error);
+          }
+          return false;
+        }
+        this.hydratedAt.set(user.id, Date.now());
+        return true;
+      } catch (err) {
+        if (isNetworkFailure(err)) {
+          this.unreachableUntil = Date.now() + 15000;
+        } else {
+          this.warnOnce('supabase caller sync error', err);
+        }
+        return false;
+      }
+    });
+
+    this.syncChains.set(user.id, next);
+    return next;
+  }
+
+  async teamOp(accessToken, { op, team = null, code = null, teamId = null, memberName = null }) {
+    if (!accessToken) return null;
+    try {
+      const client = await this.clientFor(accessToken);
+      if (!client || typeof client.rpc !== 'function') return null;
+      const { data, error } = await client.rpc('aria_team_op', {
+        p_op: op,
+        p_team: team,
+        p_code: code,
+        p_team_id: teamId,
+        p_member_name: memberName,
+      });
+      if (error) {
+        if (isNetworkFailure(error)) {
+          this.unreachableUntil = Date.now() + 15000;
+        } else {
+          this.warnOnce(`supabase team op (${op}) failed`, error);
+        }
+        return null;
+      }
+      if (op === 'delete_account') {
+        for (const uid of [...this.hydratedUsers]) {
+          this.hydratedAt.delete(uid);
+        }
+      }
+      if ((op === 'create' || op === 'join') && data && data.id) {
+        return fromRow('teams', data);
+      }
+      return data;
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        this.unreachableUntil = Date.now() + 15000;
+      } else {
+        this.warnOnce(`supabase team op (${op}) error`, err);
+      }
+      return null;
+    }
+  }
+
+  async loadSharedLineup(token) {
+    if (!token) return null;
+    try {
+      const client = await this.clientFor(null);
+      if (!client || typeof client.rpc !== 'function') return null;
+      const { data, error } = await client.rpc('aria_get_shared_lineup', {
+        p_token: token,
+      });
+      if (error || !data || !data.lineup) {
+        if (error && isNetworkFailure(error)) {
+          this.unreachableUntil = Date.now() + 15000;
+        }
+        return null;
+      }
+      return {
+        lineup: fromRow('lineups', data.lineup),
+        songs: Array.isArray(data.songs) ? data.songs.map((r) => fromRow('songs', r)) : [],
+      };
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        this.unreachableUntil = Date.now() + 15000;
+      }
+      return null;
+    }
+  }
+}
+
+export function createCallerBridge({ store, auth, log = console.log } = {}) {
+  if (!store || store.driver === 'supabase') return null;
+  if (!auth || auth.driver !== 'supabase') return null;
+  if (!auth.supabaseUrl || !auth.supabaseAnonKey) return null;
+  log(
+    `[aria] storage: caller-scoped Supabase RPC persistence enabled → ${auth.supabaseUrl}`,
+  );
+  return new SupabaseCallerBridge({
+    url: auth.supabaseUrl,
+    anonKey: auth.supabaseAnonKey,
+    log,
+  });
+}
+
 /* ------------------------------------------------------------------ factory */
 
 export async function createStore({ log = console.log } = {}) {

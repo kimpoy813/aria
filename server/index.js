@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createStore, defaultSettings } from './storage.js';
+import { createCallerBridge, createStore, defaultSettings } from './storage.js';
 import {
   createAdminGate,
   createAuth,
@@ -31,30 +31,48 @@ const clean = (value, max = 400) =>
 
 let store = null;
 let auth = null;
+let callerBridge = null;
 let adminGate = null;
 let db = { users: [], teams: [], songs: [], lineups: [], settings: defaultSettings() };
 let saveTimer = null;
 let saveChain = Promise.resolve();
 let saveWarning = null;
 
+function flushSaveChain() {
+  if (!store) return Promise.resolve();
+  clearTimeout(saveTimer);
+  saveChain = saveChain
+    .then(() => store.persist(db))
+    .then(() => {
+      saveWarning = null;
+    })
+    .catch((err) => {
+      const message = err?.message || String(err);
+      if (message !== saveWarning) {
+        saveWarning = message;
+        console.error('[aria] save failed:', message);
+      }
+    });
+  return saveChain;
+}
+
 function save() {
   if (!store) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    // Serialise writes so two quick actions cannot interleave and clobber rows.
-    saveChain = saveChain
-      .then(() => store.persist(db))
-      .then(() => {
-        saveWarning = null;
-      })
-      .catch((err) => {
-        const message = err?.message || String(err);
-        if (message !== saveWarning) {
-          saveWarning = message;
-          console.error('[aria] save failed:', message);
-        }
-      });
+    flushSaveChain();
   }, 60);
+}
+
+async function persistForCaller(req) {
+  if (store?.driver === 'supabase') {
+    await flushSaveChain();
+    return;
+  }
+  save();
+  if (callerBridge && req?.supabaseAccessToken && req?.user?.id?.startsWith('sb_')) {
+    await callerBridge.syncCaller(req.supabaseAccessToken, req.user, db);
+  }
 }
 
 /* -------------------------------------------------------- legacy demo purge */
@@ -91,6 +109,11 @@ function purgeLegacyDemoData() {
 async function boot() {
   store = await createStore({ log: (line) => console.log(line) });
   auth = await createAuth({ log: (line) => console.log(line) });
+  callerBridge = createCallerBridge({
+    store,
+    auth,
+    log: (line) => console.log(line),
+  });
   adminGate = createAdminGate();
   db = await store.load();
   if (!db.settings) db.settings = defaultSettings();
@@ -421,6 +444,10 @@ async function resolveIdentity(req, _res, next) {
       if (identity) {
         req.authId = identity.authId;
         req.identity = identity;
+        req.supabaseAccessToken = value;
+        if (callerBridge && identity.id?.startsWith('sb_')) {
+          await callerBridge.hydrateCaller(value, identity.id, db);
+        }
       }
     }
   } catch (err) {
@@ -779,11 +806,11 @@ api.delete('/auth/account', async (req, res) => {
   try {
     purgeUserContent(userId);
 
-    clearTimeout(saveTimer);
-    if (store) {
-      saveChain = saveChain.then(() => store.persist(db));
-      await saveChain;
+    if (callerBridge && req.supabaseAccessToken && userId.startsWith('sb_')) {
+      await callerBridge.teamOp(req.supabaseAccessToken, { op: 'delete_account' });
     }
+
+    await flushSaveChain();
 
     if (auth?.driver === 'demo') {
       auth.deleteAccount(userId);
@@ -797,9 +824,12 @@ api.delete('/auth/account', async (req, res) => {
   }
 });
 
-api.get('/state', (req, res) => {
+api.get('/state', async (req, res) => {
   if (!requireUser(req, res)) return;
-  const user = req.user;
+  if (callerBridge && req.supabaseAccessToken && req.user?.id?.startsWith('sb_')) {
+    await callerBridge.hydrateCaller(req.supabaseAccessToken, req.user.id, db, { force: true });
+  }
+  const user = ensureUserRecord(req.identity);
   const userId = user.id;
   const teams = myTeams(userId);
   const lineups = visibleRecords(db.lineups, userId);
@@ -1197,7 +1227,7 @@ api.delete('/admin/teams/:id', (req, res) => {
 
 /* teams */
 
-api.post('/teams', (req, res) => {
+api.post('/teams', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
@@ -1218,22 +1248,45 @@ api.post('/teams', (req, res) => {
     members: [{ userId: user.id, name: user.name, role: 'owner', joinedAt: now() }],
   };
   db.teams.push(team);
-  save();
+  if (callerBridge && req.supabaseAccessToken && user.id.startsWith('sb_')) {
+    await callerBridge.teamOp(req.supabaseAccessToken, {
+      op: 'create',
+      team,
+      memberName: user.name,
+    });
+  }
+  await persistForCaller(req);
   res.json({ team: teamView(team, user.id) });
 });
 
-api.post('/teams/join', (req, res) => {
+api.post('/teams/join', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
   const code = clean(req.body?.code, 20).toUpperCase();
-  const team = db.teams.find((t) => t.code.toUpperCase() === code);
+  let team = db.teams.find((t) => t.code.toUpperCase() === code);
+
+  if (callerBridge && req.supabaseAccessToken && user.id.startsWith('sb_')) {
+    const remoteTeam = await callerBridge.teamOp(req.supabaseAccessToken, {
+      op: 'join',
+      code,
+      memberName: user.name,
+    });
+    if (remoteTeam && remoteTeam.id) {
+      const idx = db.teams.findIndex((t) => t.id === remoteTeam.id);
+      if (idx >= 0) db.teams[idx] = remoteTeam;
+      else db.teams.push(remoteTeam);
+      team = remoteTeam;
+      await callerBridge.hydrateCaller(req.supabaseAccessToken, user.id, db, { force: true });
+    }
+  }
+
   if (!team) return res.status(404).json({ error: 'That code does not match a team.' });
 
   if (!team.members.some((m) => m.userId === user.id)) {
     team.members.push({ userId: user.id, name: user.name, role: 'member', joinedAt: now() });
-    save();
   }
+  await persistForCaller(req);
   res.json({ team: teamView(team, user.id) });
 });
 
@@ -1248,7 +1301,7 @@ api.get('/teams/:id', (req, res) => {
   res.json({ team: teamView(team, userId) });
 });
 
-api.post('/teams/:id/leave', (req, res) => {
+api.post('/teams/:id/leave', async (req, res) => {
   if (!requireUser(req, res)) return;
   const userId = req.user.id;
   const team = getTeam(req.params.id);
@@ -1263,13 +1316,19 @@ api.post('/teams/:id/leave', (req, res) => {
     db.songs = db.songs.filter((s) => s.teamId !== team.id);
     db.lineups = db.lineups.filter((l) => l.teamId !== team.id);
   }
-  save();
+  if (callerBridge && req.supabaseAccessToken && userId.startsWith('sb_')) {
+    await callerBridge.teamOp(req.supabaseAccessToken, {
+      op: 'leave',
+      teamId: team.id,
+    });
+  }
+  await persistForCaller(req);
   res.json({ ok: true });
 });
 
 /* songs */
 
-api.post('/songs', (req, res) => {
+api.post('/songs', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
@@ -1308,11 +1367,11 @@ api.post('/songs', (req, res) => {
     updatedAt: now(),
   };
   db.songs.push(song);
-  save();
+  await persistForCaller(req);
   res.json({ song });
 });
 
-api.patch('/songs/:id', (req, res) => {
+api.patch('/songs/:id', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
@@ -1381,11 +1440,11 @@ api.patch('/songs/:id', (req, res) => {
     });
   }
 
-  save();
+  await persistForCaller(req);
   res.json({ song });
 });
 
-api.delete('/songs/:id', (req, res) => {
+api.delete('/songs/:id', async (req, res) => {
   if (!requireUser(req, res)) return;
   const userId = req.user.id;
   const song = db.songs.find((s) => s.id === req.params.id);
@@ -1397,11 +1456,11 @@ api.delete('/songs/:id', (req, res) => {
   db.lineups.forEach((l) => {
     l.items = l.items.filter((i) => i.songId !== song.id);
   });
-  save();
+  await persistForCaller(req);
   res.json({ ok: true });
 });
 
-api.post('/songs/:id/share', (req, res) => {
+api.post('/songs/:id/share', async (req, res) => {
   if (!requireUser(req, res)) return;
   const user = req.user;
   const song = db.songs.find((s) => s.id === req.params.id);
@@ -1418,11 +1477,11 @@ api.post('/songs/:id/share', (req, res) => {
   }
   song.teamId = teamId;
   song.updatedAt = now();
-  save();
+  await persistForCaller(req);
   res.json({ song });
 });
 
-api.post('/songs/:id/copy', (req, res) => {
+api.post('/songs/:id/copy', async (req, res) => {
   if (!requireUser(req, res)) return;
   const user = req.user;
   const song = db.songs.find((s) => s.id === req.params.id);
@@ -1431,12 +1490,14 @@ api.post('/songs/:id/copy', (req, res) => {
     return res.status(403).json({ error: 'You cannot copy that song.' });
   }
   const teamId = clean(req.body?.teamId, 60) || null;
-  res.json({ song: copySong(song, user, teamId) });
+  const copied = copySong(song, user, teamId);
+  await persistForCaller(req);
+  res.json({ song: copied });
 });
 
 /* lineups */
 
-api.post('/lineups', (req, res) => {
+api.post('/lineups', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
@@ -1475,11 +1536,11 @@ api.post('/lineups', (req, res) => {
     lastUsedReason: null,
   };
   db.lineups.push(lineup);
-  save();
+  await persistForCaller(req);
   res.json({ lineup });
 });
 
-api.patch('/lineups/:id', (req, res) => {
+api.patch('/lineups/:id', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (!checkMaintenanceWrite(req, res)) return;
   const user = req.user;
@@ -1514,11 +1575,11 @@ api.patch('/lineups/:id', (req, res) => {
     lineup.items = items;
   }
   lineup.updatedAt = now();
-  save();
+  await persistForCaller(req);
   res.json({ lineup });
 });
 
-api.delete('/lineups/:id', (req, res) => {
+api.delete('/lineups/:id', async (req, res) => {
   if (!requireUser(req, res)) return;
   const userId = req.user.id;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
@@ -1527,7 +1588,7 @@ api.delete('/lineups/:id', (req, res) => {
     return res.status(403).json({ error: 'Only the owner can delete this lineup.' });
   }
   db.lineups = db.lineups.filter((l) => l.id !== lineup.id);
-  save();
+  await persistForCaller(req);
   res.json({ ok: true });
 });
 
@@ -1535,7 +1596,7 @@ api.delete('/lineups/:id', (req, res) => {
  * Sharing is what marks a lineup as "used" — this is the LRU clock.
  * channel: 'link' (public share link copied/shared) or 'team' (shared into a team).
  */
-api.post('/lineups/:id/share', (req, res) => {
+api.post('/lineups/:id/share', async (req, res) => {
   if (!requireUser(req, res)) return;
   const user = req.user;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
@@ -1558,14 +1619,31 @@ api.post('/lineups/:id/share', (req, res) => {
     }
     lineup.teamId = teamId;
     stampUse(lineup, 'shared_to_team');
-    save();
+    if (lineup.ownerId !== user.id && callerBridge && req.supabaseAccessToken) {
+      await callerBridge.teamOp(req.supabaseAccessToken, {
+        op: 'stamp_lineup',
+        team: { id: lineup.id },
+        code: 'shared_to_team',
+        teamId,
+      });
+    }
+    await persistForCaller(req);
     return res.json({ lineup, team: teamView(team, user.id) });
   }
   stampUse(lineup, 'link_shared');
+  if (lineup.ownerId !== user.id && callerBridge && req.supabaseAccessToken) {
+    await callerBridge.teamOp(req.supabaseAccessToken, {
+      op: 'stamp_lineup',
+      team: { id: lineup.id },
+      code: 'link_shared',
+      teamId: lineup.teamId,
+    });
+  }
+  await persistForCaller(req);
   res.json({ lineup, shareUrl: `/s/${lineup.shareToken}` });
 });
 
-api.post('/lineups/:id/copy', (req, res) => {
+api.post('/lineups/:id/copy', async (req, res) => {
   if (!requireUser(req, res)) return;
   const user = req.user;
   const lineup = db.lineups.find((l) => l.id === req.params.id);
@@ -1574,7 +1652,9 @@ api.post('/lineups/:id/copy', (req, res) => {
     return res.status(403).json({ error: 'You cannot copy that lineup.' });
   }
   const teamId = clean(req.body?.teamId, 60) || null;
-  res.json({ lineup: copyLineup(lineup, user, teamId) });
+  const copied = copyLineup(lineup, user, teamId);
+  await persistForCaller(req);
+  res.json({ lineup: copied });
 });
 
 api.get('/lru', (req, res) => {
@@ -1596,9 +1676,24 @@ api.get('/lru', (req, res) => {
   });
 });
 
-api.get('/shared/:token', (req, res) => {
+api.get('/shared/:token', async (req, res) => {
   const rawToken = String(req.params.token || '').trim();
   const cleanToken = rawToken.replace(/[.,;:!?)]+$/, '');
+
+  if (callerBridge) {
+    const remote = await callerBridge.loadSharedLineup(rawToken);
+    if (remote?.lineup) {
+      const local = db.lineups.find((l) => l.id === remote.lineup.id);
+      if (local) {
+        local.lastUsedAt = remote.lineup.lastUsedAt;
+        local.useCount = remote.lineup.useCount;
+        local.lastUsedReason = remote.lineup.lastUsedReason;
+      }
+      const songPool = remote.songs.length > 0 ? remote.songs : db.songs;
+      return res.json({ lineup: publicLineup(remote.lineup, songPool) });
+    }
+  }
+
   const lineup =
     db.lineups.find((l) => l.shareToken === rawToken) ||
     (cleanToken ? db.lineups.find((l) => l.shareToken === cleanToken) : null);
@@ -1606,6 +1701,9 @@ api.get('/shared/:token', (req, res) => {
   const songs = db.songs;
   // Opening a shared link counts as using the lineup.
   stampUse(lineup, 'link_opened');
+  if (store?.driver === 'supabase') {
+    await flushSaveChain();
+  }
   res.json({ lineup: publicLineup(lineup, songs) });
 });
 
