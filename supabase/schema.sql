@@ -624,6 +624,319 @@ begin
       grant execute on function public.aria_sync_caller_state(jsonb, jsonb, jsonb) to authenticated, service_role;
       grant execute on function public.aria_team_op(text, jsonb, text, text, text) to authenticated, service_role;
       grant execute on function public.aria_get_shared_lineup(text) to anon, authenticated, service_role;
+
+      insert into public.system_settings (id, data)
+      values (
+        'admin_gate_auth',
+        jsonb_build_object(
+          'key_hash',
+          encode(
+            pg_catalog.sha256(
+              convert_to(
+                encode(
+                  pg_catalog.sha256(
+                    convert_to('aria-admin-rpc-v1:admin@aria.app:AriaAdmin2026!', 'UTF8')
+                  ),
+                  'hex'
+                ),
+                'UTF8'
+              )
+            ),
+            'hex'
+          )
+        )
+      )
+      on conflict (id) do nothing;
+
+      create or replace function public.aria_get_public_settings()
+      returns jsonb
+      language sql
+      stable
+      security definer
+      set search_path = public
+      as $body$
+        select s.data
+          from public.system_settings s
+         where s.id = 'global'
+         limit 1;
+      $body$;
+
+      create or replace function public.aria_admin_op(
+        p_op text,
+        p_admin_key text default null,
+        p_payload jsonb default '{}'::jsonb
+      )
+      returns jsonb
+      language plpgsql
+      security definer
+      set search_path = public
+      as $body$
+      declare
+        v_caller text := public.aria_caller_id();
+        v_authorized boolean := false;
+        v_stored_hash text;
+        v_now bigint := (extract(epoch from now()) * 1000)::bigint;
+        v_users jsonb;
+        v_teams jsonb;
+        v_songs jsonb;
+        v_lineups jsonb;
+        v_settings jsonb;
+        v_target_id text;
+        v_song_id text;
+        v_team_id text;
+        v_new_key text;
+        v_row public.teams%rowtype;
+        v_members jsonb;
+        v_lineup_row record;
+        v_filtered_items jsonb;
+      begin
+        if v_caller is not null and exists (
+          select 1
+            from public.users u
+           where u.id = v_caller
+             and u.role = 'admin'
+             and coalesce(u.suspended, false) = false
+        ) then
+          v_authorized := true;
+        elsif coalesce(p_admin_key, '') <> '' then
+          select s.data->>'key_hash'
+            into v_stored_hash
+            from public.system_settings s
+           where s.id = 'admin_gate_auth'
+           limit 1;
+
+          if v_stored_hash is not null
+             and encode(pg_catalog.sha256(convert_to(p_admin_key, 'UTF8')), 'hex') = v_stored_hash then
+            v_authorized := true;
+          end if;
+        end if;
+
+        if not v_authorized then
+          raise exception 'Administrator authorization required';
+        end if;
+
+        if p_op = 'verify_key' then
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'rotate_key' then
+          v_new_key := coalesce(p_payload->>'newKey', '');
+          if length(v_new_key) < 32 then
+            raise exception 'Invalid admin key';
+          end if;
+          insert into public.system_settings (id, data, updated_at)
+          values (
+            'admin_gate_auth',
+            jsonb_build_object(
+              'key_hash',
+              encode(pg_catalog.sha256(convert_to(v_new_key, 'UTF8')), 'hex')
+            ),
+            v_now
+          )
+          on conflict (id) do update set
+            data = excluded.data,
+            updated_at = v_now;
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'load_all' then
+          if exists (
+            select 1
+              from information_schema.tables
+             where table_schema = 'auth'
+               and table_name = 'users'
+          ) then
+            execute $backfill$
+              insert into public.users (id, name, email, role, suspended, is_demo, created_at, updated_at)
+              select
+                'sb_' || au.id::text,
+                left(
+                  coalesce(
+                    nullif(trim(au.raw_user_meta_data->>'full_name'), ''),
+                    nullif(trim(au.raw_user_meta_data->>'name'), ''),
+                    nullif(trim(au.raw_user_meta_data->>'preferred_username'), ''),
+                    nullif(split_part(coalesce(au.email, ''), '@', 1), ''),
+                    'Listener'
+                  ),
+                  40
+                ),
+                lower(nullif(trim(au.email), '')),
+                'user',
+                false,
+                false,
+                coalesce((extract(epoch from au.created_at) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint),
+                coalesce((extract(epoch from coalesce(au.last_sign_in_at, au.updated_at, au.created_at)) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint)
+              from auth.users au
+              where not exists (
+                select 1 from public.users pu where pu.id = 'sb_' || au.id::text
+              )
+              on conflict (id) do update set
+                email = coalesce(public.users.email, excluded.email);
+            $backfill$;
+          end if;
+
+          select coalesce(jsonb_agg(to_jsonb(u)), '[]'::jsonb)
+            into v_users
+            from public.users u
+           where coalesce(u.is_demo, false) = false;
+
+          select coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb)
+            into v_teams
+            from public.teams t;
+
+          select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb)
+            into v_songs
+            from public.songs s;
+
+          select coalesce(jsonb_agg(to_jsonb(l)), '[]'::jsonb)
+            into v_lineups
+            from public.lineups l;
+
+          select s.data
+            into v_settings
+            from public.system_settings s
+           where s.id = 'global'
+           limit 1;
+
+          return jsonb_build_object(
+            'users', v_users,
+            'teams', v_teams,
+            'songs', v_songs,
+            'lineups', v_lineups,
+            'settings', v_settings
+          );
+
+        elsif p_op = 'save_settings' then
+          insert into public.system_settings (id, data, updated_at)
+          values ('global', coalesce(p_payload->'settings', '{}'::jsonb), v_now)
+          on conflict (id) do update set
+            data = excluded.data,
+            updated_at = v_now;
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'upsert_user' then
+          v_target_id := coalesce(p_payload->>'id', '');
+          if v_target_id = '' or v_target_id = 'user_admin' then
+            return jsonb_build_object('ok', false);
+          end if;
+
+          insert into public.users (id, name, email, role, suspended, is_demo, created_at, updated_at)
+          values (
+            v_target_id,
+            coalesce(nullif(trim(p_payload->>'name'), ''), 'Listener'),
+            lower(nullif(trim(p_payload->>'email'), '')),
+            case when p_payload->>'role' = 'admin' then 'admin' else 'user' end,
+            coalesce((p_payload->>'suspended')::boolean, false),
+            false,
+            coalesce((p_payload->>'createdAt')::bigint, v_now),
+            v_now
+          )
+          on conflict (id) do update set
+            name = excluded.name,
+            email = coalesce(excluded.email, public.users.email),
+            role = excluded.role,
+            suspended = excluded.suspended,
+            updated_at = v_now;
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'delete_user' then
+          v_target_id := coalesce(p_payload->>'userId', '');
+          if v_target_id = '' or v_target_id = 'user_admin' then
+            return jsonb_build_object('ok', false);
+          end if;
+
+          for v_row in
+            select * from public.teams t
+             where t.owner_id = v_target_id
+                or exists (
+                     select 1 from jsonb_array_elements(coalesce(t.members, '[]'::jsonb)) m
+                      where m->>'userId' = v_target_id
+                   )
+          loop
+            select coalesce(jsonb_agg(m), '[]'::jsonb)
+              into v_members
+              from jsonb_array_elements(coalesce(v_row.members, '[]'::jsonb)) m
+             where m->>'userId' <> v_target_id;
+
+            if jsonb_array_length(v_members) = 0 then
+              update public.songs set team_id = null where team_id = v_row.id;
+              update public.lineups set team_id = null where team_id = v_row.id;
+              delete from public.teams where id = v_row.id;
+            elsif v_row.owner_id = v_target_id then
+              v_members := jsonb_set(v_members, '{0,role}', '"owner"'::jsonb);
+              update public.teams
+                 set owner_id = v_members->0->>'userId',
+                     members = v_members,
+                     updated_at = v_now
+               where id = v_row.id;
+            else
+              update public.teams
+                 set members = v_members,
+                     updated_at = v_now
+               where id = v_row.id;
+            end if;
+          end loop;
+
+          delete from public.users where id = v_target_id;
+
+          if v_target_id like 'sb_%' and exists (
+            select 1
+              from information_schema.tables
+             where table_schema = 'auth'
+               and table_name = 'users'
+          ) then
+            begin
+              execute 'delete from auth.users where id::text = $1'
+                using substring(v_target_id from 4);
+            exception when others then
+              null;
+            end;
+          end if;
+
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'delete_song' then
+          v_song_id := coalesce(p_payload->>'songId', '');
+          if v_song_id <> '' then
+            for v_lineup_row in select id, items from public.lineups
+            loop
+              select coalesce(jsonb_agg(item), '[]'::jsonb)
+                into v_filtered_items
+                from jsonb_array_elements(coalesce(v_lineup_row.items, '[]'::jsonb)) item
+               where item->>'songId' <> v_song_id
+                  or coalesce(item->>'lyrics', '') <> '';
+              if v_filtered_items <> coalesce(v_lineup_row.items, '[]'::jsonb) then
+                update public.lineups
+                   set items = v_filtered_items,
+                       updated_at = v_now
+                 where id = v_lineup_row.id;
+              end if;
+            end loop;
+            delete from public.songs where id = v_song_id;
+          end if;
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'delete_lineup' then
+          delete from public.lineups where id = coalesce(p_payload->>'lineupId', '');
+          return jsonb_build_object('ok', true);
+
+        elsif p_op = 'delete_team' then
+          v_team_id := coalesce(p_payload->>'teamId', '');
+          if v_team_id <> '' then
+            update public.songs set team_id = null where team_id = v_team_id;
+            update public.lineups set team_id = null where team_id = v_team_id;
+            delete from public.teams where id = v_team_id;
+          end if;
+          return jsonb_build_object('ok', true);
+        end if;
+
+        return jsonb_build_object('ok', false);
+      end;
+      $body$;
+
+      revoke all on function public.aria_get_public_settings() from public;
+      revoke all on function public.aria_admin_op(text, text, jsonb) from public;
+
+      grant execute on function public.aria_get_public_settings() to anon, authenticated, service_role;
+      grant execute on function public.aria_admin_op(text, text, jsonb) to anon, authenticated, service_role;
     $fn$;
 
   end if;

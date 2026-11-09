@@ -145,6 +145,14 @@ export const DEFAULT_ADMIN_EMAIL = 'admin@aria.app';
 export const DEFAULT_ADMIN_PASSWORD = 'AriaAdmin2026!';
 export const DEFAULT_ADMIN_NAME = 'System Admin';
 
+export function deriveAdminRpcKey(email, password) {
+  const normEmail = normaliseEmail(email);
+  return crypto
+    .createHash('sha256')
+    .update(`aria-admin-rpc-v1:${normEmail}:${String(password || '')}`, 'utf8')
+    .digest('hex');
+}
+
 export class AdminGate {
   constructor(file) {
     this.file = file;
@@ -160,7 +168,7 @@ export class AdminGate {
         .map((e) => normaliseEmail(e))
         .filter(Boolean),
     );
-    this.state = { salt: null, hash: null, revoked: [] };
+    this.state = { salt: null, hash: null, rpcKey: null, revoked: [] };
     this.load();
   }
 
@@ -171,10 +179,11 @@ export class AdminGate {
       this.state = {
         salt: typeof parsed.salt === 'string' ? parsed.salt : null,
         hash: typeof parsed.hash === 'string' ? parsed.hash : null,
+        rpcKey: typeof parsed.rpcKey === 'string' ? parsed.rpcKey : null,
         revoked: Array.isArray(parsed.revoked) ? parsed.revoked.slice(-200) : [],
       };
     } catch {
-      this.state = { salt: null, hash: null, revoked: [] };
+      this.state = { salt: null, hash: null, rpcKey: null, revoked: [] };
     }
   }
 
@@ -187,12 +196,16 @@ export class AdminGate {
     }
   }
 
+  currentRpcKey() {
+    return this.state.rpcKey || deriveAdminRpcKey(this.email, this.envPassword);
+  }
+
   signingSecret() {
     const custom =
       cleanEnv(process.env.ADMIN_SESSION_SECRET || '') ||
       resolveSupabaseConfig().serviceRoleKey ||
       'aria-admin-signing-key';
-    const credKey = this.state.hash || this.envPassword;
+    const credKey = this.currentRpcKey();
     return crypto.createHash('sha256').update(`${custom}:${this.email}:${credKey}`).digest();
   }
 
@@ -219,6 +232,16 @@ export class AdminGate {
       const hB = crypto.createHash('sha256').update(b).digest();
       if (!crypto.timingSafeEqual(hA, hB)) return null;
     }
+    this.state.rpcKey = deriveAdminRpcKey(this.email, password);
+    return this.identity();
+  }
+
+  adoptVerifiedPassword(password) {
+    const { salt, hash } = hashPassword(String(password || ''));
+    this.state.salt = salt;
+    this.state.hash = hash;
+    this.state.rpcKey = deriveAdminRpcKey(this.email, password);
+    this.save();
     return this.identity();
   }
 
@@ -280,11 +303,15 @@ export class AdminGate {
   setPassword(newPassword) {
     const issue = passwordProblem(newPassword);
     if (issue) throw Object.assign(new Error(issue), { status: 400 });
+    const previousRpcKey = this.currentRpcKey();
+    const nextRpcKey = deriveAdminRpcKey(this.email, newPassword);
     const { salt, hash } = hashPassword(newPassword);
     this.state.salt = salt;
     this.state.hash = hash;
+    this.state.rpcKey = nextRpcKey;
     this.state.revoked = [];
     this.save();
+    return { previousRpcKey, nextRpcKey };
   }
 }
 
