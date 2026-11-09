@@ -6,7 +6,7 @@
  *   and stale-while-revalidate for static assets.
  */
 
-const CACHE_NAME = 'aria-shell-v10';
+const CACHE_NAME = 'aria-shell-v11';
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',

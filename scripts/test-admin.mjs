@@ -873,16 +873,19 @@ console.log('\n3 · Anon-only Render mode — Admin data survives inactivity / c
     };
 
     // Unauthorized caller cannot read admin data
-    const unauthKeyValid = await bridgeAfterWipe.verifyAdminKey('invalid_admin_key');
-    const oldKeyValid = await bridgeAfterWipe.verifyAdminKey(
+    const unauthKeyCheck = await bridgeAfterWipe.verifyAdminKey('invalid_admin_key');
+    const oldKeyCheck = await bridgeAfterWipe.verifyAdminKey(
       deriveAdminRpcKey('admin@aria.app', 'AriaAdmin2026!'),
     );
-    const newKeyValid = await bridgeAfterWipe.verifyAdminKey(
+    const newKeyCheck = await bridgeAfterWipe.verifyAdminKey(
       deriveAdminRpcKey('admin@aria.app', 'RotatedAdmin2026!'),
     );
     check(
       'Unauthorized and revoked default admin keys are rejected by Postgres after rotation',
-      unauthKeyValid === false && oldKeyValid === false && newKeyValid === true,
+      unauthKeyCheck?.valid === false &&
+        oldKeyCheck?.valid === false &&
+        oldKeyCheck?.rotated === true &&
+        newKeyCheck?.valid === true,
     );
 
     gateAfterWipe.adoptVerifiedPassword('RotatedAdmin2026!');
@@ -919,6 +922,73 @@ console.log('\n3 · Anon-only Render mode — Admin data survives inactivity / c
       'Admin deletions persist to Postgres across subsequent inactivity restarts',
       wipedDb2.songs.length === 1 && wipedDb2.songs[0].id === 'song_a1',
     );
+
+    // Reset admin_gate_auth to initial unrotated seed to simulate Render deploy with custom ADMIN_PASSWORD
+    await pgRls.exec(`
+      insert into public.system_settings (id, data, updated_at)
+      values (
+        'admin_gate_auth',
+        jsonb_build_object(
+          'key_hash',
+          encode(
+            pg_catalog.sha256(
+              convert_to(
+                encode(pg_catalog.sha256(convert_to('aria-admin-rpc-v1:admin@aria.app:AriaAdmin2026!', 'UTF8')), 'hex'),
+                'UTF8'
+              )
+            ),
+            'hex'
+          )
+        ),
+        (extract(epoch from now()) * 1000)::bigint
+      )
+      on conflict (id) do update set data = excluded.data;
+    `);
+    const tmpCustomEnv = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-admin-custom-env-'));
+    const prevAdminPw = process.env.ADMIN_PASSWORD;
+    process.env.ADMIN_PASSWORD = 'CustomRenderPassword2026!';
+    try {
+      const customGate = new AdminGate(path.join(tmpCustomEnv, 'admin-auth.json'));
+      const defaultBootstrapKey = deriveAdminRpcKey('admin@aria.app', 'AriaAdmin2026!');
+      const customKey = customGate.currentRpcKey();
+
+      // Before bootstrap, remoteCheck indicates unrotated (so custom env password is NOT blocked!)
+      const preBootstrapCheck = await bridgeAfterWipe.verifyAdminKey(customKey);
+      const localAuthBeforeBootstrap = customGate.authenticate(
+        'admin@aria.app',
+        'CustomRenderPassword2026!',
+      );
+
+      // Bootstrapping custom env key locks Postgres to Render's custom ADMIN_PASSWORD
+      const bootRes = await bridgeAfterWipe.adminOp(
+        { adminKey: defaultBootstrapKey },
+        'bootstrap_env_key',
+        { newKey: customKey },
+      );
+      const postBootstrapCheck = await bridgeAfterWipe.verifyAdminKey(customKey);
+      const customEnvDb = { users: [], teams: [], songs: [], lineups: [], settings: defaultSettings() };
+      const customHydrated = await bridgeAfterWipe.hydrateAdmin(
+        { adminKey: customKey },
+        customEnvDb,
+        { force: true },
+      );
+
+      check(
+        'Custom Render ADMIN_PASSWORD (sync: false) authenticates immediately and bootstraps Postgres admin RPC key',
+        preBootstrapCheck?.valid === false &&
+          preBootstrapCheck?.rotated === false &&
+          localAuthBeforeBootstrap?.id === 'user_admin' &&
+          Boolean(customGate.createSession()) &&
+          bootRes === true &&
+          postBootstrapCheck?.valid === true &&
+          customHydrated === true &&
+          customEnvDb.users.length === 2,
+      );
+    } finally {
+      if (prevAdminPw === undefined) delete process.env.ADMIN_PASSWORD;
+      else process.env.ADMIN_PASSWORD = prevAdminPw;
+      fs.rmSync(tmpCustomEnv, { recursive: true, force: true });
+    }
   } finally {
     delete globalThis.__ariaCallerClientFactory;
     await pgRls.close();

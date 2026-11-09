@@ -664,11 +664,13 @@ export class SupabaseCallerBridge {
 
   /**
    * Verifies a candidate built-in admin RPC key against Postgres.
-   * Returns `true` if valid, `false` if explicitly rejected by Postgres,
+   * Returns `{ valid: true, rotated }` when valid,
+   * `{ valid: false, rotated: true }` when explicitly rotated in the Admin Console,
+   * `{ valid: false, rotated: false }` when mismatched against unrotated seed/env,
    * or `null` if Postgres is offline/unavailable (e.g., sandbox mode).
    */
   async verifyAdminKey(candidateKey) {
-    if (!candidateKey) return false;
+    if (!candidateKey) return { valid: false, rotated: false };
     try {
       const client = await this.clientFor(null);
       if (!client || typeof client.rpc !== 'function') return null;
@@ -682,12 +684,16 @@ export class SupabaseCallerBridge {
           this.unreachableUntil = Date.now() + 15000;
           return null;
         }
-        if (/authorization required/i.test(error.message || '')) {
-          return false;
+        const msg = String(error.message || '');
+        if (/rotated key mismatch/i.test(msg)) {
+          return { valid: false, rotated: true };
+        }
+        if (/authorization required/i.test(msg)) {
+          return { valid: false, rotated: false };
         }
         return null;
       }
-      return Boolean(data?.ok);
+      return { valid: Boolean(data?.ok), rotated: Boolean(data?.rotated) };
     } catch (err) {
       if (isNetworkFailure(err)) {
         this.unreachableUntil = Date.now() + 15000;
