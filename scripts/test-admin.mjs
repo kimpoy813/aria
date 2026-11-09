@@ -650,8 +650,280 @@ console.log('\n2 · Supabase / PostgreSQL (PGlite) driver — schema & admin per
       suspBoot.status === 403,
     );
   } finally {
+    delete globalThis.__ariaSupabaseClient;
     await pg.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+console.log('\n3 · Anon-only Render mode — Admin data survives inactivity / container wipe');
+{
+  const pgRls = await PGlite.create();
+  await pgRls.exec(`
+    do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then
+        create role anon;
+      end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+        create role authenticated;
+      end if;
+      if not exists (select 1 from pg_roles where rolname = 'service_role') then
+        create role service_role;
+      end if;
+    end $$;
+    create schema if not exists auth;
+    create or replace function auth.uid() returns uuid language sql stable as $$
+      select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+    $$;
+  `);
+  await pgRls.exec(fs.readFileSync(schemaPath, 'utf8'));
+
+  const tokenToUuid = new Map([
+    ['jwt-alice', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'],
+    ['jwt-bob', 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'],
+  ]);
+
+  globalThis.__ariaCallerClientFactory = (accessToken) => ({
+    async rpc(fnName, args = {}) {
+      const sub = accessToken ? tokenToUuid.get(accessToken) || '' : '';
+      await pgRls.exec(`select set_config('request.jwt.claim.sub', '${sub}', false);`);
+      try {
+        let res;
+        if (fnName === 'aria_load_caller_state') {
+          res = await pgRls.query(`select public.aria_load_caller_state() as res`);
+        } else if (fnName === 'aria_sync_caller_state') {
+          res = await pgRls.query(
+            `select public.aria_sync_caller_state($1::jsonb, $2::jsonb, $3::jsonb) as res`,
+            [
+              JSON.stringify(args.p_user || {}),
+              JSON.stringify(args.p_songs || []),
+              JSON.stringify(args.p_lineups || []),
+            ],
+          );
+        } else if (fnName === 'aria_team_op') {
+          res = await pgRls.query(
+            `select public.aria_team_op($1, $2::jsonb, $3, $4, $5) as res`,
+            [
+              args.p_op || '',
+              args.p_team ? JSON.stringify(args.p_team) : null,
+              args.p_code || null,
+              args.p_team_id || null,
+              args.p_member_name || null,
+            ],
+          );
+        } else if (fnName === 'aria_get_public_settings') {
+          res = await pgRls.query(`select public.aria_get_public_settings() as res`);
+        } else if (fnName === 'aria_admin_op') {
+          res = await pgRls.query(
+            `select public.aria_admin_op($1, $2, $3::jsonb) as res`,
+            [
+              args.p_op || '',
+              args.p_admin_key || null,
+              JSON.stringify(args.p_payload || {}),
+            ],
+          );
+        } else {
+          return { data: null, error: { message: `Unknown RPC ${fnName}` } };
+        }
+        return { data: res.rows[0]?.res ?? null, error: null };
+      } catch (err) {
+        return { data: null, error: { message: err.message } };
+      }
+    },
+  });
+
+  const { SupabaseCallerBridge, defaultSettings } = await import(
+    path.join(root, 'server', 'storage.js')
+  );
+  const { AdminGate, deriveAdminRpcKey } = await import(
+    path.join(root, 'server', 'auth.js')
+  );
+
+  const tmpBefore = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-admin-wipe1-'));
+  const tmpAfter = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-admin-wipe2-'));
+
+  try {
+    const bridge1 = new SupabaseCallerBridge({
+      url: 'http://pglite.local',
+      anonKey: 'anon-key',
+      log: () => {},
+    });
+    const gate1 = new AdminGate(path.join(tmpBefore, 'admin-auth.json'));
+
+    // Alice & Bob save songs, a lineup, and a team before going inactive
+    const alice = {
+      id: 'sb_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      name: 'Alice Leader',
+      email: 'alice@church.org',
+    };
+    const bob = {
+      id: 'sb_bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+      name: 'Bob Guitarist',
+      email: 'bob@church.org',
+    };
+    const mem1 = {
+      users: [alice, bob],
+      teams: [],
+      songs: [
+        {
+          id: 'song_a1',
+          title: 'Goodness of God',
+          artist: 'Bethel Music',
+          tempo: 'slow',
+          theme: "God's Love",
+          parts: [{ id: 'pa1', kind: 'chorus', label: 'Chorus', lyrics: 'All my life You have been faithful' }],
+          analysis: null,
+          lyrics: 'All my life You have been faithful',
+          ownerId: alice.id,
+          ownerName: alice.name,
+          teamId: null,
+          sourceSongId: null,
+          copiedFrom: null,
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+        {
+          id: 'song_b1',
+          title: 'Way Maker',
+          artist: 'Sinach',
+          tempo: 'slow',
+          theme: 'Faith & Trust',
+          parts: [{ id: 'pb1', kind: 'chorus', label: 'Chorus', lyrics: 'Way maker miracle worker' }],
+          analysis: null,
+          lyrics: 'Way maker miracle worker',
+          ownerId: bob.id,
+          ownerName: bob.name,
+          teamId: null,
+          sourceSongId: null,
+          copiedFrom: null,
+          createdAt: 1500,
+          updatedAt: 1500,
+        },
+      ],
+      lineups: [
+        {
+          id: 'lineup_a1',
+          name: 'Sunday Morning Worship',
+          theme: "God's Love",
+          ownerId: alice.id,
+          ownerName: alice.name,
+          teamId: null,
+          items: [{ id: 'sl1', songId: 'song_a1', partId: 'pa1', lyrics: 'All my life You have been faithful' }],
+          shareToken: 'sh_sunday1',
+          sourceLineupId: null,
+          copiedFrom: null,
+          lastUsedAt: 2000,
+          useCount: 2,
+          lastUsedReason: 'link_shared',
+          createdAt: 1800,
+          updatedAt: 2000,
+        },
+      ],
+      settings: defaultSettings(),
+    };
+
+    await bridge1.hydrateCaller('jwt-alice', alice.id, { users: [], teams: [], songs: [], lineups: [] });
+    await bridge1.syncCaller('jwt-alice', alice, mem1);
+    await bridge1.hydrateCaller('jwt-bob', bob.id, { users: [], teams: [], songs: [], lineups: [] });
+    await bridge1.syncCaller('jwt-bob', bob, mem1);
+    await bridge1.teamOp('jwt-alice', {
+      op: 'create',
+      team: {
+        id: 'team_worship',
+        name: 'Candon Worship Team',
+        code: 'ARIA-888',
+        createdAt: 2200,
+        members: [{ userId: alice.id, name: alice.name, role: 'owner', joinedAt: 2200 }],
+      },
+      memberName: alice.name,
+    });
+
+    // Admin sets maintenance notice, suspends Bob, and rotates admin password
+    const customSettings = defaultSettings();
+    customSettings.maintenance.enabled = true;
+    customSettings.maintenance.title = 'Sunday Prep Window';
+    await bridge1.adminOp({ adminKey: gate1.currentRpcKey() }, 'save_settings', {
+      settings: customSettings,
+    });
+    await bridge1.adminOp({ adminKey: gate1.currentRpcKey() }, 'upsert_user', {
+      ...bob,
+      role: 'user',
+      suspended: true,
+      createdAt: 1500,
+    });
+    const rotated = gate1.setPassword('RotatedAdmin2026!');
+    await bridge1.adminOp({ adminKey: rotated.previousRpcKey }, 'rotate_key', {
+      newKey: rotated.nextRpcKey,
+    });
+
+    // --- SIMULATE RENDER INACTIVITY SPIN-DOWN & FULL CONTAINER WIPE ---
+    // Neither Alice nor Bob signs in; local data.json and admin-auth.json are completely empty!
+    const bridgeAfterWipe = new SupabaseCallerBridge({
+      url: 'http://pglite.local',
+      anonKey: 'anon-key',
+      log: () => {},
+    });
+    const gateAfterWipe = new AdminGate(path.join(tmpAfter, 'admin-auth.json'));
+    const wipedDb = {
+      users: [],
+      teams: [],
+      songs: [],
+      lineups: [],
+      settings: defaultSettings(),
+    };
+
+    // Unauthorized caller cannot read admin data
+    const unauthKeyValid = await bridgeAfterWipe.verifyAdminKey('invalid_admin_key');
+    const oldKeyValid = await bridgeAfterWipe.verifyAdminKey(
+      deriveAdminRpcKey('admin@aria.app', 'AriaAdmin2026!'),
+    );
+    const newKeyValid = await bridgeAfterWipe.verifyAdminKey(
+      deriveAdminRpcKey('admin@aria.app', 'RotatedAdmin2026!'),
+    );
+    check(
+      'Unauthorized and revoked default admin keys are rejected by Postgres after rotation',
+      unauthKeyValid === false && oldKeyValid === false && newKeyValid === true,
+    );
+
+    gateAfterWipe.adoptVerifiedPassword('RotatedAdmin2026!');
+    const hydrated = await bridgeAfterWipe.hydrateAdmin(
+      { adminKey: gateAfterWipe.currentRpcKey() },
+      wipedDb,
+      { force: true },
+    );
+    check(
+      'Admin console reloads all users, songs, lineups, teams & settings after container wipe while all users are inactive',
+      hydrated === true &&
+        wipedDb.users.length === 2 &&
+        wipedDb.songs.length === 2 &&
+        wipedDb.lineups.length === 1 &&
+        wipedDb.teams.length === 1 &&
+        wipedDb.settings.maintenance.enabled === true &&
+        wipedDb.settings.maintenance.title === 'Sunday Prep Window' &&
+        wipedDb.users.find((u) => u.id === bob.id)?.suspended === true,
+    );
+
+    // Admin deletes a song while users remain inactive -> persists in Postgres
+    await bridgeAfterWipe.adminOp(
+      { adminKey: gateAfterWipe.currentRpcKey() },
+      'delete_song',
+      { songId: 'song_b1' },
+    );
+    const wipedDb2 = { users: [], teams: [], songs: [], lineups: [], settings: defaultSettings() };
+    await bridgeAfterWipe.hydrateAdmin(
+      { adminKey: gateAfterWipe.currentRpcKey() },
+      wipedDb2,
+      { force: true },
+    );
+    check(
+      'Admin deletions persist to Postgres across subsequent inactivity restarts',
+      wipedDb2.songs.length === 1 && wipedDb2.songs[0].id === 'song_a1',
+    );
+  } finally {
+    delete globalThis.__ariaCallerClientFactory;
+    await pgRls.close();
+    fs.rmSync(tmpBefore, { recursive: true, force: true });
+    fs.rmSync(tmpAfter, { recursive: true, force: true });
   }
 }
 

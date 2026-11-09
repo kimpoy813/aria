@@ -7,6 +7,7 @@ import { createCallerBridge, createStore, defaultSettings } from './storage.js';
 import {
   createAdminGate,
   createAuth,
+  deriveAdminRpcKey,
   loadDotEnv,
   normaliseEmail,
   emailProblem,
@@ -117,6 +118,16 @@ async function boot() {
   adminGate = createAdminGate();
   db = await store.load();
   if (!db.settings) db.settings = defaultSettings();
+  if (callerBridge) {
+    const hydrated = await callerBridge.hydrateAdmin(
+      { adminKey: adminGate?.currentRpcKey() || null },
+      db,
+      { force: true },
+    );
+    if (!hydrated) {
+      await callerBridge.loadPublicSettings(db, { force: true });
+    }
+  }
   purgeLegacyDemoData();
   return store;
 }
@@ -569,7 +580,10 @@ api.use(resolveIdentity);
 
 api.get('/health', (_req, res) => res.json({ ok: true }));
 
-api.get('/system/status', (_req, res) => {
+api.get('/system/status', async (_req, res) => {
+  if (callerBridge) {
+    await callerBridge.loadPublicSettings(db);
+  }
   const settings = db.settings || defaultSettings();
   res.json({
     maintenance: settings.maintenance,
@@ -651,10 +665,41 @@ api.get('/auth/relay/:nonce', (req, res) => {
   });
 });
 
-api.get('/auth/session', (req, res) => {
+async function authenticateBuiltInAdmin(email, password) {
+  if (!adminGate || !adminGate.matchesAdminEmail(email)) return null;
+  if (callerBridge) {
+    const candidateKey = deriveAdminRpcKey(adminGate.email, password);
+    const remoteVerified = await callerBridge.verifyAdminKey(candidateKey);
+    if (remoteVerified === true) {
+      return adminGate.adoptVerifiedPassword(password);
+    }
+    if (remoteVerified === false) {
+      return null;
+    }
+  }
+  return adminGate.authenticate(email, password);
+}
+
+function adminRpcCredentials(req) {
+  return {
+    accessToken: req?.supabaseAccessToken || null,
+    adminKey: req?.adminSessionToken && adminGate ? adminGate.currentRpcKey() : null,
+  };
+}
+
+async function ensureAdminHydrated(req, { force = false } = {}) {
+  if (!callerBridge) return;
+  await callerBridge.hydrateAdmin(adminRpcCredentials(req), db, { force });
+}
+
+api.get('/auth/session', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!req.identity) return res.json({ user: null });
+  const hadUser = Boolean(getUser(req.identity.id));
   const user = ensureUserRecord(req.identity);
+  if (!hadUser && callerBridge && req.supabaseAccessToken && user.id?.startsWith('sb_')) {
+    await callerBridge.syncCaller(req.supabaseAccessToken, user, db);
+  }
   if (user.suspended && !isAdminUser(user)) {
     return res.status(403).json({
       error: 'Your account has been suspended by an administrator.',
@@ -666,20 +711,23 @@ api.get('/auth/session', (req, res) => {
 
 /**
  * Built-in system administrator login — works regardless of whether the regular
- * auth driver is Supabase or Demo.
+ * auth driver is Supabase or Demo, and survives container restarts via Postgres.
  */
-api.post('/auth/admin-login', (req, res) => {
+api.post('/auth/admin-login', async (req, res) => {
   const email = normaliseEmail(req.body?.email);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!adminGate || !adminGate.matchesAdminEmail(email)) {
     return res.json({ matched: false });
   }
-  const identity = adminGate.authenticate(email, password);
+  const identity = await authenticateBuiltInAdmin(email, password);
   if (!identity) {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
   const user = ensureUserRecord(identity);
   const session = adminGate.createSession();
+  if (callerBridge) {
+    await callerBridge.hydrateAdmin({ adminKey: adminGate.currentRpcKey() }, db, { force: true });
+  }
   res.json({ matched: true, token: session, user: publicUserView(user) });
 });
 
@@ -718,17 +766,20 @@ api.post('/auth/register', (req, res) => {
   }
 });
 
-api.post('/auth/login', (req, res) => {
+api.post('/auth/login', async (req, res) => {
   const email = normaliseEmail(req.body?.email);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
   if (adminGate && adminGate.matchesAdminEmail(email)) {
-    const identity = adminGate.authenticate(email, password);
+    const identity = await authenticateBuiltInAdmin(email, password);
     if (!identity) {
       return res.status(401).json({ error: 'Email or password is incorrect.' });
     }
     const user = ensureUserRecord(identity);
     const session = adminGate.createSession();
+    if (callerBridge) {
+      await callerBridge.hydrateAdmin({ adminKey: adminGate.currentRpcKey() }, db, { force: true });
+    }
     return res.json({ token: session, user: publicUserView(user) });
   }
 
@@ -859,6 +910,11 @@ api.get('/state', async (req, res) => {
   if (!requireUser(req, res)) return;
   if (callerBridge && req.supabaseAccessToken && req.user?.id?.startsWith('sb_')) {
     await callerBridge.hydrateCaller(req.supabaseAccessToken, req.user.id, db, { force: true });
+    const inDb = getUser(req.user.id);
+    const user = ensureUserRecord(req.identity);
+    if (!inDb) {
+      await callerBridge.syncCaller(req.supabaseAccessToken, user, db);
+    }
   }
   const user = ensureUserRecord(req.identity);
   const userId = user.id;
@@ -883,8 +939,9 @@ api.get('/state', async (req, res) => {
 
 /* ----------------------------------------------------------------- admin */
 
-api.get('/admin/overview', (req, res) => {
+api.get('/admin/overview', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req, { force: true });
 
   // Merge db.users with any DemoAuth accounts and the built-in admin account
   const userMap = new Map();
@@ -1049,8 +1106,9 @@ api.get('/admin/overview', (req, res) => {
   });
 });
 
-api.patch('/admin/settings', (req, res) => {
+api.patch('/admin/settings', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   if (!db.settings) db.settings = defaultSettings();
 
   const body = req.body || {};
@@ -1072,6 +1130,11 @@ api.patch('/admin/settings', (req, res) => {
   }
 
   save();
+  if (callerBridge) {
+    await callerBridge.adminOp(adminRpcCredentials(req), 'save_settings', {
+      settings: db.settings,
+    });
+  }
   res.json({
     settings: {
       maintenance: db.settings.maintenance,
@@ -1080,8 +1143,9 @@ api.patch('/admin/settings', (req, res) => {
   });
 });
 
-api.post('/admin/users', (req, res) => {
+api.post('/admin/users', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   const name = clean(req.body?.name, 40);
   const email = normaliseEmail(req.body?.email);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -1126,11 +1190,15 @@ api.post('/admin/users', (req, res) => {
   };
   db.users.push(user);
   save();
+  if (callerBridge) {
+    await callerBridge.adminOp(adminRpcCredentials(req), 'upsert_user', user);
+  }
   res.json({ user: publicUserView(user) });
 });
 
-api.patch('/admin/users/:id', (req, res) => {
+api.patch('/admin/users/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   const targetId = req.params.id;
   if (targetId === 'user_admin') {
     return res.status(400).json({ error: 'The built-in admin account cannot be modified here.' });
@@ -1178,11 +1246,15 @@ api.patch('/admin/users/:id', (req, res) => {
   }
 
   save();
+  if (callerBridge) {
+    await callerBridge.adminOp(adminRpcCredentials(req), 'upsert_user', target);
+  }
   res.json({ user: publicUserView(target) });
 });
 
 api.delete('/admin/users/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   const targetId = req.params.id;
   if (targetId === 'user_admin') {
     return res.status(400).json({ error: 'The built-in admin account cannot be deleted.' });
@@ -1198,6 +1270,9 @@ api.delete('/admin/users/:id', async (req, res) => {
       saveChain = saveChain.then(() => store.persist(db));
       await saveChain;
     }
+    if (callerBridge) {
+      await callerBridge.adminOp(adminRpcCredentials(req), 'delete_user', { userId: targetId });
+    }
     if (auth?.driver === 'demo') {
       auth.deleteAccount(targetId);
     } else if (auth?.deleteAccount && targetId.startsWith('sb_')) {
@@ -1209,19 +1284,30 @@ api.delete('/admin/users/:id', async (req, res) => {
   }
 });
 
-api.post('/admin/password', (req, res) => {
+api.post('/admin/password', async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const newPassword = typeof req.body?.password === 'string' ? req.body.password : '';
   const issue = passwordProblem(newPassword);
   if (issue) return res.status(400).json({ error: issue });
   if (!adminGate) return res.status(500).json({ error: 'Admin gate unavailable.' });
-  adminGate.setPassword(newPassword);
+  const { previousRpcKey, nextRpcKey } = adminGate.setPassword(newPassword);
+  if (callerBridge) {
+    await callerBridge.adminOp(
+      {
+        accessToken: req.supabaseAccessToken || null,
+        adminKey: req.adminSessionToken ? previousRpcKey : null,
+      },
+      'rotate_key',
+      { newKey: nextRpcKey },
+    );
+  }
   const freshSession = req.user.id === 'user_admin' ? adminGate.createSession() : null;
   res.json({ ok: true, token: freshSession });
 });
 
-api.delete('/admin/songs/:id', (req, res) => {
+api.delete('/admin/songs/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   const song = db.songs.find((s) => s.id === req.params.id);
   if (!song) return res.status(404).json({ error: 'Song not found.' });
   db.songs = db.songs.filter((s) => s.id !== song.id);
@@ -1229,20 +1315,28 @@ api.delete('/admin/songs/:id', (req, res) => {
     l.items = l.items.filter((i) => i.songId !== song.id || Boolean(i.lyrics));
   });
   save();
+  if (callerBridge) {
+    await callerBridge.adminOp(adminRpcCredentials(req), 'delete_song', { songId: song.id });
+  }
   res.json({ ok: true });
 });
 
-api.delete('/admin/lineups/:id', (req, res) => {
+api.delete('/admin/lineups/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   const lineup = db.lineups.find((l) => l.id === req.params.id);
   if (!lineup) return res.status(404).json({ error: 'Lineup not found.' });
   db.lineups = db.lineups.filter((l) => l.id !== lineup.id);
   save();
+  if (callerBridge) {
+    await callerBridge.adminOp(adminRpcCredentials(req), 'delete_lineup', { lineupId: lineup.id });
+  }
   res.json({ ok: true });
 });
 
-api.delete('/admin/teams/:id', (req, res) => {
+api.delete('/admin/teams/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await ensureAdminHydrated(req);
   const team = getTeam(req.params.id);
   if (!team) return res.status(404).json({ error: 'Team not found.' });
   db.teams = db.teams.filter((t) => t.id !== team.id);
@@ -1253,6 +1347,9 @@ api.delete('/admin/teams/:id', (req, res) => {
     if (l.teamId === team.id) l.teamId = null;
   });
   save();
+  if (callerBridge) {
+    await callerBridge.adminOp(adminRpcCredentials(req), 'delete_team', { teamId: team.id });
+  }
   res.json({ ok: true });
 });
 

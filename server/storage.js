@@ -421,7 +421,8 @@ export class SupabaseCallerBridge {
         db.users[idx] = {
           ...prev,
           ...ru,
-          role: prev.role === 'admin' ? 'admin' : ru.role || prev.role || 'user',
+          role: ru.role || prev.role || 'user',
+          suspended: Boolean(ru.suspended),
         };
       } else {
         db.users.push(ru);
@@ -630,6 +631,174 @@ export class SupabaseCallerBridge {
         this.unreachableUntil = Date.now() + 15000;
       }
       return null;
+    }
+  }
+
+  async loadPublicSettings(db, { force = false } = {}) {
+    const nowMs = Date.now();
+    if (!force && this.publicSettingsAt && nowMs - this.publicSettingsAt < 5000) {
+      return true;
+    }
+    try {
+      const client = await this.clientFor(null);
+      if (!client || typeof client.rpc !== 'function') return false;
+      const { data, error } = await client.rpc('aria_get_public_settings');
+      if (error) {
+        if (isNetworkFailure(error)) {
+          this.unreachableUntil = Date.now() + 15000;
+        }
+        return false;
+      }
+      this.publicSettingsAt = nowMs;
+      if (data && typeof data === 'object') {
+        db.settings = normaliseSettings(data);
+      }
+      return true;
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        this.unreachableUntil = Date.now() + 15000;
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Verifies a candidate built-in admin RPC key against Postgres.
+   * Returns `true` if valid, `false` if explicitly rejected by Postgres,
+   * or `null` if Postgres is offline/unavailable (e.g., sandbox mode).
+   */
+  async verifyAdminKey(candidateKey) {
+    if (!candidateKey) return false;
+    try {
+      const client = await this.clientFor(null);
+      if (!client || typeof client.rpc !== 'function') return null;
+      const { data, error } = await client.rpc('aria_admin_op', {
+        p_op: 'verify_key',
+        p_admin_key: candidateKey,
+        p_payload: {},
+      });
+      if (error) {
+        if (isNetworkFailure(error)) {
+          this.unreachableUntil = Date.now() + 15000;
+          return null;
+        }
+        if (/authorization required/i.test(error.message || '')) {
+          return false;
+        }
+        return null;
+      }
+      return Boolean(data?.ok);
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        this.unreachableUntil = Date.now() + 15000;
+      }
+      return null;
+    }
+  }
+
+  mergeAdminAllState(payload, db) {
+    if (!payload || typeof payload !== 'object') return;
+    const remoteUsers = Array.isArray(payload.users)
+      ? payload.users.map((r) => fromRow('users', r))
+      : [];
+    const remoteTeams = Array.isArray(payload.teams)
+      ? payload.teams.map((r) => fromRow('teams', r))
+      : [];
+    const remoteSongs = Array.isArray(payload.songs)
+      ? payload.songs.map((r) => fromRow('songs', r))
+      : [];
+    const remoteLineups = Array.isArray(payload.lineups)
+      ? payload.lineups.map((r) => fromRow('lineups', r))
+      : [];
+
+    // Preserve built-in user_admin in memory while replacing all persisted entities from Postgres
+    const builtInAdmin = db.users.find((u) => u.id === 'user_admin') || null;
+    db.users = builtInAdmin
+      ? [builtInAdmin, ...remoteUsers.filter((u) => u.id !== 'user_admin')]
+      : remoteUsers;
+    db.teams = remoteTeams;
+    db.songs = remoteSongs;
+    db.lineups = remoteLineups;
+
+    if (payload.settings && typeof payload.settings === 'object') {
+      db.settings = normaliseSettings(payload.settings);
+    }
+  }
+
+  async hydrateAdmin({ accessToken = null, adminKey = null } = {}, db, { force = false } = {}) {
+    if (!accessToken && !adminKey) return false;
+    const nowMs = Date.now();
+    if (!force && this.adminHydratedAt && nowMs - this.adminHydratedAt < 2000) {
+      return true;
+    }
+    if (this.inflightAdminHydrate) {
+      return this.inflightAdminHydrate;
+    }
+
+    this.inflightAdminHydrate = (async () => {
+      try {
+        const client = await this.clientFor(accessToken || null);
+        if (!client || typeof client.rpc !== 'function') return false;
+        const { data, error } = await client.rpc('aria_admin_op', {
+          p_op: 'load_all',
+          p_admin_key: adminKey || null,
+          p_payload: {},
+        });
+        if (error) {
+          if (isNetworkFailure(error)) {
+            this.unreachableUntil = Date.now() + 15000;
+          } else {
+            this.warnOnce('supabase admin load failed', error);
+          }
+          return false;
+        }
+        this.mergeAdminAllState(data, db);
+        this.adminHydratedAt = Date.now();
+        this.publicSettingsAt = Date.now();
+        return true;
+      } catch (err) {
+        if (isNetworkFailure(err)) {
+          this.unreachableUntil = Date.now() + 15000;
+        } else {
+          this.warnOnce('supabase admin load error', err);
+        }
+        return false;
+      } finally {
+        this.inflightAdminHydrate = null;
+      }
+    })();
+
+    return this.inflightAdminHydrate;
+  }
+
+  async adminOp({ accessToken = null, adminKey = null } = {}, op, payload = {}) {
+    if (!op || (!accessToken && !adminKey)) return false;
+    try {
+      const client = await this.clientFor(accessToken || null);
+      if (!client || typeof client.rpc !== 'function') return false;
+      const { data, error } = await client.rpc('aria_admin_op', {
+        p_op: op,
+        p_admin_key: adminKey || null,
+        p_payload: payload || {},
+      });
+      if (error) {
+        if (isNetworkFailure(error)) {
+          this.unreachableUntil = Date.now() + 15000;
+        } else {
+          this.warnOnce(`supabase admin op (${op}) failed`, error);
+        }
+        return false;
+      }
+      this.hydratedAt.clear();
+      this.adminHydratedAt = 0;
+      return Boolean(data?.ok ?? true);
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        this.unreachableUntil = Date.now() + 15000;
+      } else {
+        this.warnOnce(`supabase admin op (${op}) error`, err);
+      }
+      return false;
     }
   }
 }
