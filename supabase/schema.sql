@@ -675,6 +675,8 @@ begin
         v_caller text := public.aria_caller_id();
         v_authorized boolean := false;
         v_stored_hash text;
+        v_is_rotated boolean := false;
+        v_env_locked boolean := false;
         v_now bigint := (extract(epoch from now()) * 1000)::bigint;
         v_users jsonb;
         v_teams jsonb;
@@ -690,6 +692,15 @@ begin
         v_lineup_row record;
         v_filtered_items jsonb;
       begin
+        select
+          s.data->>'key_hash',
+          coalesce((s.data->>'rotated')::boolean, false),
+          coalesce((s.data->>'env_locked')::boolean, false)
+          into v_stored_hash, v_is_rotated, v_env_locked
+          from public.system_settings s
+         where s.id = 'admin_gate_auth'
+         limit 1;
+
         if v_caller is not null and exists (
           select 1
             from public.users u
@@ -699,12 +710,6 @@ begin
         ) then
           v_authorized := true;
         elsif coalesce(p_admin_key, '') <> '' then
-          select s.data->>'key_hash'
-            into v_stored_hash
-            from public.system_settings s
-           where s.id = 'admin_gate_auth'
-           limit 1;
-
           if v_stored_hash is not null
              and encode(pg_catalog.sha256(convert_to(p_admin_key, 'UTF8')), 'hex') = v_stored_hash then
             v_authorized := true;
@@ -712,10 +717,39 @@ begin
         end if;
 
         if not v_authorized then
+          if v_is_rotated then
+            raise exception 'Administrator rotated key mismatch';
+          end if;
           raise exception 'Administrator authorization required';
         end if;
 
         if p_op = 'verify_key' then
+          return jsonb_build_object('ok', true, 'rotated', v_is_rotated);
+
+        elsif p_op = 'bootstrap_env_key' then
+          if v_is_rotated or v_env_locked then
+            return jsonb_build_object('ok', false, 'locked', true);
+          end if;
+          v_new_key := coalesce(p_payload->>'newKey', '');
+          if length(v_new_key) < 32 then
+            raise exception 'Invalid admin key';
+          end if;
+          insert into public.system_settings (id, data, updated_at)
+          values (
+            'admin_gate_auth',
+            jsonb_build_object(
+              'key_hash',
+              encode(pg_catalog.sha256(convert_to(v_new_key, 'UTF8')), 'hex'),
+              'env_locked',
+              true,
+              'rotated',
+              false
+            ),
+            v_now
+          )
+          on conflict (id) do update set
+            data = excluded.data,
+            updated_at = v_now;
           return jsonb_build_object('ok', true);
 
         elsif p_op = 'rotate_key' then
@@ -728,7 +762,11 @@ begin
             'admin_gate_auth',
             jsonb_build_object(
               'key_hash',
-              encode(pg_catalog.sha256(convert_to(v_new_key, 'UTF8')), 'hex')
+              encode(pg_catalog.sha256(convert_to(v_new_key, 'UTF8')), 'hex'),
+              'env_locked',
+              true,
+              'rotated',
+              true
             ),
             v_now
           )

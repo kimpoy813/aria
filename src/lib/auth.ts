@@ -270,15 +270,16 @@ async function ensureSupabase(): Promise<SupabaseClient> {
     if (!authListenerBound) {
       authListenerBound = true;
       client.auth.onAuthStateChange((event: string, session: any) => {
+        const existing = localStorage.getItem(TOKEN_KEY);
+        if (existing && existing.startsWith('adm.')) {
+          return;
+        }
         if (session?.access_token) {
           localStorage.setItem(TOKEN_KEY, session.access_token);
           notify({ token: session.access_token, user: toUser(session.user) });
         } else if (event === 'SIGNED_OUT') {
-          const existing = localStorage.getItem(TOKEN_KEY);
-          if (!existing || !existing.startsWith('adm.')) {
-            localStorage.removeItem(TOKEN_KEY);
-            notify(null);
-          }
+          localStorage.removeItem(TOKEN_KEY);
+          notify(null);
         }
       });
     }
@@ -893,7 +894,17 @@ export async function login(email: string, password: string): Promise<Account> {
   }
   if (adminRes.ok && adminData?.matched && adminData?.token) {
     storeToken(adminData.token);
+    if (supabaseClient) {
+      await supabaseClient.auth.signOut().catch(() => undefined);
+      storeToken(adminData.token);
+    }
     return { token: adminData.token, user: adminData.user };
+  }
+
+  // Clear any previous built-in admin token before starting a regular user session
+  const prevToken = currentToken();
+  if (prevToken && prevToken.startsWith('adm.')) {
+    storeToken(null);
   }
 
   if (config.driver === 'supabase') {
@@ -918,6 +929,10 @@ export async function login(email: string, password: string): Promise<Account> {
 }
 
 export async function loginWithGoogle(): Promise<Account | null> {
+  const prevToken = currentToken();
+  if (prevToken && prevToken.startsWith('adm.')) {
+    storeToken(null);
+  }
   if (config.driver !== 'supabase' || !config.supabaseUrl || !config.supabaseAnonKey) {
     await loadConfig(true);
   }

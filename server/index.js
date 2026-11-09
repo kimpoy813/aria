@@ -7,6 +7,8 @@ import { createCallerBridge, createStore, defaultSettings } from './storage.js';
 import {
   createAdminGate,
   createAuth,
+  DEFAULT_ADMIN_EMAIL,
+  DEFAULT_ADMIN_PASSWORD,
   deriveAdminRpcKey,
   loadDotEnv,
   normaliseEmail,
@@ -119,8 +121,20 @@ async function boot() {
   db = await store.load();
   if (!db.settings) db.settings = defaultSettings();
   if (callerBridge) {
+    const defaultBootstrapKey = deriveAdminRpcKey(
+      DEFAULT_ADMIN_EMAIL,
+      DEFAULT_ADMIN_PASSWORD,
+    );
+    const activeAdminKey = adminGate?.currentRpcKey() || null;
+    if (activeAdminKey && activeAdminKey !== defaultBootstrapKey) {
+      await callerBridge.adminOp(
+        { adminKey: defaultBootstrapKey },
+        'bootstrap_env_key',
+        { newKey: activeAdminKey },
+      );
+    }
     const hydrated = await callerBridge.hydrateAdmin(
-      { adminKey: adminGate?.currentRpcKey() || null },
+      { adminKey: activeAdminKey },
       db,
       { force: true },
     );
@@ -669,13 +683,29 @@ async function authenticateBuiltInAdmin(email, password) {
   if (!adminGate || !adminGate.matchesAdminEmail(email)) return null;
   if (callerBridge) {
     const candidateKey = deriveAdminRpcKey(adminGate.email, password);
-    const remoteVerified = await callerBridge.verifyAdminKey(candidateKey);
-    if (remoteVerified === true) {
+    const remoteCheck = await callerBridge.verifyAdminKey(candidateKey);
+    if (remoteCheck?.valid === true) {
       return adminGate.adoptVerifiedPassword(password);
     }
-    if (remoteVerified === false) {
+    if (remoteCheck?.rotated === true) {
       return null;
     }
+    const localIdentity = adminGate.authenticate(email, password);
+    if (localIdentity) {
+      const defaultBootstrapKey = deriveAdminRpcKey(
+        DEFAULT_ADMIN_EMAIL,
+        DEFAULT_ADMIN_PASSWORD,
+      );
+      if (candidateKey !== defaultBootstrapKey) {
+        await callerBridge.adminOp(
+          { adminKey: defaultBootstrapKey },
+          'bootstrap_env_key',
+          { newKey: candidateKey },
+        );
+      }
+      return localIdentity;
+    }
+    return null;
   }
   return adminGate.authenticate(email, password);
 }
