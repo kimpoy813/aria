@@ -6,6 +6,8 @@ import {
 import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './Icon';
 
+export type { IconName };
+
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'default' | 'primary' | 'quiet' | 'danger';
   block?: boolean;

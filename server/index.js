@@ -22,6 +22,9 @@ loadDotEnv();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, '..', 'dist');
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+/** Same resolution the storage driver uses, so the counter sits beside data.json. */
+const DATA_DIR = process.env.ARIA_DATA_DIR || path.join(process.cwd(), 'server');
 const PORT = Number(process.env.PORT || 5174);
 
 
@@ -593,6 +596,132 @@ const api = express.Router();
 api.use(resolveIdentity);
 
 api.get('/health', (_req, res) => res.json({ ok: true }));
+
+/* ------------------------------------------------------- app release (APK) */
+
+/**
+ * Android release hosting.
+ *
+ * Drop `aria.apk` into public/downloads/ (or point ARIA_APK_FILE at a path) and
+ * it is served here with the metadata the download page needs. Without a file
+ * the endpoint reports `available: false` and the page offers Add to Home Screen
+ * instead, so the route is never a dead end.
+ *
+ * ARIA_APK_VERSION, ARIA_APK_SIZE, ARIA_APK_SHA256 and ARIA_APK_NOTES override
+ * what is read from disk / the file name.
+ */
+const DEFAULT_APK_FILE = path.join(PUBLIC_DIR, 'downloads', 'aria.apk');
+const APK_NAME = 'aria.apk';
+
+function apkPath() {
+  const configured = clean(process.env.ARIA_APK_FILE || '', 400);
+  if (configured) return path.isAbsolute(configured) ? configured : path.join(DIST_DIR, configured);
+  return DEFAULT_APK_FILE;
+}
+
+function readApk() {
+  const file = apkPath();
+  let stat = null;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    stat = null;
+  }
+  if (!stat || !stat.isFile()) {
+    return {
+      available: false,
+      fileName: APK_NAME,
+      url: null,
+      sizeBytes: null,
+      sha256: null,
+      version: clean(process.env.ARIA_APK_VERSION || '', 40) || null,
+      builtAt: null,
+      notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
+      downloads: readApkCounts().total,
+    };
+  }
+
+  let sha256 = clean(process.env.ARIA_APK_SHA256 || '', 128) || null;
+  if (!sha256) {
+    try {
+      sha256 = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    } catch {
+      sha256 = null;
+    }
+  }
+
+  const stamp = new Date(stat.mtimeMs);
+  return {
+    available: true,
+    fileName: APK_NAME,
+    url: `/downloads/${APK_NAME}`,
+    sizeBytes: stat.size,
+    sha256,
+    version:
+      clean(process.env.ARIA_APK_VERSION || '', 40) || `1.0.0+${stamp.toISOString().slice(0, 10)}`,
+    builtAt: stamp.toISOString(),
+    notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
+    downloads: readApkCounts().total,
+  };
+}
+
+/** Public: the download page reads this. Signed-in callers get the counter too. */
+api.get('/app/release', (req, res) => {
+  const release = readApk();
+  const signedIn = Boolean(req.identity);
+  res.json({
+    ...release,
+    downloads: signedIn ? release.downloads : null,
+    packageName: clean(
+      process.env.ANDROID_PACKAGE_NAME || 'com.kimpoy813.aria',
+      120,
+    ),
+    installType: release.available ? 'apk' : 'pwa',
+  });
+});
+
+const APK_COUNTS_FILE = path.join(DATA_DIR, 'apk-downloads.json');
+
+/** Download counter lives in its own small file so it never touches the data set. */
+function readApkCounts() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(APK_COUNTS_FILE, 'utf8'));
+    return { total: Math.max(0, Number(parsed.total) || 0), lastAt: Number(parsed.lastAt) || null };
+  } catch {
+    return { total: 0, lastAt: null };
+  }
+}
+
+function bumpApkCount() {
+  const next = readApkCounts();
+  next.total += 1;
+  next.lastAt = Date.now();
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(APK_COUNTS_FILE, JSON.stringify(next));
+  } catch (err) {
+    console.error('[aria] could not record the APK download:', err.message);
+  }
+  return next;
+}
+
+/**
+ * Serves the APK. Kept on the API router (not express.static) so the download is
+ * counted and the folder is never listed.
+ */
+api.get('/app/download', (req, res) => {
+  const file = apkPath();
+  if (!fs.existsSync(file)) {
+    return res.status(404).json({ error: 'The Android build is not published yet.' });
+  }
+  const counts = bumpApkCount();
+
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', `attachment; filename="${APK_NAME}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Aria-Download', String(counts.total));
+  return res.sendFile(file);
+});
 
 api.get('/system/status', async (_req, res) => {
   if (callerBridge) {
@@ -1873,8 +2002,6 @@ api.get('/shared/:token', async (req, res) => {
 
 api.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-
 /**
  * Google Play Trusted Web Activity (TWA) Digital Asset Links endpoint.
  * Set ANDROID_PACKAGE_NAME and ANDROID_SHA256_FINGERPRINTS (comma-separated)
@@ -1933,6 +2060,19 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
 });
 
 app.use('/api', api);
+
+// Only the APK itself is exposed statically — never the rest of the folder.
+app.get(`/downloads/${APK_NAME}`, (_req, res) => {
+  const file = apkPath();
+  if (!fs.existsSync(file)) {
+    return res.status(404).type('text/plain').send('The Android build is not published yet.');
+  }
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', `attachment; filename="${APK_NAME}"`);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Content-Length', String(fs.statSync(file).size));
+  return res.sendFile(file);
+});
 
 if (fs.existsSync(DIST_DIR)) {
   app.use(

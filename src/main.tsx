@@ -2,7 +2,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { captureInstallPrompt } from './lib/install';
 import './styles.css';
+
+// Must run before React mounts: Chrome fires `beforeinstallprompt` early.
+captureInstallPrompt();
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   const hadController = Boolean(navigator.serviceWorker.controller);

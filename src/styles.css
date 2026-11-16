@@ -2460,3 +2460,415 @@ select {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------- product page (/app) */
+
+.app-page {
+  min-height: 100dvh;
+  background: var(--canvas);
+}
+
+.app-page-main {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 18px 16px calc(40px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* hero */
+
+.app-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 22px 18px 24px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(120% 90% at 50% -10%, var(--brand-soft) 0%, transparent 62%),
+    var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.app-hero-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+}
+
+.app-hero-mark::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 26px;
+  border: 1px solid var(--brand-soft-2);
+  background: var(--brand-soft);
+  z-index: 0;
+}
+
+.app-hero-mark > svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 10px 20px rgba(9, 40, 27, 0.2));
+}
+
+.app-hero-title {
+  font-size: 27px;
+  line-height: 1.14;
+  letter-spacing: -0.028em;
+  font-weight: 650;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.app-hero-lede {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0;
+  max-width: 34ch;
+}
+
+.app-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.app-cta-main {
+  min-height: 48px;
+  font-size: 14.5px;
+}
+
+.app-cta-note {
+  margin: 0;
+}
+
+.app-facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.app-facts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-facts svg {
+  color: var(--brand-text);
+}
+
+/* cards */
+
+.app-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-card-title {
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.app-download-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-specs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 2px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.app-specs > div {
+  background: var(--surface-2);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-specs dt {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.app-specs dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-digest {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.app-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.app-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.app-step-num {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* sections */
+
+.app-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-section-title {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin: 0 2px;
+}
+
+.app-how,
+.app-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-how-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.app-how-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand-text);
+  background: var(--brand-soft);
+  border-radius: 6px;
+  padding: 3px 6px;
+  flex-shrink: 0;
+}
+
+.app-how h3,
+.app-feature h3 {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.app-how p,
+.app-feature p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.app-feature {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.app-feature-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand-text);
+}
+
+/* mock art inside "how it works" */
+
+.app-art {
+  border-radius: 12px;
+  border: 1px dashed var(--line-strong);
+  background: var(--surface-2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-art-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-art-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app-art-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 2px;
+}
+
+.app-art-lines span,
+.app-art-bars span {
+  display: block;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--surface-3);
+}
+
+.app-art-bars span:nth-child(1) {
+  background: var(--brand);
+  opacity: 0.8;
+}
+
+.app-art-bars span:nth-child(2) {
+  background: var(--brand);
+  opacity: 0.38;
+}
+
+.app-art-title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.app-art-tag {
+  align-self: flex-start;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--brand-text);
+  background: var(--brand-soft);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.app-art-seq {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.app-art-seq .small {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.app-art-index {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.app-art-quote {
+  margin: 0;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--muted);
+  border-left: 2px solid var(--brand-soft-2);
+  padding-left: 8px;
+}
+
+/* footer */
+
+.app-foot {
+  gap: 14px;
+  background:
+    radial-gradient(110% 130% at 0% 0%, var(--brand-soft) 0%, transparent 58%),
+    var(--surface);
+}
+
+.app-foot-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.app-foot-actions .btn {
+  flex: 1;
+}
+
+.app-foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}

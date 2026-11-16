@@ -28,6 +28,7 @@ import { LineupViewPage } from './pages/LineupViewPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { SharedPage } from './pages/SharedPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { AppPage } from './pages/AppPage';
 import { DeleteAccountPage } from './pages/DeleteAccountPage';
 import { AdminPage } from './pages/AdminPage';
 
@@ -246,6 +247,21 @@ function TopBar() {
               className="list-row"
               onClick={() => {
                 setMenuOpen(false);
+                navigate('/app');
+              }}
+            >
+              <Icon name="device" size={16} className="muted" />
+              <div className="list-row-body">
+                <div className="list-row-title">Get the app</div>
+              </div>
+              <Icon name="chevronRight" size={16} className="muted" />
+            </button>
+
+            <button
+              type="button"
+              className="list-row"
+              onClick={() => {
+                setMenuOpen(false);
                 navigate('/privacy');
               }}
             >
@@ -365,6 +381,15 @@ function Shell() {
           <Route path="/privacy" element={<PrivacyPage />} />
         </Routes>
       </div>
+    );
+  }
+
+  // Public product page: explains Aria and hosts the Android download.
+  if (pathname === '/app') {
+    return (
+      <Routes>
+        <Route path="/app" element={<AppPage />} />
+      </Routes>
     );
   }
 

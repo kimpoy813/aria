@@ -1,0 +1,442 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Logo, Wordmark } from '../components/Logo';
+import { Icon, IconButton } from '../components/ui';
+import type { IconName } from '../components/Icon';
+import { appRelease, type AppRelease } from '../lib/api';
+import {
+  canPromptInstall,
+  detectPlatform,
+  formatBytes,
+  isInstalled,
+  promptInstall,
+  shortDigest,
+  type Platform,
+} from '../lib/install';
+import { useStore } from '../lib/store';
+
+const FEATURES: { icon: IconName; title: string; body: string }[] = [
+  {
+    icon: 'songs',
+    title: 'Songs, stored by part',
+    body: 'Keep every verse, chorus and bridge on its own so any section can be reused later.',
+  },
+  {
+    icon: 'sparkle',
+    title: 'Reads the lyric',
+    body: 'Aria names the class and message — love, faith, hope, longing — and shows the line that carried it.',
+  },
+  {
+    icon: 'drag',
+    title: 'Lineups by the part',
+    body: 'Drag a chorus from one song and a bridge from another. Repeat a part as many times as the set needs.',
+  },
+  {
+    icon: 'clock',
+    title: 'Least recently used',
+    body: 'Sharing a lineup link counts as using it, so the next suggestion is always one you have not played in a while.',
+  },
+  {
+    icon: 'teams',
+    title: 'Teams on a code',
+    body: 'Create a team or join with a code, then copy songs and lineups between members.',
+  },
+  {
+    icon: 'link',
+    title: 'A link that just works',
+    body: 'Send a view-only lineup with the real lyrics — no account and no app needed at the other end.',
+  },
+];
+
+const HOW_IT_WORKS: { step: string; title: string; body: string; art: 'song' | 'class' | 'lineup' }[] = [
+  {
+    step: '01',
+    title: 'Add the song, one part at a time',
+    body: 'Paste the words of a single section, label it Verse 1, and move on to the chorus. Aria keeps the parts separate from the start.',
+    art: 'song',
+  },
+  {
+    step: '02',
+    title: 'Let the lyric name itself',
+    body: 'The classifier reads the words you pasted and returns a class, a one-line message, a confidence figure and a tempo reading.',
+    art: 'class',
+  },
+  {
+    step: '03',
+    title: 'Build the set from the parts',
+    body: 'Drop parts into a sequence, drag to reorder, repeat what the moment needs. One fast and one slow track are required, so a lineup is never flat.',
+    art: 'lineup',
+  },
+];
+
+function MockArt({ kind }: { kind: 'song' | 'class' | 'lineup' }) {
+  if (kind === 'class') {
+    return (
+      <div className="app-art">
+        <div className="app-art-row">
+          <span className="chip brand">Love</span>
+          <span className="tiny muted">84% match</span>
+        </div>
+        <div className="app-art-bars">
+          <span style={{ width: '100%' }} />
+          <span style={{ width: '61%' }} />
+          <span style={{ width: '37%' }} />
+        </div>
+        <p className="app-art-quote">“Stay, stay, the harbor light is low”</p>
+      </div>
+    );
+  }
+
+  if (kind === 'lineup') {
+    return (
+      <div className="app-art">
+        {[
+          { part: 'Verse 1', song: 'Harbor Light', tone: 'slow' as const },
+          { part: 'Chorus', song: 'Paper Kites', tone: 'fast' as const },
+          { part: 'Bridge', song: 'Still Water', tone: 'slow' as const },
+        ].map((row, i) => (
+          <div className="app-art-seq" key={row.part}>
+            <Icon name="drag" size={14} />
+            <span className="app-art-index">{i + 1}</span>
+            <span className="chip brand">{row.part}</span>
+            <span className="truncate small">{row.song}</span>
+            <Icon name={row.tone === 'fast' ? 'fast' : 'slow'} size={14} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-art">
+      <div className="app-art-title">Harbor Light</div>
+      <div className="app-art-tag">Verse 1</div>
+      <div className="app-art-lines">
+        <span style={{ width: '92%' }} />
+        <span style={{ width: '76%' }} />
+        <span style={{ width: '85%' }} />
+      </div>
+      <div className="app-art-tag">Chorus</div>
+      <div className="app-art-lines">
+        <span style={{ width: '88%' }} />
+        <span style={{ width: '63%' }} />
+      </div>
+    </div>
+  );
+}
+
+export function AppPage() {
+  const { theme, toggleTheme, user } = useStore();
+  const [release, setRelease] = useState<AppRelease | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [platform, setPlatform] = useState<Platform>('other');
+  const [installed, setInstalled] = useState(false);
+  const [installable, setInstallable] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    setPlatform(detectPlatform());
+    setInstalled(isInstalled());
+    setInstallable(canPromptInstall());
+
+    const onInstallable = () => setInstallable(true);
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallable(false);
+    };
+    window.addEventListener('aria:installable', onInstallable);
+    window.addEventListener('aria:installed', onInstalled);
+
+    appRelease()
+      .then(setRelease)
+      .catch(() => setFailed(true));
+
+    return () => {
+      window.removeEventListener('aria:installable', onInstallable);
+      window.removeEventListener('aria:installed', onInstalled);
+    };
+  }, []);
+
+  const size = formatBytes(release?.sizeBytes);
+  const digest = shortDigest(release?.sha256);
+  const apkReady = Boolean(release?.available && release.url);
+
+  const primaryLabel = useMemo(() => {
+    if (installed) return 'Aria is installed';
+    if (apkReady) return 'Download the Android app';
+    if (platform === 'ios') return 'Add Aria to your Home Screen';
+    if (platform === 'android') return 'Install Aria on this phone';
+    return 'Install Aria';
+  }, [installed, apkReady, platform]);
+
+  const startDownload = async () => {
+    if (!release?.url) return;
+    setDownloading(true);
+    // Let the browser handle it: /downloads/aria.apk answers with Content-Disposition.
+    window.location.href = release.url;
+    try {
+      const next = await appRelease();
+      setRelease(next);
+    } catch {
+      /* the counter is cosmetic */
+    }
+    window.setTimeout(() => setDownloading(false), 2400);
+  };
+
+  const installFromBrowser = async () => {
+    if (canPromptInstall()) {
+      const accepted = await promptInstall();
+      setInstallable(!accepted);
+      if (accepted) setInstalled(true);
+      return;
+    }
+    document.getElementById('install-steps')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const steps =
+    platform === 'ios'
+      ? [
+          'Open Aria in Safari.',
+          'Tap the Share button.',
+          'Choose “Add to Home Screen”, then Add.',
+        ]
+      : platform === 'android'
+        ? [
+            'Open Aria in Chrome.',
+            'Tap the ⋮ menu, top right.',
+            'Choose “Install app” or “Add to Home screen”.',
+          ]
+        : [
+            'Open Aria in Chrome, Edge or Safari.',
+            'Use the install button in the address bar (or the Share menu on a Mac).',
+            'Aria opens full screen, like any other app.',
+          ];
+
+  return (
+    <div className="app-page">
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link to={user ? '/' : '/login'} className="brand-home" aria-label="Aria">
+            <Wordmark size={24} />
+          </Link>
+          <div className="push" />
+          <IconButton
+            label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <Icon name="sun" size={18} /> : <Icon name="moon" size={18} />}
+          </IconButton>
+        </div>
+      </header>
+
+      <main className="app-main no-nav app-page-main">
+        {/* ------------------------------------------------------------- hero */}
+        <section className="app-hero">
+          <div className="app-hero-mark">
+            <Logo size={64} />
+          </div>
+          <div className="eyebrow">Aria · Android &amp; web</div>
+          <h1 className="app-hero-title">Setlists that read the lyric first.</h1>
+          <p className="app-hero-lede">
+            Aria keeps your songs part by part, names the message inside the words, then helps you
+            build a lineup that has not been played lately. Free, no ads, no trackers.
+          </p>
+          <div className="app-cta">
+            <button
+              type="button"
+              className="btn btn-primary btn-block app-cta-main"
+              onClick={apkReady ? startDownload : installFromBrowser}
+              disabled={installed || downloading}
+            >
+              <Icon name={installed ? 'check' : apkReady ? 'download' : 'device'} size={16} />
+              {downloading ? 'Starting download…' : primaryLabel}
+            </button>
+            {installed ? (
+              <p className="tiny muted app-cta-note">
+                You are already in the installed app. Nothing else to do.
+              </p>
+            ) : apkReady && installable ? (
+              <button type="button" className="btn btn-block" onClick={installFromBrowser}>
+                Or install straight from the browser
+              </button>
+            ) : null}
+            <Link to={user ? '/' : '/login'} className="btn btn-quiet btn-block">
+              {user ? 'Open my library' : 'Use Aria in the browser'}
+              <Icon name="chevronRight" size={14} />
+            </Link>
+          </div>
+          <div className="app-facts">
+            <span>
+              <Icon name="check" size={13} />
+              {apkReady ? `Android APK${release?.version ? ` v${release.version}` : ''}` : 'Android · iPhone · web'}
+            </span>
+            <span>
+              <Icon name="check" size={13} />
+              {apkReady ? `${size ?? 'Small'} download` : `Web app · ${size ?? 'no download'}`}
+            </span>
+            <span>
+              <Icon name="check" size={13} /> Works offline
+            </span>
+          </div>
+        </section>
+
+        {/* --------------------------------------------------------- download */}
+        {apkReady ? (
+          <section className="app-card app-download" aria-labelledby="download-title">
+            <div className="app-download-head">
+              <div>
+                <h2 id="download-title" className="app-card-title">
+                  Download the APK
+                </h2>
+                <p className="tiny muted">
+                  Direct install file · {release?.fileName ?? 'aria.apk'}
+                  {release?.version ? ` · v${release.version}` : ''}
+                </p>
+              </div>
+              <span className="chip brand">Android</span>
+            </div>
+
+            <dl className="app-specs">
+              <div>
+                <dt>Size</dt>
+                <dd>{size ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Version</dt>
+                <dd>{release?.version ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Package</dt>
+                <dd className="mono">{release?.packageName ?? 'app.aria.lineups'}</dd>
+              </div>
+              <div>
+                <dt>Downloads</dt>
+                <dd>{release?.downloads ?? '—'}</dd>
+              </div>
+            </dl>
+
+            <button type="button" className="btn btn-primary btn-block" onClick={startDownload}>
+              <Icon name="download" size={16} />
+              {downloading ? 'Starting download…' : 'Download aria.apk'}
+            </button>
+            {digest ? (
+              <p className="app-digest">
+                <Icon name="lock" size={13} /> SHA-256 <span className="mono">{digest}…</span>
+              </p>
+            ) : null}
+            <p className="tiny muted">
+              Android will ask you to allow installs from this browser the first time. You may also
+              need to allow installs for Aria under Settings → Apps → Special access.
+            </p>
+          </section>
+        ) : (
+          <section className="app-card app-download" aria-labelledby="pwa-title">
+            <div className="app-download-head">
+              <div>
+                <h2 id="pwa-title" className="app-card-title">
+                  Install without a download
+                </h2>
+                <p className="tiny muted">Home-screen app · no store account needed</p>
+              </div>
+              <span className="chip brand">Fastest</span>
+            </div>
+            <p className="small">
+              Aria is a full app in the browser already. Adding it to your home screen gives you the
+              same full-screen experience, an icon, and offline access — on Android, iPhone and
+              desktop.
+            </p>
+            <div className="app-steps" id="install-steps">
+              {steps.map((step, i) => (
+                <div className="app-step" key={step}>
+                  <span className="app-step-num">{i + 1}</span>
+                  <span>{step}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              onClick={installFromBrowser}
+              disabled={installed}
+            >
+              <Icon name={installed ? 'check' : 'device'} size={16} />
+              {installed ? 'Installed' : installable ? 'Install Aria now' : 'Show me how'}
+            </button>
+          </section>
+        )}
+
+        {/* ---------------------------------------------------------- how it works */}
+        <section className="app-section" aria-labelledby="how-title">
+          <h2 id="how-title" className="app-section-title">
+            How Aria works
+          </h2>
+          <div className="app-how">
+            {HOW_IT_WORKS.map((item) => (
+              <article className="app-card app-how-card" key={item.step}>
+                <div className="app-how-head">
+                  <span className="app-how-num">{item.step}</span>
+                  <h3>{item.title}</h3>
+                </div>
+                <p className="small muted">{item.body}</p>
+                <MockArt kind={item.art} />
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------ features */}
+        <section className="app-section" aria-labelledby="features-title">
+          <h2 id="features-title" className="app-section-title">
+            What is inside
+          </h2>
+          <div className="app-features">
+            {FEATURES.map((feature) => (
+              <article className="app-card app-feature" key={feature.title}>
+                <span className="app-feature-icon">
+                  <Icon name={feature.icon} size={18} />
+                </span>
+                <div>
+                  <h3>{feature.title}</h3>
+                  <p className="small muted">{feature.body}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* -------------------------------------------------------------- footer */}
+        <section className="app-card app-foot">
+          <div className="row-between" style={{ alignItems: 'flex-start', gap: 12 }}>
+            <div>
+              <h3 className="app-card-title">Ready when you are</h3>
+              <p className="tiny muted">Sign in with email or Google. Your songs stay yours.</p>
+            </div>
+            <Logo size={36} />
+          </div>
+          <div className="app-foot-actions">
+            <Link to={user ? '/' : '/register'} className="btn btn-primary">
+              {user ? 'Open Aria' : 'Create an account'}
+            </Link>
+            {!user ? (
+              <Link to="/login" className="btn">
+                Log in
+              </Link>
+            ) : null}
+          </div>
+          <div className="app-foot-links">
+            <Link to="/privacy" className="link-button tiny">
+              Privacy policy
+            </Link>
+            <Link to={user ? '/onboarding' : '/login'} className="link-button tiny">
+              Sign in
+            </Link>
+            {release?.notes ? <span className="tiny muted">{release.notes}</span> : null}
+            {failed ? (
+              <span className="tiny muted">Release details could not load — download anyway.</span>
+            ) : null}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}

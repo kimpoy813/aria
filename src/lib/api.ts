@@ -226,3 +226,20 @@ export const api = {
 };
 
 export type { LineupItem };
+
+/** What /app needs to show the right install path. */
+export interface AppRelease {
+  available: boolean;
+  fileName: string;
+  url: string | null;
+  sizeBytes: number | null;
+  sha256: string | null;
+  version: string | null;
+  builtAt: string | null;
+  notes: string | null;
+  downloads: number | null;
+  packageName: string;
+  installType: 'apk' | 'pwa';
+}
+
+export const appRelease = (): Promise<AppRelease> => request<AppRelease>('/app/release');
