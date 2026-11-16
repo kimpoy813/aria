@@ -602,87 +602,134 @@ api.get('/health', (_req, res) => res.json({ ok: true }));
 /**
  * Android release hosting.
  *
- * Drop `aria.apk` into public/downloads/ (or point ARIA_APK_FILE at a path) and
- * it is served here with the metadata the download page needs. Without a file
- * the endpoint reports `available: false` and the page offers Add to Home Screen
- * instead, so the route is never a dead end.
+ * Three sources, in order:
+ *   1. a local package (public/downloads/aria.apk, or ARIA_APK_FILE),
+ *   2. a mirror of a remote URL (ARIA_APK_URL, or a Drive id in ARIA_APK_ID /
+ *      the built-in default below),
+ *   3. nothing yet — the page then offers the Add to Home Screen path.
  *
- * ARIA_APK_VERSION, ARIA_APK_SIZE, ARIA_APK_SHA256 and ARIA_APK_NOTES override
- * what is read from disk / the file name.
+ * The mirror fetches once into DATA_DIR/apk-cache and is served from there
+ * afterwards, so a Drive share link becomes a normal same-origin download with
+ * a real Content-Length, a SHA-256 we computed ourselves, and a working counter.
+ * ARIA_APK_MIRROR=off disables source 2.
+ *
+ * Overrides: ARIA_APK_VERSION, ARIA_APK_NOTES, ARIA_APK_SHA256.
  */
 const DEFAULT_APK_FILE = path.join(PUBLIC_DIR, 'downloads', 'aria.apk');
 const APK_NAME = 'aria.apk';
+const APK_CACHE_DIR = path.join(DATA_DIR, 'apk-cache');
+const APK_CACHE_FILE = path.join(APK_CACHE_DIR, APK_NAME);
+const APK_CACHE_META = path.join(APK_CACHE_DIR, 'meta.json');
+const APK_MAX_BYTES = 200 * 1024 * 1024;
 
-function apkPath() {
+/** The Aria build shared from Google Drive. */
+const DEFAULT_APK_DRIVE_ID = '1SGc2Cz7QMnWHHnlejpMcuOANEJzT7VwJ';
+
+const driveDownloadUrl = (id) =>
+  `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`;
+
+function apkLocalFile() {
   const configured = clean(process.env.ARIA_APK_FILE || '', 400);
   if (configured) return path.isAbsolute(configured) ? configured : path.join(DIST_DIR, configured);
   return DEFAULT_APK_FILE;
 }
 
-function readApk() {
-  const file = apkPath();
-  let stat = null;
-  try {
-    stat = fs.statSync(file);
-  } catch {
-    stat = null;
-  }
-  if (!stat || !stat.isFile()) {
-    return {
-      available: false,
-      fileName: APK_NAME,
-      url: null,
-      sizeBytes: null,
-      sha256: null,
-      version: clean(process.env.ARIA_APK_VERSION || '', 40) || null,
-      builtAt: null,
-      notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
-      downloads: readApkCounts().total,
-    };
-  }
-
-  let sha256 = clean(process.env.ARIA_APK_SHA256 || '', 128) || null;
-  if (!sha256) {
-    try {
-      sha256 = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-    } catch {
-      sha256 = null;
-    }
-  }
-
-  const stamp = new Date(stat.mtimeMs);
-  return {
-    available: true,
-    fileName: APK_NAME,
-    url: `/downloads/${APK_NAME}`,
-    sizeBytes: stat.size,
-    sha256,
-    version:
-      clean(process.env.ARIA_APK_VERSION || '', 40) || `1.0.0+${stamp.toISOString().slice(0, 10)}`,
-    builtAt: stamp.toISOString(),
-    notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
-    downloads: readApkCounts().total,
-  };
+/** Where a remote package comes from, or null when mirroring is switched off. */
+function apkRemoteUrl() {
+  if (String(process.env.ARIA_APK_MIRROR || '').toLowerCase() === 'off') return null;
+  const explicit = clean(process.env.ARIA_APK_URL || '', 600);
+  if (explicit) return explicit;
+  const id = clean(process.env.ARIA_APK_ID || DEFAULT_APK_DRIVE_ID, 200);
+  return id ? driveDownloadUrl(id) : null;
 }
 
-/** Public: the download page reads this. Signed-in callers get the counter too. */
-api.get('/app/release', (req, res) => {
-  const release = readApk();
-  const signedIn = Boolean(req.identity);
-  res.json({
-    ...release,
-    downloads: signedIn ? release.downloads : null,
-    packageName: clean(
-      process.env.ANDROID_PACKAGE_NAME || 'com.kimpoy813.aria',
-      120,
-    ),
-    installType: release.available ? 'apk' : 'pwa',
+let apkMirrorState = { status: 'idle', error: null, at: null };
+let apkMirrorInFlight = null;
+
+function readApkCacheMeta() {
+  try {
+    return JSON.parse(fs.readFileSync(APK_CACHE_META, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** APKs are ZIP archives, so an HTML quota page can be rejected on sight. */
+function looksLikeApk(buffer) {
+  return (
+    buffer.length > 1024 &&
+    buffer[0] === 0x50 &&
+    buffer[1] === 0x4b &&
+    buffer[2] === 0x03 &&
+    buffer[3] === 0x04
+  );
+}
+
+async function mirrorApk(url) {
+  const res = await fetch(url, {
+    redirect: 'follow',
+    headers: { 'User-Agent': 'Aria-Release-Mirror/1.0', Accept: '*/*' },
+    signal: AbortSignal.timeout(120000),
   });
-});
+  if (!res.ok) throw new Error(`mirror responded ${res.status}`);
+
+  const declared = Number(res.headers.get('content-length') || 0);
+  if (declared > APK_MAX_BYTES) throw new Error('mirror file is larger than 200 MB');
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length > APK_MAX_BYTES) throw new Error('mirror file is larger than 200 MB');
+  if (!looksLikeApk(buffer)) throw new Error('mirror did not return a package');
+
+  fs.mkdirSync(APK_CACHE_DIR, { recursive: true });
+  const tmp = `${APK_CACHE_FILE}.part`;
+  fs.writeFileSync(tmp, buffer);
+  fs.renameSync(tmp, APK_CACHE_FILE);
+
+  const meta = {
+    url,
+    sizeBytes: buffer.length,
+    sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    fetchedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(APK_CACHE_META, JSON.stringify(meta));
+  return meta;
+}
+
+/** Path of a servable package, mirroring one first when configured. */
+async function ensureApk() {
+  const local = apkLocalFile();
+  if (fs.existsSync(local)) return local;
+
+  const remote = apkRemoteUrl();
+  if (!remote) return null;
+
+  const cached = readApkCacheMeta();
+  if (cached && cached.url === remote && fs.existsSync(APK_CACHE_FILE)) return APK_CACHE_FILE;
+
+  if (apkMirrorInFlight) return apkMirrorInFlight;
+
+  apkMirrorState = { status: 'fetching', error: null, at: Date.now() };
+  apkMirrorInFlight = mirrorApk(remote)
+    .then((meta) => {
+      apkMirrorState = { status: 'ready', error: null, at: Date.now() };
+      console.log(`[aria] mirrored the Android package (${meta.sizeBytes} bytes)`);
+      return APK_CACHE_FILE;
+    })
+    .catch((err) => {
+      apkMirrorState = { status: 'failed', error: err.message, at: Date.now() };
+      console.error('[aria] could not mirror the Android package:', err.message);
+      return null;
+    })
+    .finally(() => {
+      apkMirrorInFlight = null;
+    });
+
+  return apkMirrorInFlight;
+}
 
 const APK_COUNTS_FILE = path.join(DATA_DIR, 'apk-downloads.json');
 
-/** Download counter lives in its own small file so it never touches the data set. */
+/** The counter lives in its own small file so it never rewrites the data set. */
 function readApkCounts() {
   try {
     const parsed = JSON.parse(fs.readFileSync(APK_COUNTS_FILE, 'utf8'));
@@ -705,13 +752,76 @@ function bumpApkCount() {
   return next;
 }
 
-/**
- * Serves the APK. Kept on the API router (not express.static) so the download is
- * counted and the folder is never listed.
- */
-api.get('/app/download', (req, res) => {
-  const file = apkPath();
-  if (!fs.existsSync(file)) {
+/** Shape the release payload from whatever package we can actually serve. */
+function describeApk(file) {
+  let stat = null;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    stat = null;
+  }
+  if (!stat || !stat.isFile()) {
+    return {
+      available: false,
+      fileName: APK_NAME,
+      url: null,
+      sizeBytes: null,
+      sha256: null,
+      version: clean(process.env.ARIA_APK_VERSION || '', 40) || null,
+      builtAt: null,
+      downloads: readApkCounts().total,
+      source: 'none',
+    };
+  }
+
+  const cached = readApkCacheMeta();
+  const mirrored = file === APK_CACHE_FILE && cached;
+
+  let sha256 = clean(process.env.ARIA_APK_SHA256 || '', 128) || null;
+  if (!sha256 && mirrored) sha256 = cached.sha256;
+  if (!sha256) {
+    try {
+      sha256 = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    } catch {
+      sha256 = null;
+    }
+  }
+
+  const stamp = mirrored ? new Date(cached.fetchedAt) : new Date(stat.mtimeMs);
+  return {
+    available: true,
+    fileName: APK_NAME,
+    url: `/downloads/${APK_NAME}`,
+    sizeBytes: stat.size,
+    sha256,
+    version:
+      clean(process.env.ARIA_APK_VERSION || '', 40) || `1.0.0+${stamp.toISOString().slice(0, 10)}`,
+    builtAt: stamp.toISOString(),
+    downloads: readApkCounts().total,
+    source: mirrored ? 'mirror' : 'file',
+  };
+}
+
+/** Public: the download page reads this. Signed-in callers get the counter too. */
+api.get('/app/release', async (req, res) => {
+  const file = await ensureApk();
+  const release = describeApk(file || '');
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ...release,
+    notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
+    downloads: req.identity ? release.downloads : null,
+    mirrorStatus: apkMirrorState.status,
+    mirrorError: apkMirrorState.status === 'failed' ? apkMirrorState.error : null,
+    packageName: clean(process.env.ANDROID_PACKAGE_NAME || 'com.kimpoy813.aria', 120),
+    installType: release.available ? 'apk' : 'pwa',
+  });
+});
+
+/** Serves the package through the API so a download can be counted. */
+api.get('/app/download', async (_req, res) => {
+  const file = await ensureApk();
+  if (!file) {
     return res.status(404).json({ error: 'The Android build is not published yet.' });
   }
   const counts = bumpApkCount();
@@ -2061,10 +2171,10 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
 
 app.use('/api', api);
 
-// Only the APK itself is exposed statically — never the rest of the folder.
-app.get(`/downloads/${APK_NAME}`, (_req, res) => {
-  const file = apkPath();
-  if (!fs.existsSync(file)) {
+// Only the package itself is exposed here — never a listing of downloads/.
+app.get(`/downloads/${APK_NAME}`, async (_req, res) => {
+  const file = await ensureApk();
+  if (!file) {
     return res.status(404).type('text/plain').send('The Android build is not published yet.');
   }
   res.setHeader('Content-Type', 'application/vnd.android.package-archive');

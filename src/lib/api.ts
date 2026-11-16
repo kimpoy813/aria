@@ -240,6 +240,11 @@ export interface AppRelease {
   downloads: number | null;
   packageName: string;
   installType: 'apk' | 'pwa';
+  /** How the server got the package: local file, mirror, or nothing yet. */
+  source: 'file' | 'mirror' | 'none';
+  /** Mirror progress, when a remote build is being fetched. */
+  mirrorStatus: 'idle' | 'fetching' | 'ready' | 'failed';
+  mirrorError: string | null;
 }
 
 export const appRelease = (): Promise<AppRelease> => request<AppRelease>('/app/release');

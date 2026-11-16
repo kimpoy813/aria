@@ -5,11 +5,15 @@
  *   3. With an APK present the endpoint reports size / sha256 / version and the file downloads
  *   4. Each download is counted, and the counter is public only to signed-in callers
  *   5. /downloads/aria.apk serves the package with the right content type
+ *   6. the mirror path: a remote URL is fetched once, cached, and served locally
+ *   7. a mirror that returns HTML instead of a package is rejected, not served
  */
 
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 let passed = 0;
@@ -71,8 +75,36 @@ async function withServer(port, run, extraEnv) {
   }
 }
 
+/** Small local stand-in for the Google Drive host. */
+function startFixtureServer() {
+  const zip = Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(9000, 9)]);
+  let hits = 0;
+  const htmlPage = Buffer.from('<html><body>quota exceeded</body></html>');
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/package.apk')) {
+      hits += 1;
+      res.writeHead(200, { 'content-length': zip.length, 'content-type': 'application/octet-stream' });
+      return res.end(zip);
+    }
+    if (req.url.startsWith('/not-a-package')) {
+      hits += 1;
+      res.writeHead(200, { 'content-type': 'text/html' });
+      return res.end(htmlPage);
+    }
+    res.writeHead(404);
+    return res.end();
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () =>
+      resolve({ server, zip, base: `http://127.0.0.1:${server.address().port}`, hits: () => hits }),
+    );
+  });
+}
+
 async function run() {
   console.log('\nAria · public app page & Android download\n');
+
+  const fixture = await startFixtureServer();
 
   /* ---------------------------------------- 1. page + bundle without an APK */
   await withServer(5179, async (base) => {
@@ -157,6 +189,45 @@ async function run() {
   );
 
   fs.rmSync(apkDir, { recursive: true, force: true });
+
+  /* --------------------------------------------------- 3. mirroring a URL */
+  console.log('\n3. Mirrored package (ARIA_APK_URL)');
+  const expected = crypto.createHash('sha256').update(fixture.zip).digest('hex');
+  await withServer(
+    5181,
+    async (base, dataDir) => {
+      const release = await (await fetch(`${base}/api/app/release`)).json();
+      check('a remote package is mirrored and reported available', release.available === true && release.source === 'mirror');
+      check('mirrored size and digest match the source', release.sizeBytes === fixture.zip.length && release.sha256 === expected);
+      check('the package is cached on disk', fs.existsSync(path.join(dataDir, 'apk-cache', 'aria.apk')));
+
+      const dl = await fetch(`${base}/downloads/aria.apk`);
+      const bytes = Buffer.from(await dl.arrayBuffer());
+      check('the mirrored package downloads byte for byte', dl.status === 200 && bytes.equals(fixture.zip));
+      check('the mirror is fetched once, not per request', fixture.hits() === 1);
+
+      const counted = await fetch(`${base}/api/app/download`);
+      check('mirrored downloads are counted too', counted.headers.get('x-aria-download') === '1');
+    },
+    { ARIA_APK_URL: `${fixture.base}/package.apk` },
+  );
+
+  /* ------------------------------------------- 4. a bad mirror is rejected */
+  console.log('\n4. Mirror guard');
+  await withServer(
+    5182,
+    async (base, dataDir) => {
+      const release = await (await fetch(`${base}/api/app/release`)).json();
+      check('an HTML page from the mirror is not treated as a package', release.available === false);
+      check('the failure is reported, not hidden', release.mirrorStatus === 'failed' && /package/i.test(release.mirrorError || ''));
+      check('nothing bogus is written to the cache', !fs.existsSync(path.join(dataDir, 'apk-cache', 'aria.apk')));
+      const dl = await fetch(`${base}/downloads/aria.apk`);
+      check('the download stays 404 after a bad mirror', dl.status === 404);
+    },
+    { ARIA_APK_URL: `${fixture.base}/not-a-package` },
+  );
+
+  fixture.server.close();
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);

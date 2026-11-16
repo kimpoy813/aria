@@ -19,32 +19,42 @@ const FEATURES: { icon: IconName; title: string; body: string }[] = [
   {
     icon: 'songs',
     title: 'Songs, stored by part',
-    body: 'Keep every verse, chorus and bridge on its own so any section can be reused later.',
+    body: 'Every verse, chorus, pre-chorus and bridge stays on its own, with its own words. Reuse any section later without re-typing a line.',
   },
   {
     icon: 'sparkle',
-    title: 'Reads the lyric',
-    body: 'Aria names the class and message — love, faith, hope, longing — and shows the line that carried it.',
+    title: 'Reads the lyric, not the genre',
+    body: 'Aria classifies each part by what the words actually say — love, faith, hope, longing, grief — and gives you the message in one line plus the phrase that carried it.',
+  },
+  {
+    icon: 'fast',
+    title: 'Knows fast from slow',
+    body: 'Each song carries a tempo reading, so a lineup can be checked against the brief: at least one fast track and one slow one, every time.',
   },
   {
     icon: 'drag',
     title: 'Lineups by the part',
-    body: 'Drag a chorus from one song and a bridge from another. Repeat a part as many times as the set needs.',
+    body: 'Drag a chorus from one song and a bridge from another. Drop the same chorus twice if the moment calls for it — repetition is a choice, not a copy.',
   },
   {
     icon: 'clock',
     title: 'Least recently used',
-    body: 'Sharing a lineup link counts as using it, so the next suggestion is always one you have not played in a while.',
+    body: 'Sharing a lineup link counts as using it. Aria suggests the set you have not played in the longest time, so Sunday never sounds like last Sunday.',
   },
   {
     icon: 'teams',
     title: 'Teams on a code',
-    body: 'Create a team or join with a code, then copy songs and lineups between members.',
+    body: 'Create a team or join one with a short code, then copy songs and whole lineups between members. Everyone gets their own labelled copy.',
   },
   {
     icon: 'link',
     title: 'A link that just works',
-    body: 'Send a view-only lineup with the real lyrics — no account and no app needed at the other end.',
+    body: 'Send a view-only lineup with the real lyrics — title, part name, words. No account, no app and no numbering at the other end.',
+  },
+  {
+    icon: 'lock',
+    title: 'Quiet about your data',
+    body: 'No ads, no trackers, no third-party analytics. Delete your account and everything in it from the account sheet whenever you want.',
   },
 ];
 
@@ -52,20 +62,47 @@ const HOW_IT_WORKS: { step: string; title: string; body: string; art: 'song' | '
   {
     step: '01',
     title: 'Add the song, one part at a time',
-    body: 'Paste the words of a single section, label it Verse 1, and move on to the chorus. Aria keeps the parts separate from the start.',
+    body: 'Paste the words of one section, label it Verse 1, then move on to the chorus. Songs stay editable, and every part is its own reusable piece — which is what makes the next step possible.',
     art: 'song',
   },
   {
     step: '02',
     title: 'Let the lyric name itself',
-    body: 'The classifier reads the words you pasted and returns a class, a one-line message, a confidence figure and a tempo reading.',
+    body: 'The classifier reads what you pasted and returns a class, a one-line message, a confidence figure and the exact line that drove the reading. You can edit any of it if you disagree.',
     art: 'class',
   },
   {
     step: '03',
     title: 'Build the set from the parts',
-    body: 'Drop parts into a sequence, drag to reorder, repeat what the moment needs. One fast and one slow track are required, so a lineup is never flat.',
+    body: 'Drop parts into a sequence, drag to reorder, repeat what the moment needs. One fast and one slow track are required, so a lineup never sits on one tempo. Share it as a link when it is ready.',
     art: 'lineup',
+  },
+];
+
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: 'Is Aria free?',
+    a: 'Yes. There is no paid tier, no advertising and no tracking. Create an account and use it.',
+  },
+  {
+    q: 'Do I need the APK?',
+    a: 'No. The web app installs to your home screen and opens full screen. The APK is for people who want a normal Android install, or a copy they can keep offline.',
+  },
+  {
+    q: 'Why does Android warn about the file?',
+    a: 'Any app installed outside Google Play triggers that warning. Aria is distributed directly, so the warning is expected. Check the SHA-256 on this page against your downloaded file if you want to be certain.',
+  },
+  {
+    q: 'Which Android versions work?',
+    a: 'Android 8.0 and newer. The web install works on any modern browser, including iPhone and desktop.',
+  },
+  {
+    q: 'What happens to my songs if I switch devices?',
+    a: 'They follow your account. Sign in on the new device and the library, lineups and teams are there.',
+  },
+  {
+    q: 'How do I delete my account?',
+    a: 'Sign in, open the account sheet from your avatar, and choose Delete account. Songs, lineups and team memberships go with it.',
   },
 ];
 
@@ -160,6 +197,8 @@ export function AppPage() {
   const size = formatBytes(release?.sizeBytes);
   const digest = shortDigest(release?.sha256);
   const apkReady = Boolean(release?.available && release.url);
+  const mirroring = release?.mirrorStatus === 'fetching';
+  const mirrorFailed = release?.mirrorStatus === 'failed';
 
   const primaryLabel = useMemo(() => {
     if (installed) return 'Aria is installed';
@@ -280,6 +319,44 @@ export function AppPage() {
           </div>
         </section>
 
+        {/* -------------------------------------------------------- at a glance */}
+        <section className="app-card app-glance" aria-label="At a glance">
+          <div className="app-glance-row">
+            <span className="app-glance-icon">
+              <Icon name="device" size={16} />
+            </span>
+            <div>
+              <div className="app-glance-title">On your phone</div>
+              <p className="tiny muted">
+                Android 8 and newer. {apkReady ? `${size} install file, sideloaded once.` : 'Install from the browser in seconds.'}
+              </p>
+            </div>
+          </div>
+          <div className="app-glance-row">
+            <span className="app-glance-icon">
+              <Icon name="monitor" size={16} />
+            </span>
+            <div>
+              <div className="app-glance-title">Anywhere else</div>
+              <p className="tiny muted">
+                The same account on the web — iPhone, tablet and desktop included.
+              </p>
+            </div>
+          </div>
+          <div className="app-glance-row">
+            <span className="app-glance-icon">
+              <Icon name="lock" size={16} />
+            </span>
+            <div>
+              <div className="app-glance-title">Before you install</div>
+              <p className="tiny muted">
+                Android will warn that this came from outside Google Play. That is expected for a
+                direct download — the checksum below is here so you can verify the file.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* --------------------------------------------------------- download */}
         {apkReady ? (
           <section className="app-card app-download" aria-labelledby="download-title">
@@ -345,6 +422,18 @@ export function AppPage() {
               same full-screen experience, an icon, and offline access — on Android, iPhone and
               desktop.
             </p>
+            {mirroring ? (
+              <p className="app-mirror tiny muted">
+                <Icon name="refresh" size={13} /> Fetching the latest build — this takes a moment the
+                first time.
+              </p>
+            ) : null}
+            {mirrorFailed ? (
+              <p className="app-mirror tiny muted">
+                <Icon name="refresh" size={13} /> The download is being prepared and is not ready
+                yet. The home-screen install below works right now.
+              </p>
+            ) : null}
             <div className="app-steps" id="install-steps">
               {steps.map((step, i) => (
                 <div className="app-step" key={step}>
@@ -400,6 +489,24 @@ export function AppPage() {
                   <p className="small muted">{feature.body}</p>
                 </div>
               </article>
+            ))}
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------------------- FAQ */}
+        <section className="app-section" aria-labelledby="faq-title">
+          <h2 id="faq-title" className="app-section-title">
+            Common questions
+          </h2>
+          <div className="app-faq">
+            {FAQ.map((item) => (
+              <details className="app-card app-faq-item" key={item.q}>
+                <summary>
+                  <span>{item.q}</span>
+                  <Icon name="chevronDown" size={16} className="muted" />
+                </summary>
+                <p className="small muted">{item.a}</p>
+              </details>
             ))}
           </div>
         </section>

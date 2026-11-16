@@ -4,6 +4,7 @@ dist
 *.local
 server/data.json
 server/apk-downloads.json
+server/apk-cache/
 .env
 .vite
 tsconfig.tsbuildinfo
