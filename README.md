@@ -70,6 +70,21 @@ resets need Supabase). See [DEPLOY.md](DEPLOY.md).
   gets their own labelled copy.
 - **Share a lineup** two ways: a view-only link, or straight into a team.
 
+## The app page (`/app`)
+
+A public page — no session needed — that explains Aria and hosts the install. It shows the mark,
+what the app does, a three-step walkthrough with mock screens, the feature list, and the install
+card. The card adapts:
+
+- **APK published** (`public/downloads/aria.apk`, or `ARIA_APK_FILE`): a download button with size,
+  version, package name and SHA-256 read from the file, plus a download counter (`GET
+  /api/app/release`, file `GET /api/app/download` or `/downloads/aria.apk`).
+- **No APK yet**: the Add to Home Screen path, with per-platform steps, backed by the browser's own
+  `beforeinstallprompt` when it offers one.
+
+Either way it links to registration or the library, and it is the target of **Get the app** on the
+sign-in screen and in the account sheet. `npm run test:app` covers both states.
+
 ## The LRU behaviour
 
 Aria's rule from the brief: **a lineup counts as used when its link is shared.**
@@ -135,6 +150,7 @@ server/storage.js        storage drivers: local JSON file or Supabase Postgres
 supabase/schema.sql      tables, indexes and RLS for Supabase (paste into SQL Editor)
 scripts/test-auth.mjs      end-to-end check of both auth drivers
 scripts/test-supabase.mjs  end-to-end check of the Supabase path on a real Postgres
+scripts/test-app-page.mjs  checks /app and the APK download/counter in both states
 src/lib/nlp.ts           lyric classifier: lexicons, themes, tone, per-part signals, message
 src/lib/lru.ts           LRU ordering, sequence resolution, tempo mix, time helpers
 src/lib/store.tsx        app state, theme (light/dark), session, onboarding flag

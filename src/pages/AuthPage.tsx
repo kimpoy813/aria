@@ -54,6 +54,9 @@ function Shell({ children }: { children: React.ReactNode }) {
         )}
         <div className="auth-main">{children}</div>
         <div className="row" style={{ justifyContent: 'center', gap: 14, paddingBottom: 14 }}>
+          <Link to="/app" className="link-button tiny">
+            Get the app
+          </Link>
           <Link to="/privacy" className="link-button tiny">
             Privacy Policy
           </Link>

@@ -40,6 +40,12 @@ services:
         value: app.aria.lineups
       - key: ANDROID_SHA256_FINGERPRINTS
         sync: false
+      # Public /app page: point this at the uploaded Android package and the
+      # download button turns on (size + SHA-256 are read from the file).
+      - key: ARIA_APK_FILE
+        sync: false
+      - key: ARIA_APK_VERSION
+        sync: false
       # System Administrator account & optional comma-separated Google/Supabase admin emails:
       - key: ADMIN_EMAIL
         value: admin@aria.app

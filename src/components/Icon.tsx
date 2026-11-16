@@ -46,6 +46,8 @@ export type IconName =
   | 'user'
   | 'logout'
   | 'filter'
+  | 'download'
+  | 'device'
   | 'eyeOff'
   | 'paste'
   | 'monitor';
@@ -228,6 +230,19 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <rect x="3" y="4.2" width="18" height="12.2" rx="2.2" />
       <path d="M8.6 20h6.8M12 16.4V20" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 3.6v11.2M7.6 10.4 12 14.8l4.4-4.4" />
+      <path d="M4.4 17.2v1.6a1.6 1.6 0 0 0 1.6 1.6h12a1.6 1.6 0 0 0 1.6-1.6v-1.6" />
+    </>
+  ),
+  device: (
+    <>
+      <rect x="7.2" y="2.8" width="9.6" height="18.4" rx="2.2" />
+      <path d="M10.6 5.6h2.8" />
+      <circle cx="12" cy="17.8" r="1" fill="currentColor" stroke="none" />
     </>
   ),
 };

@@ -17,7 +17,8 @@
     "test:playstore": "node scripts/test-playstore.mjs",
     "test:admin": "node scripts/test-admin.mjs",
     "test:classifier": "node scripts/test-classifier.mjs",
-    "icons": "node scripts/generate-icons.mjs"
+    "icons": "node scripts/generate-icons.mjs",
+    "test:app": "node scripts/test-app-page.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

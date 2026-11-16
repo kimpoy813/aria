@@ -6,7 +6,7 @@
  *   and stale-while-revalidate for static assets.
  */
 
-const CACHE_NAME = 'aria-shell-v11';
+const CACHE_NAME = 'aria-shell-v12';
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',
@@ -63,6 +63,8 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/auth/') ||
     url.pathname.startsWith('/.well-known/') ||
+    // Package downloads must never come from (or land in) the app cache.
+    url.pathname.startsWith('/downloads/') ||
     url.searchParams.has('code') ||
     url.searchParams.has('relay') ||
     url.searchParams.has('error') ||

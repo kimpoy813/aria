@@ -3,8 +3,13 @@ dist
 .DS_Store
 *.local
 server/data.json
+server/apk-downloads.json
 .env
 .vite
 tsconfig.tsbuildinfo
 server/auth.json
 server/admin-auth.json
+
+# Android builds are binary artifacts: host them outside git.
+public/downloads/*.apk
+public/downloads/*.aab
