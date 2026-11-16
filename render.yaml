@@ -40,11 +40,16 @@ services:
         value: app.aria.lineups
       - key: ANDROID_SHA256_FINGERPRINTS
         sync: false
-      # Public /app page: point this at the uploaded Android package and the
-      # download button turns on (size + SHA-256 are read from the file).
-      - key: ARIA_APK_FILE
-        sync: false
+      # Public /app page — the Android download. The server mirrors the Google
+      # Drive build once, caches it, and serves it same-origin, so no binary needs
+      # to live in git. Set ARIA_APK_ID to point at a different Drive file, or
+      # ARIA_APK_URL for any direct link. ARIA_APK_FILE wins when a build is
+      # placed on disk, and ARIA_APK_MIRROR=off disables mirroring entirely.
+      - key: ARIA_APK_ID
+        value: 1SGc2Cz7QMnWHHnlejpMcuOANEJzT7VwJ
       - key: ARIA_APK_VERSION
+        sync: false
+      - key: ARIA_APK_FILE
         sync: false
       # System Administrator account & optional comma-separated Google/Supabase admin emails:
       - key: ADMIN_EMAIL

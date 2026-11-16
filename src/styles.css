@@ -2872,3 +2872,95 @@ select {
   align-items: center;
   gap: 8px 14px;
 }
+
+/* product page — at a glance, mirror note, FAQ */
+
+.app-glance {
+  gap: 14px;
+}
+
+.app-glance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.app-glance-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--brand-text);
+}
+
+.app-glance-title {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 1px;
+}
+
+.app-glance-row p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.app-mirror {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.app-faq {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-faq-item {
+  padding: 0;
+  overflow: hidden;
+}
+
+.app-faq-item summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.app-faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.app-faq-item summary svg {
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+}
+
+.app-faq-item[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.app-faq-item p {
+  margin: 0;
+  padding: 0 14px 13px;
+  line-height: 1.55;
+}
+
+.app-faq-item[open] summary {
+  color: var(--brand-text);
+}

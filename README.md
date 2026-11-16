@@ -76,9 +76,12 @@ A public page — no session needed — that explains Aria and hosts the install
 what the app does, a three-step walkthrough with mock screens, the feature list, and the install
 card. The card adapts:
 
-- **APK published** (`public/downloads/aria.apk`, or `ARIA_APK_FILE`): a download button with size,
-  version, package name and SHA-256 read from the file, plus a download counter (`GET
-  /api/app/release`, file `GET /api/app/download` or `/downloads/aria.apk`).
+- **APK available**: a download button with size, version, package name and SHA-256. The server
+  mirrors the build shared from Google Drive (`ARIA_APK_ID`, or `ARIA_APK_URL`, or a file at
+  `public/downloads/aria.apk` / `ARIA_APK_FILE`) into `apk-cache` once, then serves it same-origin,
+  counted, via `GET /api/app/download` or `/downloads/aria.apk`. `GET /api/app/release` reports
+  availability, the mirror state and the digest; an HTML quota page from the host is rejected rather
+  than served.
 - **No APK yet**: the Add to Home Screen path, with per-platform steps, backed by the browser's own
   `beforeinstallprompt` when it offers one.
 
