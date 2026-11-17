@@ -271,10 +271,29 @@ export function AppPage() {
       <main className="app-main no-nav app-page-main">
         {/* ------------------------------------------------------------- hero */}
         <section className="app-hero">
-          <div className="app-hero-mark">
-            <Logo size={64} />
+          <div className="app-hero-stage" aria-hidden>
+            <span className="app-halo app-halo-1" />
+            <span className="app-halo app-halo-2" />
+            <span className="app-ring" />
+            <svg className="app-wave" viewBox="0 0 240 60" preserveAspectRatio="none" aria-hidden>
+              <path
+                className="app-wave-line app-wave-a"
+                d="M0 30c10 0 10-18 20-18s10 36 20 36 10-36 20-36 10 30 20 30 10-22 20-22 10 26 20 26 10-14 20-14 10 10 20 10 10-6 20-6 10 4 20 4 10-2 20-2"
+              />
+              <path
+                className="app-wave-line app-wave-b"
+                d="M0 34c12 0 12 12 24 12s12-24 24-24 12 26 24 26 12-18 24-18 12 16 24 16 12-10 24-10 12 8 24 8 12-6 24-6 12 2 24 2"
+              />
+            </svg>
+            <span className="app-hero-mark">
+              <span className="app-tile-shine" />
+              <Logo size={76} />
+            </span>
           </div>
-          <div className="eyebrow">Aria · Android &amp; web</div>
+          <div className="app-pill">
+            <span className="app-pill-dot" />
+            {apkReady ? 'Android build available' : 'Android & web'}
+          </div>
           <h1 className="app-hero-title">Setlists that read the lyric first.</h1>
           <p className="app-hero-lede">
             Aria keeps your songs part by part, names the message inside the words, then helps you
