@@ -2495,29 +2495,6 @@ select {
   box-shadow: var(--shadow-lg);
 }
 
-.app-hero-mark {
-  position: relative;
-  display: grid;
-  place-items: center;
-  margin-bottom: 2px;
-}
-
-.app-hero-mark::after {
-  content: '';
-  position: absolute;
-  inset: -14px;
-  border-radius: 26px;
-  border: 1px solid var(--brand-soft-2);
-  background: var(--brand-soft);
-  z-index: 0;
-}
-
-.app-hero-mark > svg {
-  position: relative;
-  z-index: 1;
-  filter: drop-shadow(0 10px 20px rgba(9, 40, 27, 0.2));
-}
-
 .app-hero-title {
   font-size: 27px;
   line-height: 1.14;
@@ -2963,4 +2940,287 @@ select {
 
 .app-faq-item[open] summary {
   color: var(--brand-text);
+}
+
+/* ------------------------------------------------- /app hero stage & motion */
+
+/* Replace the earlier flat mark treatment with a staged hero. */
+.app-hero-stage {
+  position: relative;
+  width: 100%;
+  padding: 26px 0 18px;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
+
+.app-hero-mark {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  animation: appMarkIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.app-hero-mark::after {
+  content: '';
+  position: absolute;
+  inset: -13px;
+  border-radius: 30px;
+  border: 1px solid var(--brand-soft-2);
+  background: var(--brand-soft);
+  z-index: -1;
+  animation: appBreathe 7s ease-in-out infinite;
+}
+
+.app-hero-mark > svg {
+  display: block;
+  border-radius: 18px;
+  box-shadow:
+    0 2px 4px rgba(9, 40, 27, 0.1),
+    0 14px 30px -10px rgba(9, 40, 27, 0.4);
+}
+
+/* soft light behind the mark */
+.app-halo {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(26px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app-halo-1 {
+  width: 190px;
+  height: 150px;
+  background: color-mix(in srgb, var(--brand) 22%, transparent);
+  animation: appDrift 15s ease-in-out infinite alternate;
+}
+
+.app-halo-2 {
+  width: 150px;
+  height: 120px;
+  margin-left: 64px;
+  background: color-mix(in srgb, var(--brand) 13%, transparent);
+  animation: appDrift 19s ease-in-out infinite alternate-reverse;
+}
+
+:root[data-theme='dark'] .app-halo-1 {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+:root[data-theme='dark'] .app-halo-2 {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+:root[data-theme='dark'] .app-hero-mark > svg {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 16px 34px -12px rgba(0, 0, 0, 0.7);
+}
+
+/* a slow ring, like a record turning */
+.app-ring {
+  position: absolute;
+  width: 232px;
+  height: 232px;
+  border-radius: 50%;
+  border: 1px dashed var(--brand-soft-2);
+  z-index: 0;
+  opacity: 0.9;
+  animation: appSpin 46s linear infinite;
+}
+
+/* two waveform lines drifting behind the mark */
+.app-wave {
+  position: absolute;
+  inset: auto 0 4px;
+  width: 100%;
+  height: 62px;
+  z-index: 0;
+  opacity: 0.5;
+  mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+}
+
+.app-wave-line {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.app-wave-a {
+  opacity: 0.55;
+  animation: appWaveFloat 9s ease-in-out infinite alternate;
+}
+
+.app-wave-b {
+  opacity: 0.28;
+  animation: appWaveFloat 12s ease-in-out infinite alternate-reverse;
+}
+
+/* small status pill under the stage */
+.app-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+}
+
+.app-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+  animation: appPulse 2.6s ease-in-out infinite;
+}
+
+/* entrance for the whole hero, staggered per block */
+.app-hero > * {
+  animation: appRise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.app-hero > :nth-child(2) {
+  animation-delay: 0.06s;
+}
+
+.app-hero > :nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.app-hero > :nth-child(4) {
+  animation-delay: 0.18s;
+}
+
+.app-hero > :nth-child(5) {
+  animation-delay: 0.24s;
+}
+
+.app-hero > :nth-child(6) {
+  animation-delay: 0.3s;
+}
+
+@keyframes appMarkIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+}
+
+@keyframes appRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes appBreathe {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes appDrift {
+  from {
+    transform: translate3d(-14px, 6px, 0) scale(1);
+  }
+  to {
+    transform: translate3d(16px, -8px, 0) scale(1.12);
+  }
+}
+
+@keyframes appSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes appWaveFloat {
+  from {
+    transform: translateY(2px) scaleY(0.94);
+  }
+  to {
+    transform: translateY(-3px) scaleY(1.06);
+  }
+}
+
+@keyframes appPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 8%, transparent);
+  }
+}
+
+/* a single light sweep across the mark, once, after it lands */
+.app-tile-shine {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 18px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-tile-shine::after {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: -60%;
+  width: 40%;
+  height: 180%;
+  transform: rotate(18deg);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, #ffffff 55%, transparent),
+    transparent
+  );
+  animation: appShine 1.05s ease-out 0.55s both;
+}
+
+@keyframes appShine {
+  from {
+    left: -60%;
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  to {
+    left: 120%;
+    opacity: 0;
+  }
+}
+
+/* respect a reduced-motion preference: show the hero, skip the movement */
+@media (prefers-reduced-motion: reduce) {
+  .app-hero > *,
+  .app-hero-mark,
+  .app-hero-mark::after,
+  .app-halo,
+  .app-ring,
+  .app-wave-line,
+  .app-pill-dot,
+  .app-tile-shine::after {
+    animation: none !important;
+  }
 }
