@@ -7,7 +7,7 @@
  *   5. /downloads/aria.apk serves the package with the right content type
  *   6. the mirror path: a remote URL is fetched once, cached, and served locally
  *   7. a mirror that returns HTML instead of a package is rejected, not served
- *   8. the page's click count shortens to K / M / B / T without overstating it
+ *   8. the page's download count shortens to K / M / B / T without overstating it
  */
 
 import fs from 'node:fs';
@@ -150,7 +150,7 @@ async function run() {
     const release = await (await fetch(`${base}/api/app/release`)).json();
     check('release endpoint reports availability honestly', release.available === false);
     check('release falls back to the web install', release.installType === 'pwa' && release.url === null);
-    check('the click count is public', release.downloads === 0);
+    check('the download count is public', release.downloads === 0);
 
     const missing = await fetch(`${base}/api/app/download`);
     check('download endpoint 404s cleanly with no build', missing.status === 404);
@@ -193,14 +193,14 @@ async function run() {
         (staticDl.headers.get('content-disposition') || '').includes('aria.apk'),
       );
 
-      /* the count is clicks, through either URL, and it is persisted */
+      /* the count is every download, through either URL, and it is persisted */
       // Two fetches have happened above: the API download, then the /downloads link.
       const before = await (await fetch(`${base}/api/app/release`)).json();
-      check('every click is counted, through either URL', before.downloads === 2);
+      check('every download is counted, through either URL', before.downloads === 2);
 
       await fetch(`${base}/downloads/aria.apk`);
       const afterLink = await (await fetch(`${base}/api/app/release`)).json();
-      check('the count keeps climbing on repeat clicks', afterLink.downloads === 3);
+      check('the count keeps climbing on repeat downloads', afterLink.downloads === 3);
 
       const stored = JSON.parse(
         fs.readFileSync(path.join(dataDir, 'data.json'), 'utf8'),
@@ -244,7 +244,7 @@ async function run() {
         counted.headers.get('x-aria-download') === '2',
       );
       const releaseAfter = await (await fetch(`${base}/api/app/release`)).json();
-      check('the count is visible on the page after a click', releaseAfter.downloads === 2);
+      check('the count is visible on the page after a download', releaseAfter.downloads === 2);
     },
     { ARIA_APK_URL: `${fixture.base}/package.apk` },
   );
@@ -318,7 +318,7 @@ async function run() {
     legacyDir,
   );
 
-  // second boot on the same data dir: still there, and a click still adds one
+  // second boot on the same data dir: still there, and a download still adds one
   await withServer(
     5184,
     async (base) => {
@@ -334,17 +334,19 @@ async function run() {
 
   fs.rmSync(legacyDir, { recursive: true, force: true });
 
-  /* ------------------------------------------- 6. compact click formatting */
-  console.log('\n6. Click count formatting');
+  /* --------------------------------------- 6. compact download formatting */
+  console.log('\n6. Download count formatting');
   const bundle = fs
     .readdirSync(path.join(process.cwd(), 'dist', 'assets'))
     .filter((f) => f.endsWith('.js'))
     .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
     .join('\n');
   check(
-    'the page labels the metric as clicks',
-    // minified JSX splits the text: "click" / "clicks" + " so far"
-    /"click"\s*:\s*"clicks"/.test(bundle) && bundle.includes('so far') && bundle.includes('Clicks'),
+    'the page labels the metric as downloads',
+    // minified JSX splits the text: "download" / "downloads" + " so far"
+    /"download"\s*:\s*"downloads"/.test(bundle) &&
+      bundle.includes('so far') &&
+      bundle.includes('Downloads'),
   );
   check('the page uses K/M/B suffixes', /[KMBT]"?\)/.test(bundle) || /`\$\{[^}]*\}[KMBT]`/.test(bundle));
 

@@ -109,7 +109,7 @@ export function formatCount(value: number | null | undefined): {
   ];
 
   // Dropping the fraction, not rounding it: 1,999 is "1.9K", never "2K", so the
-  // number can never claim more clicks than actually happened.
+  // count can never claim more downloads than were actually recorded.
   const truncate = (scaled: number) =>
     scaled >= 100 ? Math.floor(scaled) : Math.floor(scaled * 10) / 10;
 

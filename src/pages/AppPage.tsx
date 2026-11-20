@@ -457,8 +457,8 @@ export function AppPage() {
                 <dd className="mono">{release?.packageName ?? 'app.aria.lineups'}</dd>
               </div>
               <div>
-                <dt>Clicks</dt>
-                <dd title={count.exact ? `${count.exact} clicks` : undefined}>
+                <dt>Downloads</dt>
+                <dd title={count.exact ? `${count.exact} downloads` : undefined}>
                   {downloadCountLabel ?? '—'}
                 </dd>
               </div>
@@ -472,12 +472,12 @@ export function AppPage() {
               <p
                 className="app-count"
                 aria-live="polite"
-                title={count.exact ? `${count.exact} clicks` : undefined}
+                title={count.exact ? `${count.exact} downloads` : undefined}
               >
                 <Icon name="check" size={13} />
                 <span>
                   <strong>{downloadCountLabel}</strong>{' '}
-                  {downloadCount === 1 ? 'click' : 'clicks'} so far
+                  {downloadCount === 1 ? 'download' : 'downloads'} so far
                   <span className="sr-only"> ({count.exact})</span>
                 </span>
               </p>
