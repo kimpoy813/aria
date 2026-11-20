@@ -695,17 +695,11 @@ async function mirrorApk(url) {
   return meta;
 }
 
-/** Path of a servable package, mirroring one first when configured. */
-async function ensureApk() {
-  const local = apkLocalFile();
-  if (fs.existsSync(local)) return local;
+/** How long a failed mirror is remembered before another attempt is made. */
+const APK_MIRROR_RETRY_MS = 60 * 1000;
 
-  const remote = apkRemoteUrl();
-  if (!remote) return null;
-
-  const cached = readApkCacheMeta();
-  if (cached && cached.url === remote && fs.existsSync(APK_CACHE_FILE)) return APK_CACHE_FILE;
-
+/** Starts (or joins) the one background mirror, and returns its promise. */
+function startApkMirror(remote) {
   if (apkMirrorInFlight) return apkMirrorInFlight;
 
   apkMirrorState = { status: 'fetching', error: null, at: Date.now() };
@@ -725,6 +719,46 @@ async function ensureApk() {
     });
 
   return apkMirrorInFlight;
+}
+
+/**
+ * Path of a servable package, mirroring one when configured.
+ *
+ * `wait: false` never holds a request open: if the package is not on disk yet it
+ * answers "not ready" immediately and lets the mirror finish in the background.
+ * That is what the page's status poll uses, so a slow or cold mirror can never
+ * stall the page into showing the wrong download state.
+ */
+async function ensureApk({ wait = true } = {}) {
+  const local = apkLocalFile();
+  if (fs.existsSync(local)) return local;
+
+  const remote = apkRemoteUrl();
+  if (!remote) return null;
+
+  const cached = readApkCacheMeta();
+  if (cached && cached.url === remote && fs.existsSync(APK_CACHE_FILE)) return APK_CACHE_FILE;
+
+  if (apkMirrorInFlight) return wait ? apkMirrorInFlight : null;
+
+  // A failure is remembered briefly, then retried — otherwise one bad minute
+  // (a Drive quota page, a dropped connection) would hide the download for good.
+  if (
+    apkMirrorState.status === 'failed' &&
+    Date.now() - (apkMirrorState.at || 0) < APK_MIRROR_RETRY_MS
+  ) {
+    return null;
+  }
+
+  const running = startApkMirror(remote);
+  return wait ? running : null;
+}
+
+/** Boot-time warm-up so the first visitor does not pay for the mirror. */
+function primeApkMirror() {
+  if (fs.existsSync(apkLocalFile())) return;
+  if (!apkRemoteUrl()) return;
+  void startApkMirror(apkRemoteUrl());
 }
 
 /**
@@ -827,9 +861,16 @@ function describeApk(file) {
   };
 }
 
-/** Public: the download page reads this, including the click count. */
+/**
+ * Public: the download page reads this, including the click count.
+ *
+ * `?wait=0` answers from whatever is on disk right now and never waits for a
+ * mirror, so the page's status poll stays instant. Asking for a package on a
+ * cold mirror is what starts the mirror on boot.
+ */
 api.get('/app/release', async (req, res) => {
-  const file = await ensureApk();
+  const wait = !['0', 'false', 'no'].includes(String(req.query.wait || '').toLowerCase());
+  const file = await ensureApk({ wait });
   const release = describeApk(file || '');
   res.setHeader('Cache-Control', 'no-store');
   res.json({
@@ -2215,6 +2256,26 @@ app.get(`/downloads/${APK_NAME}`, async (_req, res) => {
   return res.sendFile(file);
 });
 
+/**
+ * Trailing slashes are the same page.
+ *
+ * Without this, `/app/` misses the `/app` branch in the router and falls through
+ * to the signed-out screen — which looks like "a different page" for exactly the
+ * links people paste and share (and for the Android Package page).
+ */
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const url = req.originalUrl || req.url;
+  const [pathPart, query] = url.split('?');
+  if (pathPart.length > 1 && pathPart.endsWith('/')) {
+    return res.redirect(
+      301,
+      pathPart.replace(/\/+$/, '') + (query ? `?${query}` : ''),
+    );
+  }
+  return next();
+});
+
 if (fs.existsSync(DIST_DIR)) {
   app.use(
     express.static(DIST_DIR, {
@@ -2251,6 +2312,9 @@ boot()
       if (!fs.existsSync(DIST_DIR)) {
         console.log('No dist/ build found — run "npm run build" to serve the app from this server.');
       }
+      // Fetch a remote package now, not on the first visitor's request: a cold
+      // container would otherwise show "no download" for as long as the mirror takes.
+      primeApkMirror();
     });
   })
   .catch((err) => {

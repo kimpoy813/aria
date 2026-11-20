@@ -64,6 +64,8 @@ async function stop(proc) {
   await new Promise((r) => proc.once('exit', r));
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function withServer(port, run, extraEnv, reuseDir) {
   const dir = reuseDir || fs.mkdtempSync(path.join(os.tmpdir(), 'aria-app-'));
   const proc = startServer(port, dir, extraEnv);
@@ -92,6 +94,14 @@ function startFixtureServer() {
       res.writeHead(200, { 'content-type': 'text/html' });
       return res.end(htmlPage);
     }
+    if (req.url.startsWith('/slow.apk')) {
+      hits += 1;
+      setTimeout(() => {
+        res.writeHead(200, { 'content-length': zip.length, 'content-type': 'application/octet-stream' });
+        res.end(zip);
+      }, 1200);
+      return;
+    }
     res.writeHead(404);
     return res.end();
   });
@@ -112,6 +122,20 @@ async function run() {
     console.log('1. Public /app page (no APK published)');
     const res = await fetch(`${base}/app`);
     check('/app returns 200 without a session', res.status === 200);
+
+    // `/app/` is how a lot of links arrive (and how the Play Store listing is
+    // written). It must not fall through to the sign-in screen.
+    for (const suffix of ['/app/', '/app//', '/app/?utm_source=play']) {
+      const r = await fetch(`${base}${suffix}`, { redirect: 'manual' });
+      const location = r.headers.get('location') || '';
+      check(
+        `${suffix} redirects to /app instead of rendering another page`,
+        r.status === 301 && location.startsWith('/app') && !location.startsWith('/app/'),
+        `${r.status} ${location}`,
+      );
+    }
+    const followed = await fetch(`${base}/app/`);
+    check('/app/ ends on the download page when followed', followed.status === 200);
 
     const bundle = fs
       .readdirSync(path.join(process.cwd(), 'dist', 'assets'))
@@ -197,6 +221,12 @@ async function run() {
   await withServer(
     5181,
     async (base, dataDir) => {
+      // The mirror should already be running from boot, not from this request.
+      check(
+        'the package is fetched at startup, before the first visitor asks',
+        fixture.hits() >= 1,
+      );
+
       const release = await (await fetch(`${base}/api/app/release`)).json();
       check('a remote package is mirrored and reported available', release.available === true && release.source === 'mirror');
       check('mirrored size and digest match the source', release.sizeBytes === fixture.zip.length && release.sha256 === expected);
@@ -230,8 +260,41 @@ async function run() {
       check('nothing bogus is written to the cache', !fs.existsSync(path.join(dataDir, 'apk-cache', 'aria.apk')));
       const dl = await fetch(`${base}/downloads/aria.apk`);
       check('the download stays 404 after a bad mirror', dl.status === 404);
+
+      const hitsAfterFirst = fixture.hits();
+      for (let i = 0; i < 3; i++) await fetch(`${base}/api/app/release`);
+      check(
+        'a failed mirror is not retried on every page view',
+        fixture.hits() === hitsAfterFirst,
+        `${hitsAfterFirst} -> ${fixture.hits()}`,
+      );
     },
     { ARIA_APK_URL: `${fixture.base}/not-a-package` },
+  );
+
+  /* ---------------------- 4b. a slow mirror never stalls the page, but the
+     download itself still waits for the package */
+  console.log('\n4b. Slow mirror');
+  await withServer(
+    5185,
+    async (base) => {
+      const started = Date.now();
+      const release = await (await fetch(`${base}/api/app/release?wait=0`)).json();
+      const elapsed = Date.now() - started;
+      check(
+        'the status poll answers immediately while the mirror runs',
+        elapsed < 1000,
+        `${elapsed} ms`,
+      );
+      check(
+        'the poll reports the mirror as in progress, not as missing',
+        release.available === false && release.mirrorStatus === 'fetching',
+      );
+
+      const dl = await fetch(`${base}/downloads/aria.apk`);
+      check('the download waits for the mirror and still serves the file', dl.status === 200);
+    },
+    { ARIA_APK_URL: `${fixture.base}/slow.apk` },
   );
 
   /* ------------------------------- 5. the count survives a restart + legacy file */

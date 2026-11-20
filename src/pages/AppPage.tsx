@@ -185,11 +185,49 @@ export function AppPage() {
     window.addEventListener('aria:installable', onInstallable);
     window.addEventListener('aria:installed', onInstalled);
 
-    appRelease()
-      .then(setRelease)
-      .catch(() => setFailed(true));
+    let cancelled = false;
+    let timer: number | undefined;
+    let attempts = 0;
+
+    // The package is mirrored in the background, so the first answer can honestly
+    // be "no build yet". Keep asking for a while — a page that latched onto that
+    // first answer stayed on the web-install card even after the APK was ready.
+    const load = () => {
+      appRelease()
+        .then((next) => {
+          if (cancelled) return;
+          setRelease(next);
+          setFailed(false);
+          const waiting =
+            !next.available &&
+            (next.mirrorStatus === 'fetching' || next.mirrorStatus === 'idle') &&
+            attempts < 45;
+          if (waiting) {
+            attempts += 1;
+            timer = window.setTimeout(load, attempts < 15 ? 2000 : 5000);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setFailed(true);
+          if (attempts < 8) {
+            attempts += 1;
+            timer = window.setTimeout(load, 4000);
+          }
+        });
+    };
+    load();
+
+    // A tab left open in the background should not show a stale download state.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('aria:installable', onInstallable);
       window.removeEventListener('aria:installed', onInstalled);
     };
