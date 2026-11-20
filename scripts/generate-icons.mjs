@@ -77,32 +77,15 @@ function encodePNG(width, height, rgba) {
 
 /* ----------------------------------------------------- SDF logo geometry */
 
-// The beamed pair from src/components/Logo.tsx, expressed as signed distances so
-// the PNG icons and the vector mark stay the same drawing.
-const HEAD_A = { cx: 17.6, cy: 46.6, rx: 7.4, ry: 5.6, deg: -14 };
-const HEAD_B = { cx: 42.4, cy: 39.8, rx: 7.4, ry: 5.6, deg: -14 };
-const STEM_A = { x: 25, y0: 20.4, y1: 45.4, width: 5 };
-const STEM_B = { x: 49.8, y0: 13.6, y1: 38.6, width: 5 };
-
-// Beam: M 25 19.2 c 8 -3.3 16.6 -4.9 24.8 -6.1
-const BEAM_SAMPLES = (() => {
-  const p0 = [25.0, 19.2];
-  const p1 = [33.0, 15.9];
-  const p2 = [41.6, 14.3];
-  const p3 = [49.8, 13.1];
-  const pts = [];
-  const N = 128;
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    const mt = 1 - t;
-    pts.push([
-      mt * mt * mt * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t * t * t * p3[0],
-      mt * mt * mt * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t * t * t * p3[1],
-    ]);
-  }
-  return pts;
-})();
-const BEAM_HALF = 6.6 / 2;
+// The fermata from src/components/Logo.tsx, expressed as signed distances so the
+// PNG icons and the vector mark stay the same drawing.
+//   arc    M 14 29.8 a 18 18 0 0 1 36 0          (stroke 4.9)
+//   head   ellipse (30, 48.6) r 7.4 x 5.6, rotated -14deg
+//   stem   (35.9, 30.4) -> (35.9, 48)             (stroke 4.6)
+const GLYPH_SCALE = 0.88;
+const ARC = { cx: 32, cy: 29.8, r: 18, halfStroke: 4.9 / 2 };
+const HEAD = { cx: 30, cy: 48.6, rx: 7.4, ry: 5.6, deg: -14 };
+const STEM = { x: 35.9, y0: 30.4, y1: 48, halfStroke: 4.6 / 2 };
 
 function distToSegment(px, py, ax, ay, bx, by) {
   const vx = bx - ax;
@@ -122,38 +105,34 @@ function roundedRectSDF(px, py, cx, cy, halfW, halfH, radius) {
   return outDist + inDist - radius;
 }
 
+/** Distance to the upper half of a circle, with square ends at the arc tips. */
+function arcSDF(px, py) {
+  const dx = px - ARC.cx;
+  const dy = py - ARC.cy;
+  const ring = Math.abs(Math.hypot(dx, dy) - ARC.r) - ARC.halfStroke;
+  // Ends are cut flat at the horizontal diameter (SVG `a` sweep keeps the top half).
+  const ends = dy > 0 ? dy : -Infinity;
+  return Math.max(ring, ends);
+}
+
 /** Approximate ellipse distance; good enough at icon resolutions. */
-function ellipseSDF(px, py, head) {
-  const rad = (head.deg * Math.PI) / 180;
+function ellipseSDF(px, py) {
+  const rad = (HEAD.deg * Math.PI) / 180;
   const cos = Math.cos(-rad);
   const sin = Math.sin(-rad);
-  const dx = px - head.cx;
-  const dy = py - head.cy;
+  const dx = px - HEAD.cx;
+  const dy = py - HEAD.cy;
   const lx = dx * cos - dy * sin;
   const ly = dx * sin + dy * cos;
-  const k = Math.hypot(lx / head.rx, ly / head.ry);
-  return (k - 1) * Math.min(head.rx, head.ry);
+  const k = Math.hypot(lx / HEAD.rx, ly / HEAD.ry);
+  return (k - 1) * Math.min(HEAD.rx, HEAD.ry);
 }
 
 function glyphSDF(x, y) {
-  const dA = ellipseSDF(x, y, HEAD_A);
-  const dB = ellipseSDF(x, y, HEAD_B);
-
-  const sA =
-    distToSegment(x, y, STEM_A.x, STEM_A.y0, STEM_A.x, STEM_A.y1) - STEM_A.width / 2;
-  const sB =
-    distToSegment(x, y, STEM_B.x, STEM_B.y0, STEM_B.x, STEM_B.y1) - STEM_B.width / 2;
-
-  let dBeam = Infinity;
-  for (let i = 0; i < BEAM_SAMPLES.length - 1; i++) {
-    const a = BEAM_SAMPLES[i];
-    const b = BEAM_SAMPLES[i + 1];
-    const d = distToSegment(x, y, a[0], a[1], b[0], b[1]);
-    if (d < dBeam) dBeam = d;
-  }
-  dBeam -= BEAM_HALF;
-
-  return Math.min(dA, dB, sA, sB, dBeam);
+  const dArc = arcSDF(x, y);
+  const dHead = ellipseSDF(x, y);
+  const dStem = distToSegment(x, y, STEM.x, STEM.y0, STEM.x, STEM.y1) - STEM.halfStroke;
+  return Math.min(dArc, dHead, dStem);
 }
 
 function clamp01(v) {
@@ -169,7 +148,7 @@ function renderIcon(size, { maskable = false, opaqueSquare = false } = {}) {
   // In 64-unit space, pixel size in SVG units:
   // For maskable icons, scale glyph to 76% inside the center safe zone.
   // Matches the 0.88 inset in Logo.tsx; maskable needs the extra safe zone.
-  const glyphScale = maskable ? 0.66 : 0.88;
+  const glyphScale = maskable ? GLYPH_SCALE * 0.75 : GLYPH_SCALE;
   const unitsPerPx = 64 / (size * glyphScale);
   const aaWidth = (64 / size) * 0.85;
 
