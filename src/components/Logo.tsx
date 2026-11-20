@@ -9,28 +9,29 @@ interface LogoProps {
 }
 
 /**
- * Aria's mark: a beamed pair of notes — two heads, two stems, one beam that
- * curves like a lyric line. The pair is the app's idea in miniature: parts that
- * only make sense together.
+ * Aria's mark: a fermata — the sign a musician writes over a note to say
+ * "hold this one". One notehead, one stem, one arc above it.
  *
- * Drawn on a 64-unit canvas, inset to 88% so it sits comfortably inside the
- * tile's corner radius and stays legible from 16px up.
+ * It is deliberately not a generic eighth note: the arc is what makes it Aria's,
+ * it carries the idea of a song held a beat longer, and it stays readable at
+ * 16px where stacked or beamed notes turn into mush.
+ *
+ * Drawn on a 64-unit canvas, inset to 88% so it clears the tile's corner radius.
  */
 const GLYPH = (
   <g transform="translate(32 32) scale(0.88) translate(-32 -32)">
-    <ellipse cx="17.6" cy="46.6" rx="7.4" ry="5.6" transform="rotate(-14 17.6 46.6)" />
-    <ellipse cx="42.4" cy="39.8" rx="7.4" ry="5.6" transform="rotate(-14 42.4 39.8)" />
     <path
-      d="M25 45.4V20.4M49.8 38.6V13.6"
-      strokeWidth="5"
-      strokeLinecap="round"
+      d="M14 29.8a18 18 0 0 1 36 0"
       fill="none"
+      strokeWidth="4.9"
+      strokeLinecap="round"
     />
+    <ellipse cx="30" cy="48.6" rx="7.4" ry="5.6" transform="rotate(-14 30 48.6)" />
     <path
-      d="M25 19.2c8-3.3 16.6-4.9 24.8-6.1"
-      strokeWidth="6.6"
-      strokeLinecap="round"
+      d="M35.9 48V30.4"
       fill="none"
+      strokeWidth="4.6"
+      strokeLinecap="round"
     />
   </g>
 );

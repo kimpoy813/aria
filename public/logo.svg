@@ -10,11 +10,11 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="17" fill="url(#bg)"/>
+  <!-- the fermata: one note, held -->
   <g transform="translate(32 32) scale(0.88) translate(-32 -32)" fill="#fff" stroke="#fff" stroke-linecap="round">
-    <ellipse cx="17.6" cy="46.6" rx="7.4" ry="5.6" transform="rotate(-14 17.6 46.6)"/>
-    <ellipse cx="42.4" cy="39.8" rx="7.4" ry="5.6" transform="rotate(-14 42.4 39.8)"/>
-    <path d="M25 45.4V20.4M49.8 38.6V13.6" stroke-width="5" fill="none"/>
-    <path d="M25 19.2c8-3.3 16.6-4.9 24.8-6.1" stroke-width="6.6" fill="none"/>
+    <path d="M14 29.8a18 18 0 0 1 36 0" fill="none" stroke-width="4.9"/>
+    <ellipse cx="30" cy="48.6" rx="7.4" ry="5.6" transform="rotate(-14 30 48.6)"/>
+    <path d="M35.9 48V30.4" fill="none" stroke-width="4.6"/>
   </g>
   <rect width="64" height="64" rx="17" fill="url(#gloss)"/>
 </svg>
