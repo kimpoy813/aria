@@ -83,3 +83,48 @@ export function shortDigest(sha256: string | null | undefined): string | null {
   const head = sha256.slice(0, 16).toUpperCase();
   return `${head.slice(0, 4)} ${head.slice(4, 8)} ${head.slice(8, 12)} ${head.slice(12, 16)}`;
 }
+
+/**
+ * Compact counts for the download page: 999 stays exact, then 1K, 1.5K, 12K,
+ * 1.2M, 3.4B, 1.1T. `exact` keeps the full number for a tooltip and for screen
+ * readers, so nothing is lost by shortening.
+ */
+export function formatCount(value: number | null | undefined): {
+  label: string | null;
+  exact: string | null;
+} {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return { label: null, exact: null };
+  }
+
+  const n = Math.floor(value);
+  const exact = n.toLocaleString('en-US');
+  if (n < 1000) return { label: exact, exact };
+
+  const units: { size: number; suffix: string }[] = [
+    { size: 1e12, suffix: 'T' },
+    { size: 1e9, suffix: 'B' },
+    { size: 1e6, suffix: 'M' },
+    { size: 1e3, suffix: 'K' },
+  ];
+
+  // Dropping the fraction, not rounding it: 1,999 is "1.9K", never "2K", so the
+  // number can never claim more clicks than actually happened.
+  const truncate = (scaled: number) =>
+    scaled >= 100 ? Math.floor(scaled) : Math.floor(scaled * 10) / 10;
+
+  for (let i = 0; i < units.length; i++) {
+    const { size, suffix } = units[i];
+    if (n < size) continue;
+
+    const value = truncate(n / size);
+    // 999,999 would otherwise print as "999.9K" — roll it into the next unit.
+    if (value >= 1000 && i > 0) {
+      const next = units[i - 1];
+      return { label: `${truncate(n / next.size)}${next.suffix}`, exact };
+    }
+    return { label: `${value}${suffix}`, exact };
+  }
+
+  return { label: exact, exact };
+}
