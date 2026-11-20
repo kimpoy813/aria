@@ -49,6 +49,18 @@ function isTabActive(pathname: string, to: string) {
   return to === '/' ? pathname === '/' : pathname.startsWith(to);
 }
 
+/**
+ * `/app/` is the same page as `/app`.
+ *
+ * The server redirects it, but a link inside the app (or a cached HTML shell that
+ * predates the redirect) can still land here with the slash — and a trailing
+ * slash used to miss the public-page branch below and render the sign-in screen.
+ */
+function withoutTrailingSlash(pathname: string) {
+  const trimmed = pathname.replace(/\/+$/, '');
+  return trimmed === '' ? '/' : trimmed;
+}
+
 function SystemBanner() {
   const { systemStatus, user } = useStore();
   const m = systemStatus.maintenance;
@@ -340,7 +352,8 @@ function ScrollToTop() {
 function Shell() {
   const { loading, user, onboarded, popupStatus, systemStatus, refresh, signOut, notify } =
     useStore();
-  const { pathname } = useLocation();
+  const { pathname: rawPathname } = useLocation();
+  const pathname = withoutTrailingSlash(rawPathname);
 
   if (pathname === '/auth/google') {
     return (
