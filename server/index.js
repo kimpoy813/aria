@@ -764,9 +764,9 @@ function primeApkMirror() {
 /**
  * Download counter.
  *
- * Counts *clicks*, not completed transfers: the number only ever goes up, so a
- * phone that cancels halfway, a browser that resumes, or a link preview that
- * fetches the file still count. It lives in `db.settings.stats` so it survives a
+ * Counts every download request, not completed transfers: the number only ever
+ * goes up, so a phone that cancels halfway, a browser that resumes, or a link
+ * preview that fetches the file still count. It lives in `db.settings.stats` so it survives a
  * redeploy on Supabase instead of resetting with the container's disk.
  *
  * Older builds kept it in server/apk-downloads.json; that value is added once so
@@ -862,7 +862,7 @@ function describeApk(file) {
 }
 
 /**
- * Public: the download page reads this, including the click count.
+ * Public: the download page reads this, including the download count.
  *
  * `?wait=0` answers from whatever is on disk right now and never waits for a
  * mirror, so the page's status poll stays instant. Asking for a package on a
@@ -2239,7 +2239,7 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
 app.use('/api', api);
 
 // Only the package itself is exposed here — never a listing of downloads/.
-// Counts clicks the same way the API route does.
+// Counts a download the same way the API route does.
 app.get(`/downloads/${APK_NAME}`, async (_req, res) => {
   const file = await ensureApk();
   if (!file) {
