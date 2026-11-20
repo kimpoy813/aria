@@ -202,6 +202,9 @@ async function run() {
       const afterLink = await (await fetch(`${base}/api/app/release`)).json();
       check('the count keeps climbing on repeat downloads', afterLink.downloads === 3);
 
+      // The count is saved in its own right, not with the next edit — a deploy
+      // that lands between two clicks must not take the number with it.
+      await sleep(400);
       const stored = JSON.parse(
         fs.readFileSync(path.join(dataDir, 'data.json'), 'utf8'),
       );
