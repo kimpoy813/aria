@@ -293,7 +293,29 @@ export class SupabaseStore {
       if (globalRow?.data) {
         state.settings = normaliseSettings(globalRow.data);
       }
+      // The APK download counter gets its own row, written by the
+      // `aria_bump_apk_download()` RPC and never overwritten by a whole-state
+      // save. Keeping it out of the mirrored settings row is the point: a boot
+      // snapshot can otherwise write an older number back over the live one.
+      const counterRow = (data || []).find((r) => r.id === 'aria_stats');
+      if (counterRow?.data) {
+        state.settings.stats = normaliseSettings({ stats: counterRow.data }).stats;
+      }
+
+      // A counter an older server left inside the settings row is honoured when it
+      // is ahead — it counts real clicks — and ignored when it is behind, because
+      // a stale snapshot must never pull the number down.
+      const carried = normaliseSettings(globalRow?.data).stats.apkDownloads;
+      if (carried > state.settings.stats.apkDownloads) {
+        try {
+          const total = await this.bumpDownloadCount(carried - state.settings.stats.apkDownloads);
+          state.settings.stats.apkDownloads = Math.max(total, carried);
+        } catch {
+          /* the next save will try again */
+        }
+      }
     }
+
     return state;
   }
 
@@ -330,6 +352,41 @@ export class SupabaseStore {
         });
       if (error) throw new Error(`Could not save system_settings: ${error.message}`);
     }
+  }
+
+  /**
+   * Adds to the APK download counter in the database itself.
+   *
+   * The increment happens inside the RPC (`data->apkDownloads + p_delta`), so two
+   * containers, a redeploy landing mid-click, or a stale in-memory copy can never
+   * undo each other — the number only moves up. Returns the new total.
+   */
+  async bumpDownloadCount(delta = 1) {
+    const client = await this.connect();
+    const { data, error } = await client.rpc('aria_bump_apk_download', {
+      p_delta: Math.max(0, Math.floor(Number(delta) || 0)),
+    });
+    if (error) throw new Error(`Could not count the download: ${error.message}`);
+    const total = Number(
+      typeof data === 'object' && data !== null ? (data.apkDownloads ?? data.apk_downloads) : data,
+    );
+    if (!Number.isFinite(total)) {
+      throw new Error('Could not count the download: the counter returned no number.');
+    }
+    return total;
+  }
+
+  /** The live counter, straight from its own row. */
+  async loadDownloadCount() {
+    const client = await this.connect();
+    const { data, error } = await client
+      .from('system_settings')
+      .select('data')
+      .eq('id', 'aria_stats')
+      .limit(1);
+    if (error) throw new Error(`Could not read the download count: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return normaliseSettings({ stats: row?.data }).stats.apkDownloads;
   }
 
   describe() {

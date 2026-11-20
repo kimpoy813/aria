@@ -119,6 +119,16 @@ function makeShim(pg) {
       };
       return builder;
     },
+    async rpc(name, args = {}) {
+      if (name !== 'aria_bump_apk_download') {
+        return { data: null, error: { message: `unsupported rpc ${name}` } };
+      }
+      const delta = Number(args.p_delta ?? 1) || 0;
+      const { rows } = await pg.query(
+        `select public.aria_bump_apk_download(${Math.max(0, Math.floor(delta))}) as data`,
+      );
+      return { data: rows[0]?.data ?? null, error: null };
+    },
   };
 }
 
@@ -183,6 +193,20 @@ console.log('\nAria · Supabase driver test (real Postgres via PGlite)\n');
 
 const pg = await PGlite.create();
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-sb-'));
+
+// schema.sql installs its RPC block only where Supabase's auth schema and roles
+// exist, so stand those up first — exactly what a real project already has.
+await pg.exec(`
+  do $$ begin
+    if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+    if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+    if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
+  end $$;
+  create schema if not exists auth;
+  create or replace function auth.uid() returns uuid language sql stable as $$
+    select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+  $$;
+`);
 
 // 1. schema
 console.log('1. Applying supabase/schema.sql');
@@ -422,6 +446,89 @@ console.log('\n5. Data survives a restart');
   const shared = await api(port, 'GET', `/api/shared/${shareToken}`);
   check('the public share link still works', shared.status === 200);
   check('the share page has lyrics', Boolean(shared.data?.lineup?.items?.[0]?.lyrics));
+}
+
+console.log('\n5b. The download counter only ever goes up');
+{
+  const counterOf = async () => {
+    const { rows } = await pg.query(
+      `select coalesce((data->>'apkDownloads')::bigint, 0) as n
+         from public.system_settings where id = 'aria_stats'`,
+    );
+    return Number(rows[0]?.n || 0);
+  };
+
+  // A local file build, so a click needs no network mirror.
+  const apkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-sb-apk-'));
+  const apkFile = path.join(apkDir, 'aria.apk');
+  fs.writeFileSync(apkFile, Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(4096, 3)]));
+  process.env.ARIA_APK_FILE = apkFile;
+  process.env.ARIA_APK_MIRROR = 'off';
+
+  const before = await (await fetch(`http://127.0.0.1:${port}/api/app/release`)).json();
+  check('the counter starts from whatever the database holds', before.downloads === 0, String(before.downloads));
+
+  await fetch(`http://127.0.0.1:${port}/downloads/aria.apk`);
+  await settle();
+  check('a click is added in Postgres, atomically', (await counterOf()) === 1, String(await counterOf()));
+
+  const after = await (await fetch(`http://127.0.0.1:${port}/api/app/release`)).json();
+  check('the page reads the new number back', after.downloads === 1, String(after.downloads));
+
+  // A second container (the same database, its own memory) counts a click.
+  await pg.query(`select public.aria_bump_apk_download(1)`);
+
+  // Two clicks so far, one of them from a container that is not this one.
+  check('the other container\'s click is in the database', (await counterOf()) === 2);
+
+  // A whole-state save is what a boot snapshot, a redeploy of an older build, or
+  // any edit sends. It must not be able to write an older number back.
+  const { SupabaseStore } = await import(path.join(root, 'server', 'storage.js'));
+  const staleStore = new SupabaseStore({ url: 'http://pglite.local', key: 'test-service-role-key' });
+  const staleState = await staleStore.load();
+  staleState.settings.stats.apkDownloads = 1;
+  await staleStore.persist(staleState);
+  await settle();
+  check(
+    'a whole-state save cannot write an older count back',
+    (await counterOf()) === 2,
+    String(await counterOf()),
+  );
+
+  // And a fresh boot picks the live number up, not a remembered one.
+  const rebooted = new SupabaseStore({ url: 'http://pglite.local', key: 'test-service-role-key' });
+  const freshState = await rebooted.load();
+  check(
+    'a restart resumes from the database, not from zero',
+    freshState.settings.stats.apkDownloads === 2,
+    String(freshState.settings.stats.apkDownloads),
+  );
+
+  // A counter left in the old settings row by a previous version is carried over once.
+  const legacy = await rebooted.load();
+  legacy.settings.stats.apkDownloads = 0;
+  await pg.query(
+    `insert into public.system_settings (id, data) values ('global', '{"stats":{"apkDownloads":9}}'::jsonb)
+     on conflict (id) do update set data = jsonb_set(public.system_settings.data, '{stats}', '{"apkDownloads":9}'::jsonb)`,
+  );
+  const promoted = new SupabaseStore({ url: 'http://pglite.local', key: 'test-service-role-key' });
+  const promotedState = await promoted.load();
+  check(
+    'an older in-row counter that is ahead is adopted, not lost',
+    promotedState.settings.stats.apkDownloads === 9,
+    String(promotedState.settings.stats.apkDownloads),
+  );
+  const settled = new SupabaseStore({ url: 'http://pglite.local', key: 'test-service-role-key' });
+  const settledState = await settled.load();
+  check(
+    'adopting it twice does not double-count',
+    settledState.settings.stats.apkDownloads === 9,
+    String(settledState.settings.stats.apkDownloads),
+  );
+
+  fs.rmSync(apkDir, { recursive: true, force: true });
+  delete process.env.ARIA_APK_FILE;
+  delete process.env.ARIA_APK_MIRROR;
 }
 
 fs.rmSync(dataDir, { recursive: true, force: true });

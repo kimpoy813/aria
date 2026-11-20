@@ -80,9 +80,12 @@ card. The card adapts:
   mirrors the build shared from Google Drive (`ARIA_APK_ID`, or `ARIA_APK_URL`, or a file at
   `public/downloads/aria.apk` / `ARIA_APK_FILE`) into `apk-cache` once, then serves it same-origin,
   and counted, via `GET /api/app/download` or `/downloads/aria.apk` (the page shows the running
-  total as **Downloads**, shortened to K/M/B/T past a thousand). `GET /api/app/release` reports
-  availability, the mirror state and the digest; an HTML quota page from the host is rejected rather
-  than served.
+  total as **Downloads**, shortened to K/M/B/T past a thousand). The total lives in its own
+  `system_settings` row (`aria_stats`) and is only ever incremented, in the database, by
+  `aria_bump_apk_download()` — so a redeploy, a second container, or an older snapshot can never
+  write a lower number back. Re-run `supabase/schema.sql` after pulling, to install that function.
+  `GET /api/app/release` reports availability, the mirror state and the digest; an HTML quota page
+  from the host is rejected rather than served.
 - **No APK yet**: the Add to Home Screen path, with per-platform steps, backed by the browser's own
   `beforeinstallprompt` when it offers one.
 

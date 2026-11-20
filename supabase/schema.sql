@@ -970,10 +970,58 @@ begin
       end;
       $body$;
 
+      -- The APK download counter lives in its own row and only ever moves up.
+      --
+      -- It used to sit inside the 'global' settings row, which the server writes
+      -- as a whole snapshot. A redeploy (or a second container) could then put an
+      -- older number back over a newer one, so the count looked like it had reset.
+      -- An atomic increment in the database cannot lose a click, whoever sends it.
+      create or replace function public.aria_bump_apk_download(p_delta integer default 1)
+      returns jsonb
+      language plpgsql
+      security definer
+      set search_path = public
+      as $body$
+      declare
+        v_now bigint := (extract(epoch from now()) * 1000)::bigint;
+        v_row jsonb;
+      begin
+        insert into public.system_settings (id, data)
+        values ('aria_stats', jsonb_build_object('apkDownloads', 0, 'apkLastDownloadAt', null))
+        on conflict (id) do nothing;
+
+        update public.system_settings
+           set data = jsonb_set(
+                        jsonb_set(
+                          data,
+                          '{apkDownloads}',
+                          to_jsonb(
+                            coalesce((data->>'apkDownloads')::bigint, 0)
+                            + greatest(coalesce(p_delta, 1), 0)
+                          )
+                        ),
+                        '{apkLastDownloadAt}',
+                        to_jsonb(v_now)
+                      ),
+               updated_at = v_now
+         where id = 'aria_stats'
+        returning data into v_row;
+
+        return v_row;
+      end;
+      $body$;
+
       revoke all on function public.aria_get_public_settings() from public;
       revoke all on function public.aria_admin_op(text, text, jsonb) from public;
+      -- Supabase grants EXECUTE on new functions to anon and authenticated by
+      -- default. This one writes a counter with the service role only, so take
+      -- both back explicitly — otherwise anyone holding the public key could
+      -- inflate the number.
+      revoke all on function public.aria_bump_apk_download(integer)
+        from public, anon, authenticated;
 
       grant execute on function public.aria_get_public_settings() to anon, authenticated, service_role;
+      grant execute on function public.aria_bump_apk_download(integer) to service_role;
       grant execute on function public.aria_admin_op(text, text, jsonb) to anon, authenticated, service_role;
     $fn$;
 
