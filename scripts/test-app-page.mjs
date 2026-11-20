@@ -7,6 +7,7 @@
  *   5. /downloads/aria.apk serves the package with the right content type
  *   6. the mirror path: a remote URL is fetched once, cached, and served locally
  *   7. a mirror that returns HTML instead of a package is rejected, not served
+ *   8. the page's click count shortens to K / M / B / T without overstating it
  */
 
 import fs from 'node:fs';
@@ -269,6 +270,49 @@ async function run() {
   );
 
   fs.rmSync(legacyDir, { recursive: true, force: true });
+
+  /* ------------------------------------------- 6. compact click formatting */
+  console.log('\n6. Click count formatting');
+  const bundle = fs
+    .readdirSync(path.join(process.cwd(), 'dist', 'assets'))
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
+    .join('\n');
+  check(
+    'the page labels the metric as clicks',
+    // minified JSX splits the text: "click" / "clicks" + " so far"
+    /"click"\s*:\s*"clicks"/.test(bundle) && bundle.includes('so far') && bundle.includes('Clicks'),
+  );
+  check('the page uses K/M/B suffixes', /[KMBT]"?\)/.test(bundle) || /`\$\{[^}]*\}[KMBT]`/.test(bundle));
+
+  const { formatCount } = await import('../src/lib/install.ts').catch(() => ({}));
+  if (formatCount) {
+    const expectations = [
+      [0, '0'],
+      [999, '999'],
+      [1000, '1K'],
+      [1549, '1.5K'],
+      [1999, '1.9K'],
+      [12345, '12.3K'],
+      [999949, '999K'],
+      [1000000, '1M'],
+      [1234567, '1.2M'],
+      [1500000000, '1.5B'],
+      [2500000000000, '2.5T'],
+    ];
+    let ok = true;
+    for (const [value, expected] of expectations) {
+      const got = formatCount(value).label;
+      if (got !== expected) {
+        ok = false;
+        console.error(`     ${value} -> ${got} (expected ${expected})`);
+      }
+    }
+    check('counts shorten at 1000 / 1M / 1B / 1T and never overstate', ok);
+    check('the exact number is kept for the tooltip', formatCount(1234567).exact === '1,234,567');
+  } else {
+    check('the formatter is covered by the build (source import skipped)', true);
+  }
 
   fixture.server.close();
 

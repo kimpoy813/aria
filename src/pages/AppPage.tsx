@@ -8,6 +8,7 @@ import {
   canPromptInstall,
   detectPlatform,
   formatBytes,
+  formatCount,
   isInstalled,
   promptInstall,
   shortDigest,
@@ -198,8 +199,8 @@ export function AppPage() {
   const digest = shortDigest(release?.sha256);
   const apkReady = Boolean(release?.available && release.url);
   const downloadCount = release?.downloads;
-  const downloadCountLabel =
-    typeof downloadCount === 'number' ? downloadCount.toLocaleString() : null;
+  const count = formatCount(downloadCount);
+  const downloadCountLabel = count.label;
   const mirroring = release?.mirrorStatus === 'fetching';
   const mirrorFailed = release?.mirrorStatus === 'failed';
 
@@ -418,10 +419,9 @@ export function AppPage() {
                 <dd className="mono">{release?.packageName ?? 'app.aria.lineups'}</dd>
               </div>
               <div>
-                <dt>Downloads</dt>
-                <dd>
+                <dt>Clicks</dt>
+                <dd title={count.exact ? `${count.exact} clicks` : undefined}>
                   {downloadCountLabel ?? '—'}
-                  {downloadCountLabel ? ' clicks' : ''}
                 </dd>
               </div>
             </dl>
@@ -431,9 +431,17 @@ export function AppPage() {
               {downloading ? 'Starting download…' : 'Download aria.apk'}
             </button>
             {downloadCountLabel ? (
-              <p className="app-count" aria-live="polite">
+              <p
+                className="app-count"
+                aria-live="polite"
+                title={count.exact ? `${count.exact} clicks` : undefined}
+              >
                 <Icon name="check" size={13} />
-                {downloadCountLabel} {downloadCount === 1 ? 'download' : 'downloads'} so far
+                <span>
+                  <strong>{downloadCountLabel}</strong>{' '}
+                  {downloadCount === 1 ? 'click' : 'clicks'} so far
+                  <span className="sr-only"> ({count.exact})</span>
+                </span>
               </p>
             ) : null}
             {digest ? (
