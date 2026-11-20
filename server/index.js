@@ -727,29 +727,54 @@ async function ensureApk() {
   return apkMirrorInFlight;
 }
 
-const APK_COUNTS_FILE = path.join(DATA_DIR, 'apk-downloads.json');
+/**
+ * Download counter.
+ *
+ * Counts *clicks*, not completed transfers: the number only ever goes up, so a
+ * phone that cancels halfway, a browser that resumes, or a link preview that
+ * fetches the file still count. It lives in `db.settings.stats` so it survives a
+ * redeploy on Supabase instead of resetting with the container's disk.
+ *
+ * Older builds kept it in server/apk-downloads.json; that value is added once so
+ * the number does not appear to go backwards after this deploy.
+ */
+const LEGACY_APK_COUNTS_FILE = path.join(DATA_DIR, 'apk-downloads.json');
+let apkCountsImported = false;
 
-/** The counter lives in its own small file so it never rewrites the data set. */
-function readApkCounts() {
+function readLegacyApkCounts() {
   try {
-    const parsed = JSON.parse(fs.readFileSync(APK_COUNTS_FILE, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(LEGACY_APK_COUNTS_FILE, 'utf8'));
     return { total: Math.max(0, Number(parsed.total) || 0), lastAt: Number(parsed.lastAt) || null };
   } catch {
     return { total: 0, lastAt: null };
   }
 }
 
-function bumpApkCount() {
-  const next = readApkCounts();
-  next.total += 1;
-  next.lastAt = Date.now();
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(APK_COUNTS_FILE, JSON.stringify(next));
-  } catch (err) {
-    console.error('[aria] could not record the APK download:', err.message);
+function apkCounts() {
+  db.settings = db.settings || defaultSettings();
+  db.settings.stats = db.settings.stats || { apkDownloads: 0, apkLastDownloadAt: null };
+
+  if (!apkCountsImported) {
+    apkCountsImported = true;
+    const legacy = readLegacyApkCounts();
+    if (legacy.total > 0 && db.settings.stats.apkDownloads === 0) {
+      db.settings.stats.apkDownloads = legacy.total;
+      db.settings.stats.apkLastDownloadAt = legacy.lastAt;
+    }
   }
-  return next;
+
+  const stats = db.settings.stats;
+  stats.apkDownloads = Math.max(0, Number(stats.apkDownloads) || 0);
+  return stats;
+}
+
+function bumpApkCount() {
+  const stats = apkCounts();
+  stats.apkDownloads += 1;
+  stats.apkLastDownloadAt = Date.now();
+  // Refresh the public settings snapshot so a restart cannot resurrect an old number.
+  db.settings.stats = { ...stats };
+  return stats;
 }
 
 /** Shape the release payload from whatever package we can actually serve. */
@@ -769,7 +794,7 @@ function describeApk(file) {
       sha256: null,
       version: clean(process.env.ARIA_APK_VERSION || '', 40) || null,
       builtAt: null,
-      downloads: readApkCounts().total,
+      downloads: apkCounts().apkDownloads,
       source: 'none',
     };
   }
@@ -797,12 +822,12 @@ function describeApk(file) {
     version:
       clean(process.env.ARIA_APK_VERSION || '', 40) || `1.0.0+${stamp.toISOString().slice(0, 10)}`,
     builtAt: stamp.toISOString(),
-    downloads: readApkCounts().total,
+    downloads: apkCounts().apkDownloads,
     source: mirrored ? 'mirror' : 'file',
   };
 }
 
-/** Public: the download page reads this. Signed-in callers get the counter too. */
+/** Public: the download page reads this, including the click count. */
 api.get('/app/release', async (req, res) => {
   const file = await ensureApk();
   const release = describeApk(file || '');
@@ -810,7 +835,7 @@ api.get('/app/release', async (req, res) => {
   res.json({
     ...release,
     notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
-    downloads: req.identity ? release.downloads : null,
+    downloads: release.downloads,
     mirrorStatus: apkMirrorState.status,
     mirrorError: apkMirrorState.status === 'failed' ? apkMirrorState.error : null,
     packageName: clean(process.env.ANDROID_PACKAGE_NAME || 'com.kimpoy813.aria', 120),
@@ -825,11 +850,12 @@ api.get('/app/download', async (_req, res) => {
     return res.status(404).json({ error: 'The Android build is not published yet.' });
   }
   const counts = bumpApkCount();
+  if (store) flushSaveChain();
 
   res.setHeader('Content-Type', 'application/vnd.android.package-archive');
   res.setHeader('Content-Disposition', `attachment; filename="${APK_NAME}"`);
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Aria-Download', String(counts.total));
+  res.setHeader('X-Aria-Download', String(counts.apkDownloads));
   return res.sendFile(file);
 });
 
@@ -2172,15 +2198,20 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
 app.use('/api', api);
 
 // Only the package itself is exposed here — never a listing of downloads/.
+// Counts clicks the same way the API route does.
 app.get(`/downloads/${APK_NAME}`, async (_req, res) => {
   const file = await ensureApk();
   if (!file) {
     return res.status(404).type('text/plain').send('The Android build is not published yet.');
   }
+  const counts = bumpApkCount();
+  if (store) flushSaveChain();
+
   res.setHeader('Content-Type', 'application/vnd.android.package-archive');
   res.setHeader('Content-Disposition', `attachment; filename="${APK_NAME}"`);
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Length', String(fs.statSync(file).size));
+  res.setHeader('X-Aria-Download', String(counts.apkDownloads));
   return res.sendFile(file);
 });
 

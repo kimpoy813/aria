@@ -197,6 +197,9 @@ export function AppPage() {
   const size = formatBytes(release?.sizeBytes);
   const digest = shortDigest(release?.sha256);
   const apkReady = Boolean(release?.available && release.url);
+  const downloadCount = release?.downloads;
+  const downloadCountLabel =
+    typeof downloadCount === 'number' ? downloadCount.toLocaleString() : null;
   const mirroring = release?.mirrorStatus === 'fetching';
   const mirrorFailed = release?.mirrorStatus === 'failed';
 
@@ -211,13 +214,22 @@ export function AppPage() {
   const startDownload = async () => {
     if (!release?.url) return;
     setDownloading(true);
+
+    // Optimistic: the click is the count, so show it immediately.
+    setRelease((prev) => (prev ? { ...prev, downloads: (prev.downloads || 0) + 1 } : prev));
+
     // Let the browser handle it: /downloads/aria.apk answers with Content-Disposition.
     window.location.href = release.url;
-    try {
-      const next = await appRelease();
-      setRelease(next);
-    } catch {
-      /* the counter is cosmetic */
+
+    // Then read the real number back, so a second device/visitor stays in sync.
+    for (const delay of [900, 2600]) {
+      window.setTimeout(async () => {
+        try {
+          setRelease(await appRelease());
+        } catch {
+          /* the counter is cosmetic */
+        }
+      }, delay);
     }
     window.setTimeout(() => setDownloading(false), 2400);
   };
@@ -407,7 +419,10 @@ export function AppPage() {
               </div>
               <div>
                 <dt>Downloads</dt>
-                <dd>{release?.downloads ?? '—'}</dd>
+                <dd>
+                  {downloadCountLabel ?? '—'}
+                  {downloadCountLabel ? ' clicks' : ''}
+                </dd>
               </div>
             </dl>
 
@@ -415,6 +430,12 @@ export function AppPage() {
               <Icon name="download" size={16} />
               {downloading ? 'Starting download…' : 'Download aria.apk'}
             </button>
+            {downloadCountLabel ? (
+              <p className="app-count" aria-live="polite">
+                <Icon name="check" size={13} />
+                {downloadCountLabel} {downloadCount === 1 ? 'download' : 'downloads'} so far
+              </p>
+            ) : null}
             {digest ? (
               <p className="app-digest">
                 <Icon name="lock" size={13} /> SHA-256 <span className="mono">{digest}…</span>

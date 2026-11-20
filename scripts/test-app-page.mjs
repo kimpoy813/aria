@@ -63,15 +63,15 @@ async function stop(proc) {
   await new Promise((r) => proc.once('exit', r));
 }
 
-async function withServer(port, run, extraEnv) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-app-'));
+async function withServer(port, run, extraEnv, reuseDir) {
+  const dir = reuseDir || fs.mkdtempSync(path.join(os.tmpdir(), 'aria-app-'));
   const proc = startServer(port, dir, extraEnv);
   try {
     await waitReady(`http://127.0.0.1:${port}`);
     await run(`http://127.0.0.1:${port}`, dir);
   } finally {
     await stop(proc);
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (!reuseDir) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -125,7 +125,7 @@ async function run() {
     const release = await (await fetch(`${base}/api/app/release`)).json();
     check('release endpoint reports availability honestly', release.available === false);
     check('release falls back to the web install', release.installType === 'pwa' && release.url === null);
-    check('anonymous callers do not see the download counter', release.downloads === null);
+    check('the click count is public', release.downloads === 0);
 
     const missing = await fetch(`${base}/api/app/download`);
     check('download endpoint 404s cleanly with no build', missing.status === 404);
@@ -168,22 +168,22 @@ async function run() {
         (staticDl.headers.get('content-disposition') || '').includes('aria.apk'),
       );
 
-      const counts = JSON.parse(
-        fs.readFileSync(path.join(dataDir, 'apk-downloads.json'), 'utf8'),
-      );
-      check('the counter is persisted next to the data set', counts.total === 1);
+      /* the count is clicks, through either URL, and it is persisted */
+      // Two fetches have happened above: the API download, then the /downloads link.
+      const before = await (await fetch(`${base}/api/app/release`)).json();
+      check('every click is counted, through either URL', before.downloads === 2);
 
-      /* signed-in callers see the counter */
-      const reg = await fetch(`${base}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Page Check', email: 'page-check@example.com', password: 'password123' }),
-      });
-      const { token } = await reg.json();
-      const authed = await (
-        await fetch(`${base}/api/app/release`, { headers: { Authorization: `Bearer ${token}` } })
-      ).json();
-      check('signed-in callers see the download count', authed.downloads === 1);
+      await fetch(`${base}/downloads/aria.apk`);
+      const afterLink = await (await fetch(`${base}/api/app/release`)).json();
+      check('the count keeps climbing on repeat clicks', afterLink.downloads === 3);
+
+      const stored = JSON.parse(
+        fs.readFileSync(path.join(dataDir, 'data.json'), 'utf8'),
+      );
+      check(
+        'the count is persisted with the data set, so a redeploy keeps it',
+        stored?.settings?.stats?.apkDownloads === 3,
+      );
     },
     { ARIA_APK_FILE: apkFile, ARIA_APK_VERSION: '1.4.2' },
   );
@@ -207,7 +207,13 @@ async function run() {
       check('the mirror is fetched once, not per request', fixture.hits() === 1);
 
       const counted = await fetch(`${base}/api/app/download`);
-      check('mirrored downloads are counted too', counted.headers.get('x-aria-download') === '1');
+      // one click above (the raw download check) + this one
+      check(
+        'mirrored downloads are counted too',
+        counted.headers.get('x-aria-download') === '2',
+      );
+      const releaseAfter = await (await fetch(`${base}/api/app/release`)).json();
+      check('the count is visible on the page after a click', releaseAfter.downloads === 2);
     },
     { ARIA_APK_URL: `${fixture.base}/package.apk` },
   );
@@ -226,6 +232,43 @@ async function run() {
     },
     { ARIA_APK_URL: `${fixture.base}/not-a-package` },
   );
+
+  /* ------------------------------- 5. the count survives a restart + legacy file */
+  console.log('\n5. Count persistence');
+  const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-legacy-'));
+  fs.writeFileSync(
+    path.join(legacyDir, 'apk-downloads.json'),
+    JSON.stringify({ total: 7, lastAt: Date.now() }),
+  );
+  const apkForLegacy = path.join(legacyDir, 'aria.apk');
+  fs.writeFileSync(apkForLegacy, payload);
+
+  // first boot: the old file-based counter is folded in
+  await withServer(
+    5183,
+    async (base) => {
+      const release = await (await fetch(`${base}/api/app/release`)).json();
+      check('an older file-based counter is carried over', release.downloads === 7);
+    },
+    { ARIA_APK_FILE: apkForLegacy },
+    legacyDir,
+  );
+
+  // second boot on the same data dir: still there, and a click still adds one
+  await withServer(
+    5184,
+    async (base) => {
+      const release = await (await fetch(`${base}/api/app/release`)).json();
+      check('the count survives a restart', release.downloads === 7);
+      await fetch(`${base}/downloads/aria.apk`);
+      const after = await (await fetch(`${base}/api/app/release`)).json();
+      check('and keeps counting after the restart', after.downloads === 8);
+    },
+    { ARIA_APK_FILE: apkForLegacy },
+    legacyDir,
+  );
+
+  fs.rmSync(legacyDir, { recursive: true, force: true });
 
   fixture.server.close();
 
