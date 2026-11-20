@@ -52,6 +52,7 @@ function flushSaveChain() {
     .then(() => {
       saveWarning = null;
     })
+    .then(() => syncApkCountAfterSave())
     .catch((err) => {
       const message = err?.message || String(err);
       if (message !== saveWarning) {
@@ -802,13 +803,77 @@ function apkCounts() {
   return stats;
 }
 
+let lastApkSyncAt = 0;
+let apkSyncTimer = null;
+
+function recordApkCount(total) {
+  db.settings = db.settings || defaultSettings();
+  const stats = apkCounts();
+  stats.apkDownloads = Math.max(stats.apkDownloads, Math.floor(Number(total) || 0));
+  stats.apkLastDownloadAt = Date.now();
+  db.settings.stats = { ...stats };
+  return stats;
+}
+
+/**
+ * Counts one download and returns the new total.
+ *
+ * The number is answered immediately from memory, then re-read from the database
+ * (`max`, never a blind overwrite) and pushed back when it is higher. If the
+ * store has a current write of its own, that wins: another container, or this
+ * one before a restart, may have counted clicks we never saw.
+ */
 function bumpApkCount() {
   const stats = apkCounts();
   stats.apkDownloads += 1;
   stats.apkLastDownloadAt = Date.now();
-  // Refresh the public settings snapshot so a restart cannot resurrect an old number.
   db.settings.stats = { ...stats };
+
+  if (store && typeof store.bumpDownloadCount === 'function') {
+    clearTimeout(apkSyncTimer);
+    const running = store
+      .bumpDownloadCount(1)
+      .then((total) => recordApkCount(total))
+      .catch((err) => {
+        console.error('[aria] could not sync the download count:', err.message);
+        return stats;
+      });
+    saveChain = saveChain.then(() => running).catch(() => undefined);
+    return stats;
+  }
+
+  // File store: write it now, on its own. A click is rare and cheap to persist,
+  // and waiting for the next unrelated edit means a deploy in between loses it.
+  clearTimeout(apkSyncTimer);
+  saveChain = saveChain
+    .then(() => store?.persist(db))
+    .catch((err) => {
+      console.error('[aria] could not save the download count:', err?.message || err);
+    });
+
   return stats;
+}
+
+/**
+ * Re-reads the counter from the database after any whole-state save.
+ *
+ * A save sends the settings row as it looked when the save started. On Supabase
+ * that row *is* where the count used to live, so a redeploy, a second container,
+ * or a boot snapshot could write an older number back over the live one — the
+ * number then sat at whatever that container happened to have loaded, and looked
+ * like it had reset. The counter now lives in its own row, and this keeps memory
+ * at least as high as the database after every save.
+ */
+async function syncApkCountAfterSave() {
+  if (!store || typeof store.loadDownloadCount !== 'function') return;
+  if (Date.now() - lastApkSyncAt < 2000) return;
+  lastApkSyncAt = Date.now();
+  try {
+    const total = await store.loadDownloadCount();
+    if (Number.isFinite(total) && total > apkCounts().apkDownloads) recordApkCount(total);
+  } catch {
+    /* the next save tries again */
+  }
 }
 
 /** Shape the release payload from whatever package we can actually serve. */
@@ -891,7 +956,6 @@ api.get('/app/download', async (_req, res) => {
     return res.status(404).json({ error: 'The Android build is not published yet.' });
   }
   const counts = bumpApkCount();
-  if (store) flushSaveChain();
 
   res.setHeader('Content-Type', 'application/vnd.android.package-archive');
   res.setHeader('Content-Disposition', `attachment; filename="${APK_NAME}"`);
@@ -2246,7 +2310,6 @@ app.get(`/downloads/${APK_NAME}`, async (_req, res) => {
     return res.status(404).type('text/plain').send('The Android build is not published yet.');
   }
   const counts = bumpApkCount();
-  if (store) flushSaveChain();
 
   res.setHeader('Content-Type', 'application/vnd.android.package-archive');
   res.setHeader('Content-Disposition', `attachment; filename="${APK_NAME}"`);
