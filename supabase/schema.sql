@@ -1011,12 +1011,72 @@ begin
       end;
       $body$;
 
+      -- Counts every registered user as one download each, exactly once.
+      -- `usersCounted` is a high-water mark: it never goes down, so deleting and
+      -- re-adding an account cannot inflate the total, and calling this with a
+      -- total it has already seen adds nothing. Only the accounts that are new
+      -- since the last call are added to `apkDownloads`.
+      create or replace function public.aria_count_users_as_downloads(p_users integer default 0)
+      returns jsonb
+      language plpgsql
+      security definer
+      set search_path = public
+      as $body$
+      declare
+        v_now bigint := (extract(epoch from now()) * 1000)::bigint;
+        v_row jsonb;
+        v_seen bigint;
+        v_total bigint;
+      begin
+        insert into public.system_settings (id, data)
+        values (
+          'aria_stats',
+          jsonb_build_object('apkDownloads', 0, 'apkLastDownloadAt', null, 'usersCounted', 0)
+        )
+        on conflict (id) do nothing;
+
+        select coalesce((data->>'usersCounted')::bigint, 0)
+          into v_seen
+          from public.system_settings
+         where id = 'aria_stats';
+
+        v_total := greatest(coalesce(p_users, 0), 0);
+
+        update public.system_settings
+           set data = jsonb_set(
+                        jsonb_set(
+                          data,
+                          '{apkDownloads}',
+                          to_jsonb(
+                            coalesce((data->>'apkDownloads')::bigint, 0)
+                            + greatest(v_total - v_seen, 0)
+                          )
+                        ),
+                        '{usersCounted}',
+                        to_jsonb(greatest(v_seen, v_total))
+                      ),
+               updated_at = v_now
+         where id = 'aria_stats'
+        returning data into v_row;
+
+        return v_row;
+      end;
+      $body$;
+
       revoke all on function public.aria_get_public_settings() from public;
       revoke all on function public.aria_admin_op(text, text, jsonb) from public;
-      revoke all on function public.aria_bump_apk_download(integer) from public;
+      -- Supabase grants EXECUTE on new functions to anon and authenticated by
+      -- default. Both counter functions write with the service role only, so take
+      -- those back explicitly — otherwise anyone holding the public anon key
+      -- could inflate the download total.
+      revoke all on function public.aria_bump_apk_download(integer)
+        from public, anon, authenticated;
+      revoke all on function public.aria_count_users_as_downloads(integer)
+        from public, anon, authenticated;
 
       grant execute on function public.aria_get_public_settings() to anon, authenticated, service_role;
       grant execute on function public.aria_bump_apk_download(integer) to service_role;
+      grant execute on function public.aria_count_users_as_downloads(integer) to service_role;
       grant execute on function public.aria_admin_op(text, text, jsonb) to anon, authenticated, service_role;
     $fn$;
 

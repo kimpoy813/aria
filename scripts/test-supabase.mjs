@@ -120,14 +120,21 @@ function makeShim(pg) {
       return builder;
     },
     async rpc(name, args = {}) {
-      if (name !== 'aria_bump_apk_download') {
-        return { data: null, error: { message: `unsupported rpc ${name}` } };
+      if (name === 'aria_bump_apk_download') {
+        const delta = Number(args.p_delta ?? 1) || 0;
+        const { rows } = await pg.query(
+          `select public.aria_bump_apk_download(${Math.max(0, Math.floor(delta))}) as data`,
+        );
+        return { data: rows[0]?.data ?? null, error: null };
       }
-      const delta = Number(args.p_delta ?? 1) || 0;
-      const { rows } = await pg.query(
-        `select public.aria_bump_apk_download(${Math.max(0, Math.floor(delta))}) as data`,
-      );
-      return { data: rows[0]?.data ?? null, error: null };
+      if (name === 'aria_count_users_as_downloads') {
+        const users = Number(args.p_users ?? 0) || 0;
+        const { rows } = await pg.query(
+          `select public.aria_count_users_as_downloads(${Math.max(0, Math.floor(users))}) as data`,
+        );
+        return { data: rows[0]?.data ?? null, error: null };
+      }
+      return { data: null, error: { message: `unsupported rpc ${name}` } };
     },
   };
 }
@@ -529,6 +536,139 @@ console.log('\n5b. The download counter only ever goes up');
   fs.rmSync(apkDir, { recursive: true, force: true });
   delete process.env.ARIA_APK_FILE;
   delete process.env.ARIA_APK_MIRROR;
+}
+
+console.log('\n5c. A sign-in on another device cannot reset the counter');
+{
+  const {
+    SupabaseCallerBridge,
+    SupabaseStore,
+  } = await import(path.join(root, 'server', 'storage.js'));
+  const counterOf = async () => {
+    const { rows } = await pg.query(
+      `select coalesce((data->>'apkDownloads')::bigint, 0) as n
+         from public.system_settings where id = 'aria_stats'`,
+    );
+    return Number(rows[0]?.n || 0);
+  };
+  const live = await counterOf();
+
+  // Every hydrate used to do `db.settings = normaliseSettings(payload.settings)`.
+  // The settings row is a snapshot with no live counter in it, so taking it
+  // verbatim reset the number on every sign-in — that is the reset the counter
+  // row alone did not fix.
+  const bridge = new SupabaseCallerBridge({ url: 'http://pglite.local', anonKey: 'anon-key' });
+  globalThis.__ariaCallerClientFactory = () => ({
+    rpc: async (fnName) => {
+      if (fnName !== 'aria_get_public_settings') {
+        return { data: null, error: { message: `unsupported rpc ${fnName}` } };
+      }
+      const { rows } = await pg.query(
+        `select data from public.system_settings where id = 'global'`,
+      );
+      return { data: rows[0]?.data ?? null, error: null };
+    },
+  });
+  const db = {
+    users: [],
+    teams: [],
+    songs: [],
+    lineups: [],
+    settings: {
+      maintenance: { enabled: false, mode: 'info', title: '', message: '', eta: '', updatedAt: null, updatedBy: null },
+      allowRegistration: true,
+      stats: { apkDownloads: live, apkLastDownloadAt: null, usersCounted: 0 },
+    },
+  };
+  const loaded = await bridge.loadPublicSettings(db, { force: true });
+  delete globalThis.__ariaCallerClientFactory;
+  check('the public settings call ran', loaded === true, String(loaded));
+  check(
+    'a public-settings refresh cannot reset the counter',
+    db.settings.stats.apkDownloads === live,
+    String(db.settings.stats.apkDownloads),
+  );
+
+  // Same hazard through the per-caller hydrate path.
+  bridge.mergeHydratedState(
+    'sb_hydrate-test',
+    { users: [], teams: [], songs: [], lineups: [], settings: { stats: { apkDownloads: 0 } } },
+    db,
+  );
+  check(
+    'a hydrate payload cannot reset the counter',
+    db.settings.stats.apkDownloads === live,
+    String(db.settings.stats.apkDownloads),
+  );
+
+  // 5b left a stale counter inside the settings row. Rewriting that row the way
+  // every save now does must clear the stale copy and leave the live total alone.
+  const saveStore = new SupabaseStore({ url: 'http://pglite.local', key: 'test-service-role-key' });
+  const saved = await saveStore.load();
+  check('the live total still wins over the stale row on load', saved.settings.stats.apkDownloads === live, String(saved.settings.stats.apkDownloads));
+  await saveStore.persist(saved);
+  const { rows: mirrored } = await pg.query(
+    `select coalesce((data->'stats'->>'apkDownloads')::bigint, -1) as n
+       from public.system_settings where id = 'global'`,
+  );
+  check(
+    'a save no longer writes a counter snapshot into the settings row',
+    Number(mirrored[0]?.n) === 0,
+    String(mirrored[0]?.n),
+  );
+  const afterSave = await new SupabaseStore({
+    url: 'http://pglite.local',
+    key: 'test-service-role-key',
+  }).load();
+  check(
+    'and the total survives that save',
+    afterSave.settings.stats.apkDownloads === live,
+    String(afterSave.settings.stats.apkDownloads),
+  );
+
+  // Every registered user counts as one download, exactly once.
+  const store = new SupabaseStore({ url: 'http://pglite.local', key: 'test-service-role-key' });
+  const one = await store.countUsersAsDownloads(1);
+  check(
+    'a registered user counts as one download',
+    one.apkDownloads === live + 1,
+    String(one.apkDownloads),
+  );
+  const again = await store.countUsersAsDownloads(1);
+  check(
+    'counting the same user again adds nothing',
+    again.apkDownloads === live + 1,
+    String(again.apkDownloads),
+  );
+  const two = await store.countUsersAsDownloads(2);
+  check(
+    'a second user adds exactly one more',
+    two.apkDownloads === live + 2,
+    String(two.apkDownloads),
+  );
+  const dropped = await store.countUsersAsDownloads(1);
+  check(
+    'a deleted user does not undo a count',
+    dropped.apkDownloads === live + 2,
+    String(dropped.apkDownloads),
+  );
+  const back = await store.countUsersAsDownloads(2);
+  check(
+    'a re-added user is not counted twice',
+    back.apkDownloads === live + 2 && back.usersCounted === 2,
+    `${back.apkDownloads}/${back.usersCounted}`,
+  );
+
+  // And a container that never saw those users picks the number up: the first
+  // poll kicks off the catch-up, the next one reports it.
+  await fetch(`http://127.0.0.1:${port}/api/app/release`);
+  await new Promise((resolve) => setTimeout(resolve, 2400));
+  const seen = await (await fetch(`http://127.0.0.1:${port}/api/app/release`)).json();
+  check(
+    'the download page reports the users it counted',
+    seen.downloads >= live + 2,
+    String(seen.downloads),
+  );
 }
 
 fs.rmSync(dataDir, { recursive: true, force: true });

@@ -147,6 +147,7 @@ async function boot() {
     }
   }
   purgeLegacyDemoData();
+  await syncApkCountAfterSave();
   return store;
 }
 
@@ -787,7 +788,11 @@ function readLegacyApkCounts() {
 
 function apkCounts() {
   db.settings = db.settings || defaultSettings();
-  db.settings.stats = db.settings.stats || { apkDownloads: 0, apkLastDownloadAt: null };
+  db.settings.stats = db.settings.stats || {
+    apkDownloads: 0,
+    apkLastDownloadAt: null,
+    usersCounted: 0,
+  };
 
   if (!apkCountsImported) {
     apkCountsImported = true;
@@ -800,19 +805,51 @@ function apkCounts() {
 
   const stats = db.settings.stats;
   stats.apkDownloads = Math.max(0, Number(stats.apkDownloads) || 0);
+  stats.usersCounted = Math.max(0, Number(stats.usersCounted) || 0);
   return stats;
 }
 
 let lastApkSyncAt = 0;
 let apkSyncTimer = null;
 
+/** Raises the in-memory counters. Every field is a high-water mark. */
 function recordApkCount(total) {
   db.settings = db.settings || defaultSettings();
   const stats = apkCounts();
-  stats.apkDownloads = Math.max(stats.apkDownloads, Math.floor(Number(total) || 0));
-  stats.apkLastDownloadAt = Date.now();
+  const next = total && typeof total === 'object' ? total : { apkDownloads: total };
+  const downloads = Math.floor(Number(next.apkDownloads) || 0);
+  if (Number.isFinite(downloads)) {
+    stats.apkDownloads = Math.max(stats.apkDownloads, downloads);
+  }
+  const usersCounted = Math.floor(Number(next.usersCounted) || 0);
+  if (Number.isFinite(usersCounted)) {
+    stats.usersCounted = Math.max(stats.usersCounted, usersCounted);
+  }
+  if (next.apkLastDownloadAt) stats.apkLastDownloadAt = Number(next.apkLastDownloadAt);
+  else if (next.apkDownloads !== undefined) stats.apkLastDownloadAt = Date.now();
   db.settings.stats = { ...stats };
   return stats;
+}
+
+/**
+ * Counts every registered user as one download each.
+ *
+ * The database keeps a high-water mark of how many users it has already counted
+ * and adds only the new ones, so re-running this — every boot, every sign-in —
+ * can never double-count, and the built-in admin account is not a user.
+ */
+async function countUsersAsDownloads() {
+  if (!store || typeof store.countUsersAsDownloads !== 'function') return apkCounts();
+  const total = (db.users || []).filter(
+    (u) => u && u.id !== 'user_admin' && !u.isDemo,
+  ).length;
+  try {
+    const stats = await store.countUsersAsDownloads(total);
+    return recordApkCount(stats);
+  } catch (err) {
+    console.error('[aria] could not count users as downloads:', err?.message || err);
+    return apkCounts();
+  }
 }
 
 /**
@@ -869,11 +906,23 @@ async function syncApkCountAfterSave() {
   if (Date.now() - lastApkSyncAt < 2000) return;
   lastApkSyncAt = Date.now();
   try {
-    const total = await store.loadDownloadCount();
-    if (Number.isFinite(total) && total > apkCounts().apkDownloads) recordApkCount(total);
+    const stats = typeof store.loadStats === 'function'
+      ? await store.loadStats()
+      : { apkDownloads: await store.loadDownloadCount() };
+    if (Number.isFinite(stats?.apkDownloads)) recordApkCount(stats);
   } catch {
     /* the next save tries again */
   }
+  await countUsersAsDownloads();
+}
+
+/**
+ * Brings memory up to date with the database, then counts any new users.
+ * Safe to call on a timer or a request: it is throttled and never lowers a value.
+ */
+function reconcileApkCounts({ throttle = true } = {}) {
+  if (throttle && Date.now() - lastApkSyncAt < 2000) return Promise.resolve(apkCounts());
+  return syncApkCountAfterSave().then(() => apkCounts());
 }
 
 /** Shape the release payload from whatever package we can actually serve. */
@@ -935,6 +984,9 @@ function describeApk(file) {
  */
 api.get('/app/release', async (req, res) => {
   const wait = !['0', 'false', 'no'].includes(String(req.query.wait || '').toLowerCase());
+  // Another container may have counted clicks this one has not seen. Catching up
+  // in the background keeps this poll instant while the next one is accurate.
+  void reconcileApkCounts();
   const file = await ensureApk({ wait });
   const release = describeApk(file || '');
   res.setHeader('Cache-Control', 'no-store');
@@ -1160,6 +1212,8 @@ api.post('/auth/register', (req, res) => {
       name: account.name,
       email: account.email,
     });
+    // After ensureUserRecord, so the new account is in db.users when counted.
+    void countUsersAsDownloads();
     res.json({ token: session, user: publicUserView(user) });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -1573,6 +1627,7 @@ api.post('/admin/users', async (req, res) => {
       });
       user.role = role;
       save();
+      void countUsersAsDownloads();
       return res.json({ user: publicUserView(user) });
     } catch (err) {
       return res.status(err.status || 400).json({ error: err.message });
@@ -1590,6 +1645,7 @@ api.post('/admin/users', async (req, res) => {
   };
   db.users.push(user);
   save();
+  void countUsersAsDownloads();
   if (callerBridge) {
     await callerBridge.adminOp(adminRpcCredentials(req), 'upsert_user', user);
   }
