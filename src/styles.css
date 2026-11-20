@@ -3224,3 +3224,19 @@ select {
     animation: none !important;
   }
 }
+
+/* live download count on the product page */
+.app-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.app-count svg {
+  color: var(--brand-text);
+}

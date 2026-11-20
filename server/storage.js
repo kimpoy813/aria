@@ -33,6 +33,8 @@ export function defaultSettings() {
       updatedBy: null,
     },
     allowRegistration: true,
+    /** App-wide counters that must survive a redeploy (APK downloads, etc). */
+    stats: { apkDownloads: 0, apkLastDownloadAt: null },
   };
 }
 
@@ -51,6 +53,10 @@ function normaliseSettings(raw) {
       updatedBy: typeof m.updatedBy === 'string' ? m.updatedBy : null,
     },
     allowRegistration: raw.allowRegistration === undefined ? true : Boolean(raw.allowRegistration),
+    stats: {
+      apkDownloads: Math.max(0, Number(raw?.stats?.apkDownloads) || 0),
+      apkLastDownloadAt: Number(raw?.stats?.apkLastDownloadAt) || null,
+    },
   };
 }
 
