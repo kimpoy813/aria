@@ -2,7 +2,13 @@ import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon } from '../components/ui';
 import { api } from '../lib/api';
-import { applyScope, type LibraryScope } from '../lib/scopes';
+import {
+  applyScope,
+  isTheOriginal,
+  songSignature,
+  yourVersionOf,
+  type LibraryScope,
+} from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { Song, Tempo } from '../lib/types';
 
@@ -23,15 +29,8 @@ export function SongsPage() {
   const [themeFilter, setThemeFilter] = useState<string>('all');
   const [copyingId, setCopyingId] = useState<string | null>(null);
 
-  const copiedSourceIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of songs) {
-      if (s.ownerId === user?.id && s.sourceSongId) {
-        set.add(s.sourceSongId);
-      }
-    }
-    return set;
-  }, [songs, user?.id]);
+
+
 
   const themes = useMemo(() => {
     const set = new Set<string>();
@@ -268,9 +267,19 @@ export function SongsPage() {
         <div className="list-group">
           {filtered.map((song) => {
             const isMine = song.ownerId === user?.id;
-            const alreadyCopied =
-              !isMine && copiedSourceIds.has(song.sourceSongId || song.id);
             const busyCopy = copyingId === song.id;
+            /*
+             * Someone in your team copying your song must not offer it back to
+             * you. If you already own this lineage, the only reason to copy
+             * again is that they changed it — so that is the only case that
+             * gets a button, and it says "version", not "copy".
+             */
+            const myVersion = isMine
+              ? undefined
+              : yourVersionOf(songs, song, user?.id);
+            const edited =
+              myVersion !== undefined &&
+              songSignature(myVersion) !== songSignature(song);
 
             return (
               <div key={song.id} className="list-row list-row-split">
@@ -298,8 +307,10 @@ export function SongsPage() {
 
                 {isMine ? (
                   <Chip>{song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
-                ) : alreadyCopied ? (
-                  <Chip tone="brand">Copied</Chip>
+                ) : !edited && myVersion ? (
+                  <Chip tone="brand">
+                    {isTheOriginal(myVersion, song) ? 'Your song' : 'Copied'}
+                  </Chip>
                 ) : (
                   <button
                     type="button"
@@ -307,7 +318,8 @@ export function SongsPage() {
                     disabled={busyCopy}
                     onClick={() => copySongToAccount(song)}
                   >
-                    <Icon name="copy" size={12} /> {busyCopy ? '…' : 'Copy'}
+                    <Icon name="copy" size={12} />{' '}
+                    {busyCopy ? '…' : edited ? 'Copy version' : 'Copy'}
                   </button>
                 )}
               </div>

@@ -13,7 +13,12 @@ import {
 import { api } from '../lib/api';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
 import { repointSlotsToCopy } from '../lib/lru';
-import { builderLibrary, ownRecords, yourCopyOf } from '../lib/scopes';
+import {
+  builderLibrary,
+  isTheOriginal,
+  ownRecords,
+  yourVersionOf,
+} from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { LineupItem, Song, SongPart, Tempo } from '../lib/types';
 
@@ -86,7 +91,7 @@ export function BuilderPage() {
   const useOwnVersionOf = async (song: Song) => {
     setCopyingSongId(song.id);
     try {
-      const already = yourCopyOf(songs, song, user?.id);
+      const already = yourVersionOf(songs, song, user?.id);
       const copy = already ?? (await api.copySong(song.id)).song;
       if (!already) await refresh();
       setItems((prev) => repointSlotsToCopy(prev, song, copy));
@@ -503,7 +508,10 @@ export function BuilderPage() {
                       <Chip tone={song.tempo}>{part.label}</Chip>
                     </div>
                     {firstLine && <div className="lyric-line muted">{firstLine}</div>}
-                    {song.ownerId !== user?.id && (
+                            {(() => {
+                      if (song.ownerId === user?.id) return null;
+                      const myVersion = yourVersionOf(songs, song, user?.id);
+                      return (
                       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                         <span className="tiny">Shared by {song.ownerName}</span>
                         <button
@@ -515,12 +523,15 @@ export function BuilderPage() {
                           <Icon name="copy" size={12} />{' '}
                           {copyingSongId === song.id
                             ? '…'
-                            : yourCopyOf(songs, song, user?.id)
-                              ? 'Use my copy'
+                            : myVersion
+                              ? isTheOriginal(myVersion, song)
+                                ? 'Use original'
+                                : 'Use my copy'
                               : 'Copy song'}
                         </button>
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
 
                   <div className="seq-toolbar">
