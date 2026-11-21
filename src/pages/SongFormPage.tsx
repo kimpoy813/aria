@@ -3,6 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { BackBar, Button, Chip, Icon, IconButton, Sheet, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
 import {
+  MAJOR_KEYS,
+  MINOR_KEYS,
+  diatonicChords,
+  hasChords,
+  parseChord,
+} from '../lib/chords';
+import {
   defaultPartLabel,
   shouldAutoSplitPaste,
   splitPastedLyrics,
@@ -44,6 +51,18 @@ export function SongFormPage() {
   const [messageTouched, setMessageTouched] = useState(
     Boolean(existing?.analysis?.manualOverride),
   );
+  // The key the chords are written in. Empty until a leader sets one — a song
+  // with no key simply has no chords to move, and nothing else has to care.
+  const [key, setKey] = useState(existing?.key ?? '');
+  const [chordsOpen, setChordsOpen] = useState(() =>
+    Boolean(existing?.key) || (existing?.parts || []).some((p) => hasChords(p.lyrics)),
+  );
+  const [chordDraft, setChordDraft] = useState('');
+  const [chordError, setChordError] = useState('');
+  // Which part the leader is typing in, so a chord lands where the cursor is.
+  const partAreaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const activePartId = useRef<string | null>(null);
+
   const [parts, setParts] = useState<SongPart[]>(() => {
     if (existing?.parts.length) return existing.parts.map((p) => ({ ...p }));
     const v = newPart('verse', []);
@@ -159,6 +178,47 @@ export function SongFormPage() {
 
   const updatePart = (index: number, patch: Partial<SongPart>) => {
     setParts((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+  };
+
+  /**
+   * Drops a chord marker in at the caret.
+   *
+   * The leader is already standing in the words at exactly the syllable the
+   * chord falls on, so that is where it goes — no counting characters, no
+   * second pass to line things up. If nothing is focused yet, say so rather
+   * than quietly appending to the end of some part.
+   */
+  const insertChord = (chord: string) => {
+    const id = activePartId.current;
+    const area = id ? partAreaRefs.current[id] : null;
+    const index = parts.findIndex((p) => p.id === id);
+    if (!area || index === -1) {
+      setChordError('Tap the lyrics where the chord goes first.');
+      return;
+    }
+    const start = area.selectionStart ?? 0;
+    const end = area.selectionEnd ?? start;
+    const value = parts[index].lyrics;
+    const marker = `[${chord}]`;
+    updatePart(index, { lyrics: `${value.slice(0, start)}${marker}${value.slice(end)}` });
+    setChordError('');
+    setChordDraft('');
+    // Caret goes just past the marker, so the next tap keeps flowing.
+    const pos = start + marker.length;
+    requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(pos, pos);
+    });
+  };
+
+  const submitChordDraft = () => {
+    const typed = chordDraft.trim();
+    if (!typed) return;
+    if (parseChord(typed) === null) {
+      setChordError(`“${typed}” is not a chord. Try G, Bm, F#m7 or D/F#.`);
+      return;
+    }
+    insertChord(typed);
   };
 
   const movePart = (index: number, delta: -1 | 1) => {
@@ -313,7 +373,19 @@ export function SongFormPage() {
     runAutoClassifyImmediate(split.parts);
     setPasteBuffer('');
     setPasteOpen(false);
-    showToast(`Split into ${split.parts.length} parts`, 'success');
+
+    /*
+     * Say so when a chord sheet was re-anchored. The leader pasted chords
+     * floating above the words and gets back chords sitting on them — right,
+     * but not what they pasted, and a silent rewrite of someone's sheet is the
+     * sort of thing that costs trust.
+     */
+    if (split.inlinedChords) {
+      setChordsOpen(true);
+      showToast(`Split into ${split.parts.length} parts · chords attached to the words`, 'success');
+    } else {
+      showToast(`Split into ${split.parts.length} parts`, 'success');
+    }
   };
 
   const resetToAutoClassification = () => {
@@ -380,6 +452,7 @@ export function SongFormPage() {
         artist: artist.trim() || 'Unknown artist',
         tempo: finalTempo,
         theme: finalTheme,
+        key: key.trim(),
         teamId: existing?.teamId ?? null,
         parts: filled,
         analysis: finalAnalysis,
@@ -476,6 +549,106 @@ export function SongFormPage() {
             </button>
           </div>
         </div>
+
+        <div className="field">
+          <label htmlFor="song-key">Key</label>
+          <select
+            id="song-key"
+            className="select"
+            value={key}
+            onChange={(e) => {
+              setKey(e.target.value);
+              if (e.target.value) setChordsOpen(true);
+            }}
+          >
+            <option value="">Not set</option>
+            <optgroup label="Major">
+              {MAJOR_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Minor">
+              {MINOR_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+          <span className="hint">
+            The key the chords are written in. A lineup can still play it anywhere else.
+          </span>
+        </div>
+      </div>
+
+      <div className="card chord-panel">
+        <button
+          type="button"
+          className="row-between chord-panel-head"
+          onClick={() => setChordsOpen((v) => !v)}
+          aria-expanded={chordsOpen}
+        >
+          <span className="label">Chords</span>
+          <span className="tiny">
+            {chordsOpen ? 'Hide' : hasChords(parts.map((p) => p.lyrics).join('\n')) ? 'Edit' : 'Add'}
+          </span>
+        </button>
+
+        {chordsOpen && (
+          <div className="chord-entry">
+            <p className="hint">
+              Tap the words where a chord lands, then tap the chord. It sits on the
+              syllable, so it stays put when the key changes.
+            </p>
+
+            {key ? (
+              <div className="chord-palette">
+                {diatonicChords(key).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className="chord-pill"
+                    onClick={() => insertChord(c)}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="hint">Pick a key above to get the chords that fit it.</p>
+            )}
+
+            <div className="chord-custom">
+              <input
+                className="input"
+                value={chordDraft}
+                onChange={(e) => {
+                  setChordDraft(e.target.value);
+                  if (chordError) setChordError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitChordDraft();
+                  }
+                }}
+                placeholder="Any other chord — Bm7, F#m, D/F#"
+                aria-label="Chord name"
+              />
+              <Button type="button" variant="quiet" onClick={submitChordDraft}>
+                Insert
+              </Button>
+            </div>
+
+            {chordError && (
+              <p className="chord-entry-error" role="alert">
+                {chordError}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="stack-sm">
@@ -542,6 +715,18 @@ export function SongFormPage() {
               <textarea
                 className="textarea"
                 rows={4}
+                ref={(el) => {
+                  partAreaRefs.current[part.id] = el;
+                }}
+                onFocus={() => {
+                  activePartId.current = part.id;
+                }}
+                onClick={() => {
+                  activePartId.current = part.id;
+                }}
+                onKeyUp={() => {
+                  activePartId.current = part.id;
+                }}
                 placeholder={
                   i === 0 && !hasLyrics
                     ? 'Paste full lyrics or type here…'

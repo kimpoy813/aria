@@ -116,6 +116,9 @@ const COLUMNS = {
     artist: 'artist',
     tempo: 'tempo',
     theme: 'theme',
+    // Key the chords are written in. Per-lineup keys live inside the lineup's
+    // `items` JSON instead — the same song can be played twice in two keys.
+    key: 'key',
     parts: 'parts',
     analysis: 'analysis',
     lyrics: 'lyrics',
@@ -152,7 +155,15 @@ const GENERATED = new Set(['created_at', 'updated_at']);
 /** Columns that reject null and what to write instead. */
 const REQUIRED_DEFAULTS = {
   teams: { name: '', code: '', owner_id: '', members: [] },
-  songs: { title: '', artist: 'Unknown artist', tempo: 'slow', theme: '', parts: [], lyrics: '' },
+  songs: {
+    title: '',
+    artist: 'Unknown artist',
+    tempo: 'slow',
+    theme: '',
+    key: '',
+    parts: [],
+    lyrics: '',
+  },
   lineups: { name: '', theme: '', owner_id: '', owner_name: '', items: [], use_count: 0 },
   // note: team_id, source_*_id, last_used_at, copied_from and share_token are
   // intentionally nullable and are left as null.
@@ -170,6 +181,12 @@ function toRow(collection, record, options = {}) {
       options.extendedUserCols === false &&
       (column === 'email' || column === 'role' || column === 'suspended')
     ) {
+      continue;
+    }
+    // A database that has not had schema.sql re-run since chords landed has no
+    // `key` column. Dropping the field keeps every song saving; the key simply
+    // lives in memory until the migration is applied.
+    if (collection === 'songs' && options.hasSongKeyCol === false && column === 'key') {
       continue;
     }
     const value = record[field];
@@ -207,6 +224,7 @@ function fromRow(collection, row) {
   }
   if (collection === 'songs') {
     value.theme = row.theme ?? '';
+    value.key = row.key ?? '';
     value.parts = row.parts ?? [];
     value.lyrics = row.lyrics ?? '';
     value.copiedFrom = row.copied_from ?? null;
@@ -293,6 +311,7 @@ export class SupabaseStore {
     this.key = key;
     this.client = null;
     this.hasExtendedUserCols = true;
+    this.hasSongKeyCol = true;
     this.hasSettingsTable = true;
   }
 
@@ -317,6 +336,8 @@ export class SupabaseStore {
     // Detect optional admin schema extensions so older un-migrated DBs never fail
     const extProbe = await this.client.from('users').select('id, email, role, suspended').limit(1);
     this.hasExtendedUserCols = !extProbe.error;
+    const keyProbe = await this.client.from('songs').select('id, key').limit(1);
+    this.hasSongKeyCol = !keyProbe.error;
     const setProbe = await this.client.from('system_settings').select('id').limit(1);
     this.hasSettingsTable = !setProbe.error;
 
@@ -382,7 +403,10 @@ export class SupabaseStore {
       const records = state[collection] || [];
       if (records.length > 0) {
         const rows = records.map((record) =>
-          toRow(collection, record, { extendedUserCols: this.hasExtendedUserCols }),
+          toRow(collection, record, {
+            extendedUserCols: this.hasExtendedUserCols,
+            hasSongKeyCol: this.hasSongKeyCol,
+          }),
         );
         const { error } = await client.from(collection).upsert(rows, { onConflict: 'id' });
         if (error) throw new Error(`Could not save ${collection}: ${error.message}`);

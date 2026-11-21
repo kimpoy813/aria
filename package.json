@@ -21,7 +21,9 @@
     "test:app": "node scripts/test-app-page.mjs",
     "test:pwa": "node scripts/test-pwa-shell.mjs",
     "test:lineup": "node scripts/test-lineup-print.mjs",
-    "test:teams": "node scripts/test-team-scopes.mjs"
+    "test:teams": "node scripts/test-team-scopes.mjs",
+    "test:chords": "node scripts/test-chords.mjs",
+    "test:chordflow": "node scripts/test-chord-flow.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

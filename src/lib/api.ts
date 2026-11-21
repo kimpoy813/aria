@@ -77,6 +77,8 @@ export const api = {
     artist: string;
     tempo: Tempo;
     theme: string;
+    /** Key the chords are written in, e.g. "G" or "F#m". Empty when unset. */
+    key: string;
     parts: { kind: string; label: string; lyrics: string }[];
     analysis: Analysis | null;
     teamId: string | null;
@@ -93,6 +95,7 @@ export const api = {
       artist?: string;
       tempo?: Tempo;
       theme?: string;
+      key?: string;
       parts?: { id?: string; kind: string; label: string; lyrics: string }[];
       analysis?: Analysis | null;
       teamId?: string | null;
@@ -120,7 +123,11 @@ export const api = {
   createLineup: (payload: {
     name: string;
     theme: string;
-    items: { songId: string; partId: string }[];
+    /**
+     * `key` is the key this *occurrence* plays in — the same song can appear
+     * twice in one lineup in two different keys.
+     */
+    items: { songId: string; partId: string; key?: string }[];
     teamId: string | null;
   }) =>
     request<{ lineup: Lineup }>('/lineups', {
@@ -133,7 +140,7 @@ export const api = {
     payload: {
       name?: string;
       theme?: string;
-      items?: { songId: string; partId: string }[];
+      items?: { songId: string; partId: string; key?: string }[];
       teamId?: string | null;
     },
   ) =>

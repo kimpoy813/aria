@@ -1,4 +1,23 @@
+import { keyInterval, transposeLyrics } from './chords';
 import type { Lineup, LineupItem, Song } from './types';
+
+/**
+ * The lyrics a slot actually performs, given the key the slot plays in.
+ *
+ * A song is stored once, in its own key. The set around it moves: a builder
+ * drops song 1 in at G, shifts to D for song 2, then brings song 1 back in D.
+ * So the key lives on the *slot*, and the stored text is moved to it here.
+ */
+function inSlotKey(writtenKey: string, playKey: string | undefined, lyrics: string) {
+  // null means "no usable key on one side" — play it exactly as written.
+  const interval = keyInterval(writtenKey, playKey) ?? 0;
+  return {
+    lyrics: interval === 0 ? lyrics : transposeLyrics(lyrics, interval, playKey),
+    writtenKey: writtenKey || '',
+    playKey: interval === 0 ? null : (playKey as string),
+    interval,
+  };
+}
 
 export interface SequenceEntry {
   itemId: string;
@@ -6,7 +25,14 @@ export interface SequenceEntry {
   partId: string;
   partKind: string;
   partLabel: string;
+  /** Lyrics moved into this slot's key — equal to the stored text when no key is set. */
   lyrics: string;
+  /** Key the chords are written in. */
+  writtenKey: string;
+  /** Key this occurrence plays in, or null when it plays as written. */
+  playKey: string | null;
+  /** Semitones between the two. */
+  interval: number;
 }
 
 export interface LineupSongSummary {
@@ -31,8 +57,15 @@ export interface GroupedSongSection {
 }
 
 export interface GroupedSongBlock {
+  /** Identity for the block, not a musical key — two blocks of the same song are distinct. */
   key: string;
   songTitle: string;
+  /** Key the chords are written in; empty when the song has none. */
+  writtenKey?: string;
+  /** Key this block is performed in; empty when it plays as written. */
+  playKey?: string;
+  /** Semitones the stored chords were moved. */
+  interval?: number;
   sections: GroupedSongSection[];
 }
 
@@ -71,7 +104,7 @@ export function resolveSequence(lineup: Lineup, songs: Song[]): SequenceEntry[] 
         partId: part.id,
         partKind: part.kind,
         partLabel: part.label,
-        lyrics: part.lyrics,
+        ...inSlotKey(song.key || item.songKey || '', item.key, part.lyrics),
       });
     } else if (item.lyrics) {
       const fallbackSong: Song = song ?? {
@@ -80,6 +113,7 @@ export function resolveSequence(lineup: Lineup, songs: Song[]): SequenceEntry[] 
         artist: item.artist || 'Unknown artist',
         tempo: item.tempo === 'fast' ? 'fast' : 'slow',
         theme: lineup.theme || '',
+        key: item.songKey || item.key || '',
         parts: [],
         analysis: null,
         ownerId: lineup.ownerId,
@@ -95,7 +129,7 @@ export function resolveSequence(lineup: Lineup, songs: Song[]): SequenceEntry[] 
         partId: item.partId,
         partKind: String(item.partKind || 'verse'),
         partLabel: item.partLabel || 'Part',
-        lyrics: item.lyrics,
+        ...inSlotKey(item.songKey || '', item.key, item.lyrics),
       });
     }
   }
@@ -208,6 +242,10 @@ export function groupLineupSongBlocks(
     songTitle: string;
     partLabel: string;
     lyrics: string;
+    /** Key this occurrence is performed in, when one was chosen. */
+    playKey?: string;
+    writtenKey?: string;
+    interval?: number;
   }[],
 ): GroupedSongBlock[] {
   const blocks: (GroupedSongBlock & { seenLyrics: Set<string> })[] = [];
@@ -215,7 +253,10 @@ export function groupLineupSongBlocks(
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     const title = it.songTitle.trim() || 'Untitled song';
-    const matchKey = (it.songKey || title).trim().toLowerCase();
+    // A song sung twice in different keys is two moments, not one block: the
+    // band has to see the new key on its own heading, not buried mid-block.
+    const playKey = (it.playKey || '').trim();
+    const matchKey = `${(it.songKey || title).trim().toLowerCase()}::${playKey.toLowerCase()}`;
     const prev = blocks[blocks.length - 1];
 
     const normLyrics = (it.lyrics || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -238,6 +279,9 @@ export function groupLineupSongBlocks(
       blocks.push({
         key: matchKey,
         songTitle: title,
+        writtenKey: it.writtenKey || '',
+        playKey,
+        interval: it.interval || 0,
         seenLyrics,
         sections: [
           {
@@ -261,6 +305,10 @@ export interface FullLyricSource {
   id?: string;
   title: string;
   artist?: string;
+  /** Key the chords are written in. */
+  key?: string;
+  /** Key this whole song is performed in, when the lineup moved it. */
+  playKey?: string;
   parts: { label?: string; lyrics: string }[];
 }
 
@@ -277,18 +325,25 @@ export function fullLyricBlocks(songs: FullLyricSource[]): GroupedSongBlock[] {
   const blocks: GroupedSongBlock[] = [];
 
   for (const song of songs) {
-    const key = (song.id || song.title || '').trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
+    const id = (song.id || song.title || '').trim().toLowerCase();
+    if (!id) continue;
+    const key = `${id}::${(song.playKey || '').trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
     const parts = (song.parts || []).filter((p) => (p.lyrics || '').trim());
     if (parts.length === 0) continue;
     seen.add(key);
+    const writtenKey = song.key || '';
+    const interval = keyInterval(writtenKey, song.playKey) ?? 0;
     blocks.push({
       key: `${key}_${blocks.length}`,
       songTitle: (song.title || 'Untitled song').trim(),
+      writtenKey,
+      playKey: interval === 0 ? '' : String(song.playKey),
+      interval,
       sections: parts.map((p, i) => ({
         key: `${key}_${i}`,
         partLabel: (p.label || '').trim() || 'Part',
-        lyrics: p.lyrics,
+        lyrics: interval === 0 ? p.lyrics : transposeLyrics(p.lyrics, interval, song.playKey),
         isRepeat: false,
       })),
     });
@@ -309,22 +364,40 @@ export function lineupFullLyricBlocks(lineup: Lineup, songs: Song[]): GroupedSon
 
   for (const item of lineup.items) {
     const song = songs.find((s) => s.id === item.songId);
+    // A song played twice in two keys is two pages, not one: whoever is reading
+    // this at 9am on a Sunday has to see which key the copy in front of them is in.
+    const id = song ? song.id : item.songId || item.songTitle || item.id;
+    const playKey = (item.key || '').trim();
+    const cacheKey = `${id}::${playKey.toLowerCase()}`;
+    const existing = snapshots.get(cacheKey);
+
     if (song) {
-      ordered.push(song);
+      if (!existing) {
+        snapshots.set(cacheKey, {
+          id,
+          title: song.title,
+          artist: song.artist,
+          key: song.key || item.songKey || '',
+          playKey,
+          parts: song.parts,
+        });
+        ordered.push(snapshots.get(cacheKey)!);
+      }
       continue;
     }
-    const key = item.songId || item.songTitle || item.id;
-    const existing = snapshots.get(key);
+
     if (existing) {
       existing.parts.push({ label: item.partLabel || 'Part', lyrics: item.lyrics || '' });
     } else {
       const entry: FullLyricSource = {
-        id: key,
+        id,
         title: item.songTitle || 'Untitled song',
         artist: item.artist || 'Unknown artist',
+        key: item.songKey || '',
+        playKey,
         parts: [{ label: item.partLabel || 'Part', lyrics: item.lyrics || '' }],
       };
-      snapshots.set(key, entry);
+      snapshots.set(cacheKey, entry);
       ordered.push(entry);
     }
   }

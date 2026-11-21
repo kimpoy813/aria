@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnalysisCard } from '../components/AnalysisCard';
+import { ChordControls } from '../components/ChordControls';
 import { LyricView } from '../components/LyricView';
 import {
   BackBar,
@@ -13,6 +14,8 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
+import { hasChords } from '../lib/chords';
+import { applyReaderOffset, displayKey } from '../lib/chordView';
 import {
   THEME_LIST,
   analyzeLyrics,
@@ -27,6 +30,10 @@ export function SongDetailPage() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Reader's view only — never written back to the song.
+  const [showChords, setShowChords] = useState(true);
+  const [offset, setOffset] = useState(0);
 
   const [editMsgOpen, setEditMsgOpen] = useState(false);
   const [draftTheme, setDraftTheme] = useState('');
@@ -43,6 +50,7 @@ export function SongDetailPage() {
     );
   }
 
+  const songHasChords = song.parts.some((p) => hasChords(p.lyrics));
   const mine = song.ownerId === user?.id;
   const team = song.teamId ? teams.find((t) => t.id === song.teamId) : null;
 
@@ -179,11 +187,25 @@ export function SongDetailPage() {
         )}
         <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
           <Chip tone={song.tempo}>{song.tempo === 'fast' ? 'Fast' : 'Slow'}</Chip>
+          {song.key && (
+            <Chip tone="brand">Key of {displayKey(song.key, offset) || song.key}</Chip>
+          )}
           {!song.analysis && song.theme && <Chip tone="brand">{song.theme}</Chip>}
           {team && <Chip>{team.name}</Chip>}
           {!mine && <span className="tiny">by {song.ownerName}</span>}
         </div>
       </div>
+
+      {songHasChords && (
+        <ChordControls
+          hasChords={songHasChords}
+          showChords={showChords}
+          onToggleChords={() => setShowChords((v) => !v)}
+          writtenKey={song.key}
+          offset={offset}
+          onChangeOffset={setOffset}
+        />
+      )}
 
       {song.analysis ? (
         <AnalysisCard
@@ -212,7 +234,10 @@ export function SongDetailPage() {
               </IconButton>
             </div>
             <div className="part-body">
-              <LyricView lyrics={part.lyrics} />
+              <LyricView
+                lyrics={applyReaderOffset(part.lyrics, song.key, offset)}
+                showChords={showChords}
+              />
             </div>
           </div>
         ))}

@@ -30,6 +30,7 @@ alter table public.users add column if not exists email text;
 alter table public.users add column if not exists role text not null default 'user';
 alter table public.users add column if not exists suspended boolean not null default false;
 
+
 -- ---------------------------------------------------------------- teams
 
 create table if not exists public.teams (
@@ -52,6 +53,9 @@ create table if not exists public.songs (
   artist          text not null default 'Unknown artist',
   tempo           text not null default 'slow' check (tempo in ('fast', 'slow')),
   theme           text not null default '',
+  -- Key the chords are written in, e.g. 'G' or 'F#m'. Empty = no key set.
+  -- Chords are stored once, in this key; every other key is derived by the app.
+  key             text not null default '',
   parts           jsonb not null default '[]'::jsonb,
   analysis        jsonb,
   lyrics          text not null default '',
@@ -66,6 +70,10 @@ create table if not exists public.songs (
 
 create index if not exists songs_owner_idx on public.songs (owner_id);
 create index if not exists songs_team_idx on public.songs (team_id);
+
+-- Songs gained a key when chords arrived; existing rows simply have none set.
+-- Kept after the CREATE above so a fresh database creates the column itself.
+alter table public.songs add column if not exists key text not null default '';
 
 -- ---------------------------------------------------------------- lineups
 
@@ -278,7 +286,7 @@ begin
             end if;
 
             insert into public.songs (
-              id, title, artist, tempo, theme, parts, analysis, lyrics,
+              id, title, artist, tempo, theme, key, parts, analysis, lyrics,
               owner_id, owner_name, team_id, source_song_id, copied_from,
               created_at, updated_at
             )
@@ -288,6 +296,7 @@ begin
               coalesce(nullif(v_song->>'artist', ''), 'Unknown artist'),
               case when v_song->>'tempo' = 'fast' then 'fast' else 'slow' end,
               coalesce(v_song->>'theme', ''),
+              coalesce(v_song->>'key', ''),
               coalesce(v_song->'parts', '[]'::jsonb),
               case when jsonb_typeof(v_song->'analysis') = 'null' then null else v_song->'analysis' end,
               coalesce(v_song->>'lyrics', ''),
@@ -304,6 +313,7 @@ begin
               artist = excluded.artist,
               tempo = excluded.tempo,
               theme = excluded.theme,
+              key = excluded.key,
               parts = excluded.parts,
               analysis = excluded.analysis,
               lyrics = excluded.lyrics,

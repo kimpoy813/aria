@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ChordControls } from '../components/ChordControls';
 import { LyricView } from '../components/LyricView';
 import { Wordmark } from '../components/Logo';
 import { Button, Empty, Icon, IconButton, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
+import { hasChords, stripChords } from '../lib/chords';
+import { applyReaderOffset, displayKey } from '../lib/chordView';
 import { fullLyricBlocks, groupLineupSongBlocks } from '../lib/lru';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
@@ -15,6 +18,11 @@ export function SharedPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [largeText, setLargeText] = useState(false);
+  // Everything below is this reader's view only. Nothing here is written back:
+  // a visitor transposing for their own voice must not move the band's sheet,
+  // and the next person to open the same link sees it as it was sent.
+  const [showChords, setShowChords] = useState(true);
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -48,6 +56,32 @@ export function SharedPage() {
     return groupLineupSongBlocks(lineup.items);
   }, [lineup]);
 
+  /** The key a block was sent in — the slot's key, or the song's if unset. */
+  const builtKeyOf = (block: (typeof songBlocks)[number]) =>
+    block.playKey || block.writtenKey || '';
+
+  const pageHasChords = useMemo(
+    () => songBlocks.some((b) => b.sections.some((sec) => hasChords(sec.lyrics))),
+    [songBlocks],
+  );
+
+  /*
+   * One key across the page and the bar can name it. Two songs in two keys and
+   * it cannot, so the bar speaks in moves and each song names its own key.
+   */
+  const builtKeys = useMemo(
+    () => [...new Set(songBlocks.map(builtKeyOf).filter(Boolean))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [songBlocks],
+  );
+  const singleKey = builtKeys.length === 1 ? builtKeys[0] : '';
+
+  /** The words as this reader sees them — same function the page renders with. */
+  const viewLyrics = (block: (typeof songBlocks)[number], text: string) => {
+    const moved = applyReaderOffset(text, builtKeyOf(block), offset);
+    return showChords ? moved : stripChords(moved);
+  };
+
   const copyUrl = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -67,10 +101,14 @@ export function SharedPage() {
           .map((sec) =>
             sec.isRepeat
               ? `↻ ${sec.partLabel}`
-              : `${sec.partLabel}\n${sec.lyrics.trim()}`,
+              : `${sec.partLabel}\n${viewLyrics(block, sec.lyrics).trim()}`,
           )
           .join('\n\n');
-        return `${idx + 1}. ${block.songTitle}\n\n${body}`;
+        const keyLabel = displayKey(builtKeyOf(block), offset);
+        const heading = keyLabel
+          ? `${idx + 1}. ${block.songTitle} — key of ${keyLabel}`
+          : `${idx + 1}. ${block.songTitle}`;
+        return `${heading}\n\n${body}`;
       }),
     ].join('\n\n');
 
@@ -149,8 +187,20 @@ export function SharedPage() {
               <h1 className="detail-title">{lineup.name}</h1>
               <span className="tiny">
                 {songBlocks.length} {songBlocks.length === 1 ? 'song' : 'songs'}
+                {singleKey ? ` · key of ${displayKey(singleKey, offset)}` : ''}
               </span>
             </div>
+
+            {pageHasChords && (
+              <ChordControls
+                hasChords={pageHasChords}
+                showChords={showChords}
+                onToggleChords={() => setShowChords((v) => !v)}
+                writtenKey={singleKey}
+                offset={offset}
+                onChangeOffset={setOffset}
+              />
+            )}
 
             {songBlocks.length === 0 ? (
               <Empty
@@ -160,11 +210,20 @@ export function SharedPage() {
               />
             ) : (
               <div className="stack">
-                {songBlocks.map((block, i) => (
+                {songBlocks.map((block, i) => {
+                  const builtKey = builtKeyOf(block);
+                  const shownKey = displayKey(builtKey, offset);
+                  return (
                   <article key={block.key} className="song-group-block">
                     <div className="song-group-head">
                       <span className="part-index">{i + 1}</span>
                       <h2 className="song-group-title truncate">{block.songTitle}</h2>
+                      {/* Named per song only when the bar is not already saying it. */}
+                      {shownKey && shownKey !== singleKey && (
+                        <span className="song-key-badge" title={`Key of ${shownKey}`}>
+                          {shownKey}
+                        </span>
+                      )}
                     </div>
 
                     <div className="song-group-sections">
@@ -181,13 +240,18 @@ export function SharedPage() {
                             ) && (
                               <div className="song-section-label">{sec.partLabel}</div>
                             )}
-                            <LyricView lyrics={sec.lyrics} large={largeText} />
+                            <LyricView
+                              lyrics={applyReaderOffset(sec.lyrics, builtKey, offset)}
+                              large={largeText}
+                              showChords={showChords}
+                            />
                           </div>
                         ),
                       )}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             )}
 

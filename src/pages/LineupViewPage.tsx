@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { ChordControls } from '../components/ChordControls';
 import { LyricView } from '../components/LyricView';
 import {
   BackBar,
@@ -11,6 +12,8 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
+import { hasChords } from '../lib/chords';
+import { applyReaderOffset, displayKey } from '../lib/chordView';
 import { lineupFullLyricBlocks } from '../lib/lru';
 import { useStore } from '../lib/store';
 
@@ -26,6 +29,10 @@ export function LineupViewPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The reader's own view: chords on or off, and how far they have moved the
+  // key for their voice. Neither is saved — the band's sheet is untouched.
+  const [showChords, setShowChords] = useState(true);
+  const [offset, setOffset] = useState(0);
 
   const lineup = lineups.find((l) => l.id === id);
 
@@ -38,6 +45,26 @@ export function LineupViewPage() {
     () => (lineup ? lineupFullLyricBlocks(lineup, songs) : []),
     [lineup, songs],
   );
+
+  /** The key a block was built in — the slot's key, or the song's if unset. */
+  const builtKeyOf = (block: (typeof songBlocks)[number]) => block.playKey || block.writtenKey || '';
+
+  const pageHasChords = useMemo(
+    () => songBlocks.some((b) => b.sections.some((sec) => hasChords(sec.lyrics))),
+    [songBlocks],
+  );
+
+  /*
+   * Every song in one key means the bar can name that key. Two songs in two
+   * keys means it cannot, so the bar speaks in moves and each song names its
+   * own key beside its title.
+   */
+  const builtKeys = useMemo(
+    () => [...new Set(songBlocks.map(builtKeyOf).filter(Boolean))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [songBlocks],
+  );
+  const singleKey = builtKeys.length === 1 ? builtKeys[0] : '';
 
   const showToast = (m: string, tone: ToastTone = 'success') => {
     notify(m, tone);
@@ -166,12 +193,37 @@ export function LineupViewPage() {
         {metaParts.length > 0 && <div className="tiny">{metaParts.join(' · ')}</div>}
       </div>
 
+      {pageHasChords && (
+        <div className="print-hide">
+          <ChordControls
+            hasChords={pageHasChords}
+            showChords={showChords}
+            onToggleChords={() => setShowChords((v) => !v)}
+            writtenKey={singleKey}
+            offset={offset}
+            onChangeOffset={setOffset}
+          />
+        </div>
+      )}
+
       <div className="stack">
-        {songBlocks.map((block, i) => (
+        {songBlocks.map((block, i) => {
+          const builtKey = builtKeyOf(block);
+          const shownKey = displayKey(builtKey, offset);
+          return (
           <div key={block.key} className="song-group-block">
             <div className="song-group-head">
               <span className="part-index">{i + 1}</span>
               <h2 className="song-group-title truncate">{block.songTitle}</h2>
+              {/*
+                Named per song, and only when it differs from what the bar
+                already says — otherwise it is the same word twice.
+              */}
+              {shownKey && shownKey !== singleKey && (
+                <span className="song-key-badge" title={`Key of ${shownKey}`}>
+                  {shownKey}
+                </span>
+              )}
             </div>
             <div className="song-group-sections">
               {block.sections.map((sec) =>
@@ -185,13 +237,17 @@ export function LineupViewPage() {
                       block.sections.length === 1 &&
                       sec.partLabel.toLowerCase() === 'part'
                     ) && <div className="song-section-label">{sec.partLabel}</div>}
-                    <LyricView lyrics={sec.lyrics} />
+                    <LyricView
+                      lyrics={applyReaderOffset(sec.lyrics, builtKey, offset)}
+                      showChords={showChords}
+                    />
                   </div>
                 ),
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <footer className="print-only print-foot">
