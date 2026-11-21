@@ -509,10 +509,12 @@ console.log('\n3. Google OAuth config, anon-only boot & popup relay');
 
   const swSource = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
   check(
-    'service worker skips OAuth ?relay= / ?code= callbacks and only caches 200 OK navigations',
+    // The caching rule itself is exercised behaviourally by `npm run test:pwa`
+    // (a bare 200 is no longer enough — a captive portal answers 200 too).
+    'service worker skips OAuth ?relay= / ?code= callbacks and validates navigations as Aria',
     swSource.includes("url.searchParams.has('relay')") &&
       swSource.includes("url.searchParams.has('code')") &&
-      swSource.includes('response.ok && response.status === 200'),
+      swSource.includes('isAriaShell'),
   );
 
   fs.rmSync(dataDir, { recursive: true, force: true });

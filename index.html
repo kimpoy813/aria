@@ -46,6 +46,87 @@
         } catch (_e) {}
       })();
     </script>
+    <script>
+      (function () {
+        /*
+         * A standalone window has no address bar and no reload button. If the
+         * shell paints but the app never mounts, the person holding the phone
+         * has nothing to tap and no way to tell "slow" from "broken" — which is
+         * exactly the report this guards: installed app won't open, website is
+         * fine. So watch for the mount, and if it never comes, say so.
+         */
+        var TIMEOUT_MS = 20000;
+        var guard = function () {
+          var root = document.getElementById('root');
+          if (!root) return;
+
+          var settled = false;
+          var timer = 0;
+          var observer = null;
+
+          var clearTimer = function () {
+            if (timer) {
+              clearTimeout(timer);
+              timer = 0;
+            }
+          };
+          var finish = function () {
+            settled = true;
+            clearTimer();
+            if (observer) observer.disconnect();
+          };
+          var arm = function () {
+            if (settled || timer) return;
+            timer = setTimeout(function () {
+              timer = 0;
+              if (settled) return;
+              if (root.firstElementChild) {
+                finish();
+                return;
+              }
+              // Launched in the background: don't fail an app nobody is looking at.
+              if (document.visibilityState === 'hidden') {
+                arm();
+                return;
+              }
+              finish();
+              root.innerHTML =
+                '<div role="status" style="display:grid;gap:12px;justify-items:center;' +
+                'place-content:center;min-height:100dvh;padding:32px;text-align:center;' +
+                'background:var(--canvas,#f6f7f9);color:var(--ink,#111318);' +
+                'font:400 16px/1.5 Inter,system-ui,-apple-system,sans-serif;">' +
+                '<strong style="font-size:18px;">Aria didn\'t start</strong>' +
+                '<p style="margin:0;max-width:34ch;color:var(--muted,#6e7482);">' +
+                'The page loaded but the app didn\'t. This is usually a dropped ' +
+                'connection or an update that needs one reload.</p>' +
+                '<button type="button" onclick="location.reload()" style="margin-top:4px;' +
+                'padding:12px 22px;border:0;border-radius:999px;background:var(--brand,#0f8a65);' +
+                'color:var(--brand-ink,#fff);font:650 15px/1 Inter,system-ui,sans-serif;' +
+                'cursor:pointer;">Try again</button>' +
+                '</div>';
+            }, TIMEOUT_MS);
+          };
+
+          if (root.firstElementChild) return;
+          if (typeof MutationObserver === 'function') {
+            observer = new MutationObserver(function () {
+              if (root.firstElementChild) finish();
+            });
+            observer.observe(root, { childList: true });
+          }
+          document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible' && !settled && !root.firstElementChild) arm();
+          });
+          arm();
+        };
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', guard);
+        } else {
+          guard();
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
