@@ -3399,6 +3399,9 @@ select {
 
   .list-row {
     border-right: 1px solid var(--line);
+    /* Grid items default to min-width:auto, so one long unbroken title would
+       push its column wider than the others. */
+    min-width: 0;
   }
 
   .list-row:nth-child(2n) {
