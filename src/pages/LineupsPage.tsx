@@ -3,7 +3,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon } from '../components/ui';
 import { api } from '../lib/api';
 import { orderByLRU, summarizeLineupSongs, timeAgo } from '../lib/lru';
-import { applyScope, type LibraryScope } from '../lib/scopes';
+import {
+  applyScope,
+  isTheOriginal,
+  lineupSignature,
+  yourVersionOf,
+  type LibraryScope,
+} from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { Lineup } from '../lib/types';
 
@@ -19,15 +25,8 @@ export function LineupsPage() {
   const [themeFilter, setThemeFilter] = useState<string>('all');
   const [copyingId, setCopyingId] = useState<string | null>(null);
 
-  const copiedSourceIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const l of lineups) {
-      if (l.ownerId === user?.id && l.sourceLineupId) {
-        set.add(l.sourceLineupId);
-      }
-    }
-    return set;
-  }, [lineups, user?.id]);
+
+
 
   const themes = useMemo(() => {
     const s = new Set<string>();
@@ -189,9 +188,15 @@ export function LineupsPage() {
         <div className="list-group">
           {ordered.map((l) => {
             const isMine = l.ownerId === user?.id;
-            const alreadyCopied =
-              !isMine && copiedSourceIds.has(l.sourceLineupId || l.id);
             const busyCopy = copyingId === l.id;
+            // Same rule as songs: your own lineup coming back round is not a
+            // copy worth making, unless they changed it.
+            const myVersion = isMine
+              ? undefined
+              : yourVersionOf(lineups, l, user?.id);
+            const edited =
+              myVersion !== undefined &&
+              lineupSignature(myVersion) !== lineupSignature(l);
             const names = songSummary(l);
             const sub = [!isMine ? `by ${l.ownerName}` : null, names || null]
               .filter(Boolean)
@@ -217,8 +222,10 @@ export function LineupsPage() {
                     </span>
                     <Icon name="chevronRight" size={16} className="muted" />
                   </div>
-                ) : alreadyCopied ? (
-                  <Chip tone="brand">Copied</Chip>
+                ) : !edited && myVersion ? (
+                  <Chip tone="brand">
+                    {isTheOriginal(myVersion, l) ? 'Your lineup' : 'Copied'}
+                  </Chip>
                 ) : (
                   <button
                     type="button"
@@ -226,7 +233,8 @@ export function LineupsPage() {
                     disabled={busyCopy}
                     onClick={() => copyLineupToAccount(l)}
                   >
-                    <Icon name="copy" size={12} /> {busyCopy ? '…' : 'Copy'}
+                    <Icon name="copy" size={12} />{' '}
+                    {busyCopy ? '…' : edited ? 'Copy version' : 'Copy'}
                   </button>
                 )}
               </div>

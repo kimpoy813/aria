@@ -54,9 +54,13 @@ const {
   builderLibrary,
   ownRecords,
   sharedWithTeam,
+  isTheOriginal,
+  lineageRoot,
+  lineupSignature,
+  songSignature,
   teamSharedCounts,
   teamsForRecord,
-  yourCopyOf,
+  yourVersionOf,
 } = await loadTs('src/lib/scopes.ts');
 const { lineupFullLyricBlocks, repointSlotsToCopy } = await loadTs('src/lib/lru.ts');
 
@@ -241,18 +245,18 @@ console.log('\n1d. Taking a shared song into your own library');
 
   check(
     'finds the copy you already own',
-    yourCopyOf([unrelated, myCopy], shared, ME)?.id === 'c1',
-    yourCopyOf([unrelated, myCopy], shared, ME)?.id,
+    yourVersionOf([unrelated, myCopy], shared, ME)?.id === 'c1',
+    yourVersionOf([unrelated, myCopy], shared, ME)?.id,
   );
   check(
     'does not mistake an unrelated song of yours for a copy',
-    yourCopyOf([unrelated], shared, ME) === undefined,
+    yourVersionOf([unrelated], shared, ME) === undefined,
   );
   check(
     'a copy of a copy still counts, because the root matches',
-    yourCopyOf([chained], shared, ME)?.id === 'd1',
+    yourVersionOf([chained], shared, ME)?.id === 'd1',
   );
-  check('says so when you have no copy', yourCopyOf([unrelated], shared, ME) === undefined);
+  check('says so when you have no copy', yourVersionOf([unrelated], shared, ME) === undefined);
 
   const slots = [
     { id: 's1', songId: 'a1', partId: 'a1-p1', partLabel: 'Verse 1' },
@@ -280,6 +284,109 @@ console.log('\n1d. Taking a shared song into your own library');
     'a slot that cannot be mapped is kept, not dropped',
     moved.length === 4 && moved[3].songId === 'a1' && moved[3].partId === 'a1-missing',
     `${moved.length} slots`,
+  );
+}
+
+console.log('\n1e. Someone copies your song back at you');
+{
+  const song = (id, ownerId, sourceSongId = null, lyrics = 'one\ntwo') => ({
+    id,
+    title: 'Grace',
+    artist: 'Nobody',
+    tempo: 'slow',
+    theme: '',
+    parts: [{ id: `${id}-p1`, kind: 'verse', label: 'Verse 1', lyrics }],
+    analysis: null,
+    ownerId,
+    ownerName: ownerId === ME ? 'Kim' : 'Alice',
+    teamId: null,
+    sourceSongId,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+
+  const mine = song('k1', ME);
+  const aliceTookIt = song('a1', 'alice', 'k1');
+  const aliceEditedIt = song('a2', 'alice', 'k1', 'one\nchanged');
+  const alicesOwn = song('a3', 'alice');
+  const bobTookAlices = song('b1', 'bob', 'a3');
+
+  check('an original is its own root', lineageRoot(mine) === 'k1');
+  check('a copy points at the root', lineageRoot(aliceTookIt) === 'k1');
+  check(
+    'a copy of a copy still points at the same root',
+    lineageRoot({ id: 'x', sourceSongId: lineageRoot(bobTookAlices) }) === 'a3',
+  );
+
+  check(
+    'when Alice copies your song, you already own that version',
+    yourVersionOf([mine, aliceTookIt], aliceTookIt, ME)?.id === 'k1',
+  );
+  check(
+    'and it is recognised as your original, so there is nothing to copy back',
+    isTheOriginal(yourVersionOf([mine, aliceTookIt], aliceTookIt, ME), aliceTookIt),
+  );
+  check(
+    'an unrelated teammate song still offers a copy',
+    yourVersionOf([mine, alicesOwn], alicesOwn, ME) === undefined,
+  );
+  check(
+    'a song you copied yourself is yours but not the original',
+    yourVersionOf([mine, aliceTookIt], aliceTookIt, 'alice')?.id === 'a1' &&
+      isTheOriginal(aliceTookIt, aliceTookIt) === false,
+  );
+
+  check(
+    'an untouched copy is not treated as an edit',
+    songSignature(mine) === songSignature(aliceTookIt),
+  );
+  check(
+    'a rewritten verse is an edit, so copying it back is legitimate',
+    songSignature(mine) !== songSignature(aliceEditedIt),
+  );
+  check(
+    'formatting alone is not an edit',
+    songSignature(mine) === songSignature(song('k9', 'alice', 'k1', '  one\n\n  two  ')),
+  );
+
+  const lineup = (id, ownerId, sourceLineupId = null, lyrics = 'one') => ({
+    id,
+    name: 'Sunday',
+    theme: '',
+    ownerId,
+    ownerName: ownerId === ME ? 'Kim' : 'Alice',
+    teamId: null,
+    items: [
+      {
+        id: 'i1',
+        songId: 's',
+        partId: 'p',
+        songTitle: 'Grace',
+        partLabel: 'Verse 1',
+        lyrics,
+      },
+    ],
+    shareToken: 't',
+    sourceLineupId,
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: null,
+    useCount: 0,
+    lastUsedReason: null,
+  });
+
+  check(
+    'the same rule holds for lineups',
+    yourVersionOf([lineup('l1', ME), lineup('l2', 'alice', 'l1')], lineup('l2', 'alice', 'l1'), ME)
+      ?.id === 'l1',
+  );
+  check(
+    'an unchanged lineup copy is not an edit',
+    lineupSignature(lineup('l1', ME)) === lineupSignature(lineup('l2', 'alice', 'l1')),
+  );
+  check(
+    'a rearranged lineup is an edit',
+    lineupSignature(lineup('l1', ME)) !== lineupSignature(lineup('l3', 'alice', 'l1', 'two')),
   );
 }
 
@@ -549,8 +656,8 @@ console.log('\n6. What the server actually sends a member of two teams');
     `${copy?.parts?.[0]?.id}`,
   );
   check(
-    'yourCopyOf now finds it',
-    yourCopyOf([...songs, copy], sundaySong, myId)?.id === copy?.id,
+    'yourVersionOf now finds it',
+    yourVersionOf([...songs, copy], sundaySong, myId)?.id === copy?.id,
   );
 
   const repointed = repointSlotsToCopy(created.data.lineup.items, sundaySong, copy);
@@ -570,6 +677,33 @@ console.log('\n6. What the server actually sends a member of two teams');
     savedItems.every((i) => i.lyrics) &&
       savedItems.some((i) => i.songId === copy.id),
     savedItems.map((i) => `${i.songId}:${i.partLabel}`).join(', '),
+  );
+
+  /*
+   * The reported annoyance, against the real thing: Alice copies Kim's song,
+   * and Kim must not be offered it back.
+   */
+  const aliceCopied = await call('POST', `/api/songs/${mySong.id}/copy`, alice);
+  const backAtYou = aliceCopied.data?.song;
+  check('a teammate can copy your song', Boolean(backAtYou?.id));
+
+  const afterCopy = await call('GET', '/api/state', me);
+  const nowSongs = afterCopy.data?.songs ?? [];
+  const asKimSeesIt = nowSongs.find((s) => s.id === backAtYou.id);
+  const kimsVersion = yourVersionOf(nowSongs, asKimSeesIt, myId);
+
+  check(
+    'Kim already owns that lineage',
+    kimsVersion?.id === mySong.id,
+    `${kimsVersion?.id} vs ${mySong.id}`,
+  );
+  check(
+    'and it is his original — so no Copy button, just “Your song”',
+    kimsVersion !== undefined && isTheOriginal(kimsVersion, asKimSeesIt),
+  );
+  check(
+    'the copy is unchanged, so it is not offered as a version either',
+    songSignature(kimsVersion) === songSignature(asKimSeesIt),
   );
 
   fs.rmSync(dataDir, { recursive: true, force: true });

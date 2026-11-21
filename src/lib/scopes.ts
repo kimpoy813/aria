@@ -83,24 +83,67 @@ export function builderLibrary(
   });
 }
 
+/** Anything that carries a copy chain, song or lineup. */
+export interface Traceable {
+  id: string;
+  sourceSongId?: string | null;
+  sourceLineupId?: string | null;
+}
+
 /**
- * A copy of this song that you already own, if there is one.
+ * The id at the root of a copy chain — the original everything descends from.
  *
- * Compared by lineage rather than by direct parent: `copySong` sets
- * `sourceSongId` to the *root* of the chain, so copying a song that was itself
- * a copy does not produce a record pointing at the immediate original. Matching
- * roots handles that, and cannot false-positive on an unrelated song you own —
- * two songs only share a root if one genuinely descends from the other.
+ * Both `copySong` and `copyLineup` store the *root* rather than the immediate
+ * parent (`song.sourceSongId || song.id`), so a copy of a copy still points
+ * here. That makes lineage a one-line comparison and is what lets the app tell
+ * "someone copied your work" apart from "someone else's work".
  */
-export function yourCopyOf(
-  songs: Song[],
-  song: Song,
+export function lineageRoot(record: Traceable): string {
+  return record.sourceSongId || record.sourceLineupId || record.id;
+}
+
+/**
+ * The version of this song or lineup that you already own, if there is one —
+ * either the original it was copied from, or a copy you made yourself.
+ *
+ * Matching by lineage cannot false-positive on an unrelated record you own:
+ * two records only share a root if one genuinely descends from the other.
+ */
+export function yourVersionOf<T extends Traceable & Ownable>(
+  records: T[],
+  record: T,
   viewerId?: string | null,
-): Song | undefined {
-  const root = song.sourceSongId || song.id;
-  return songs.find(
-    (s) => s.ownerId === viewerId && (s.sourceSongId || s.id) === root,
-  );
+): T | undefined {
+  const root = lineageRoot(record);
+  return records.find((r) => r.ownerId === viewerId && lineageRoot(r) === root);
+}
+
+/** True when the version you own is the original this one was copied from. */
+export function isTheOriginal(mine: Traceable, theirs: Traceable): boolean {
+  return mine.id === lineageRoot(theirs);
+}
+
+const norm = (v: string | undefined | null) =>
+  (v || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * What a song actually says, ignoring ids and formatting.
+ *
+ * A teammate who copied your song and then rewrote a verse has made something
+ * new, even though it still descends from you — and that is the one case where
+ * offering you a copy is right rather than insulting.
+ */
+export function songSignature(song: Song): string {
+  return (song.parts || [])
+    .map((part) => `${norm(part.label)}\u0000${norm(part.lyrics)}`)
+    .join('\u0001');
+}
+
+/** What a lineup actually contains, by the snapshot stored on each item. */
+export function lineupSignature(lineup: Lineup): string {
+  return (lineup.items || [])
+    .map((i) => `${norm(i.songTitle)}\u0000${norm(i.partLabel)}\u0000${norm(i.lyrics)}`)
+    .join('\u0001');
 }
 
 export interface ScopeOptions {
