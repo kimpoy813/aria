@@ -243,25 +243,6 @@ export interface SharedLineupItem {
   playKey?: string;
 }
 
-export interface SharedLineupSongPart {
-  kind: string;
-  label: string;
-  lyrics: string;
-}
-
-/** A whole song as the shared page needs it: every part, not just the picks. */
-export interface SharedLineupSong {
-  id: string;
-  title: string;
-  artist: string;
-  tempo: Tempo;
-  /** Key the chords are written in. */
-  key: string;
-  /** Key this occurrence is played in, when the builder moved it. */
-  playKey?: string;
-  parts: SharedLineupSongPart[];
-}
-
 export interface SharedLineup {
   name: string;
   theme: string;
@@ -271,10 +252,10 @@ export interface SharedLineup {
   lastUsedAt: number | null;
   useCount: number;
   songCount: number;
-  items: SharedLineupItem[];
   /**
-   * Complete lyrics per song, in lineup order. Absent on payloads from an older
-   * server, so the page falls back to grouping `items`.
+   * The set as it was placed, in order. This is the whole payload now: shipping
+   * every part of every song alongside it meant the shared page could show a
+   * different set from the one the owner built.
    */
-  songs?: SharedLineupSong[];
+  items: SharedLineupItem[];
 }

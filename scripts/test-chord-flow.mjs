@@ -205,11 +205,14 @@ async function run() {
       '[C]How [G]sweet [D]the [G]sound',
     );
 
-    const fullSongs = shared.lineup.songs.filter((s) => s.title === 'Amazing Grace');
-    eq('the full sheet appears twice, once per key', fullSongs.length, 2);
-    eq('one of them is the D reprise', fullSongs.some((s) => s.playKey === 'D'), true);
-    eq('and one is as written', fullSongs.some((s) => !s.playKey), true);
-    eq('both say where they were written', fullSongs.every((s) => s.key === 'G'), true);
+    // The payload used to carry every part of every song beside the picks, so
+    // the shared page could show a different set from the one that was built.
+    eq('no whole song rides along beside them', shared.lineup.songs, undefined);
+    eq(
+      'the slots are the whole payload, in the order they were placed',
+      shared.lineup.items.map((i) => `${i.songTitle}·${i.partLabel}`).join(' / '),
+      lineup.items.map((i) => `${i.songTitle}·${i.partLabel}`).join(' / '),
+    );
   }
 
   console.log('\n4. Changing one part’s key from the preview leaves the rest alone');
@@ -241,6 +244,61 @@ async function run() {
 
     const shared = await apiCall('/shared/' + after.shareToken);
     eq('and the share link reflects the change', shared.lineup.items.find((i) => i.partLabel === 'Chorus').playKey, 'E');
+  }
+
+  console.log('\n4b. Moving a whole song from the preview moves every part of it');
+  {
+    const state = await apiCall('/state', 'GET', null, tk);
+    const lineup = state.lineups.find((l) => l.name === 'Sunday morning');
+    const song = state.songs.find((s) => s.title === 'Amazing Grace');
+
+    // The whole-song picker writes exactly this shape: every slot resent, all
+    // of that song's slots carrying the new key, everything else as it was.
+    const moved = lineup.items.map((it) => ({
+      songId: it.songId,
+      partId: it.partId,
+      key: it.songId === song.id ? 'A' : it.key || '',
+    }));
+    await apiCall('/lineups/' + lineup.id, 'PATCH', { items: moved }, tk);
+
+    const after = (await apiCall('/state', 'GET', null, tk)).lineups.find(
+      (l) => l.id === lineup.id,
+    );
+    const ofSong = after.items.filter((i) => i.songId === song.id);
+    const other = after.items.filter((i) => i.songId !== song.id);
+
+    eq('every part of that song moved', ofSong.every((i) => i.key === 'A'), true);
+    check('and there was more than one of them to move', ofSong.length > 1, `${ofSong.length} parts`);
+    eq('another song in the same set kept its key', other.every((i) => i.key !== 'A'), true);
+    eq('the order of the set is unchanged', after.items.length, lineup.items.length);
+    eq('the song on disk still says where it was written', song.key, 'G');
+
+    const shared = await apiCall('/shared/' + after.shareToken);
+    eq(
+      'and the share link shows the whole song in the new key',
+      shared.lineup.items
+        .filter((i) => i.songTitle === song.title)
+        .every((i) => i.playKey === 'A'),
+      true,
+    );
+
+    // One part moved back on its own afterwards — the two controls stack.
+    const oneBack = after.items.map((it) => ({
+      songId: it.songId,
+      partId: it.partId,
+      key: it.partLabel === 'Chorus' && it.songId === song.id ? '' : it.key || '',
+    }));
+    await apiCall('/lineups/' + lineup.id, 'PATCH', { items: oneBack }, tk);
+    const final = (await apiCall('/state', 'GET', null, tk)).lineups.find(
+      (l) => l.id === lineup.id,
+    );
+    check(
+      'a single part can still be put back without disturbing the rest',
+      final.items.find((i) => i.songId === song.id && i.partLabel === 'Chorus').key === '' &&
+        final.items.filter((i) => i.songId === song.id && i.partLabel !== 'Chorus')
+          .every((i) => i.key === 'A'),
+      final.items.filter((i) => i.songId === song.id).map((i) => `${i.partLabel}=${i.key}`).join(','),
+    );
   }
 
   console.log('\n5. A key that is not a key is not stored');

@@ -1187,16 +1187,6 @@ select {
   color: var(--muted);
 }
 
-.song-section-repeat {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--muted);
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  display: inline-flex;
-  align-self: flex-start;
-}
 
 .part-block {
   border: 1px solid var(--line);
@@ -1454,6 +1444,21 @@ select {
   color: var(--muted);
 }
 
+.running-order-hint {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+/* The row that moves a whole song, above the rows that move one part of it. */
+.running-order-song {
+  background: var(--surface-2);
+}
+.running-order-song .running-order-what {
+  font-weight: 600;
+}
 .running-order-key {
   flex: none;
   width: auto;
