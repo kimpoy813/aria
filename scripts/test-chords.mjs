@@ -519,6 +519,27 @@ console.log('\n16. The controls fit a phone');
       '118px',
     );
 
+    eq(
+      'a chorded page reserves room so an edge chord cannot fall off',
+      at.valueAt('.lyric-body-chorded', 'padding-right', PHONE),
+      '36px',
+    );
+    eq(
+      'a plain page does not pay for it',
+      at.valueAt('.lyric-body', 'padding-right', PHONE),
+      null,
+    );
+    eq(
+      'a part textarea is capped rather than running off the page',
+      at.valueAt('.part-body .textarea', 'max-height', PHONE),
+      '60vh',
+    );
+    eq(
+      'and starts tall enough to read a verse',
+      at.valueAt('.part-body .textarea', 'min-height', PHONE),
+      '96px',
+    );
+
     /*
      * Every token the chord UI reads must exist in the dark block too. A token
      * defined only for light resolves to nothing in dark, and the chord simply
@@ -769,6 +790,36 @@ console.log('\n20. Sections nobody sings');
     transposeLyrics(split.parts[0].lyrics, keyInterval('G', 'D'), 'D'),
     'D   A   Bm   G',
   );
+}
+
+console.log('\n21. The schema the live database runs cannot drift from the repo');
+{
+  /*
+   * The key column shipped, the song editor saved it, the API returned it — and
+   * it still vanished on refresh, because production writes songs through
+   * aria_sync_caller_state, whose column list did not mention key. The column
+   * was there; the function that fills it was not. Nothing in the app could see
+   * that, so the schema is checked here instead.
+   */
+  const fs2 = await import('node:fs');
+  const schema = fs2.readFileSync(path.join(root, 'supabase', 'schema.sql'), 'utf8');
+
+  const start = schema.indexOf('create or replace function public.aria_sync_caller_state(');
+  check('aria_sync_caller_state is defined in schema.sql', start !== -1);
+  const body = start === -1 ? '' : schema.slice(start, schema.indexOf('$body$;', start));
+
+  check('its song insert lists the key column', /id, title, artist, tempo, theme, key, parts/.test(body));
+  check('its values read the key from the payload', body.includes("coalesce(v_song->>'key', '')"));
+  check('its on-conflict update writes the key', body.includes('key = excluded.key'));
+
+  // The table itself, so a fresh database gets both.
+  check('the songs table declares a key column', /create table if not exists public\.songs \([\s\S]*?\n\s*key\s+text not null default ''/.test(schema));
+  check('and an existing database is migrated', /alter table public\.songs add column if not exists key text not null default ''/.test(schema));
+
+  // Lineup slot keys ride inside the items jsonb, so the column list must not
+  // try to name them — worth stating, because it is why slots survived while
+  // song keys did not.
+  check('lineup items are stored as one jsonb column', /v_lineup->'items'/.test(body));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

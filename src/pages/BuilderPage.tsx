@@ -682,7 +682,13 @@ export function BuilderPage() {
               <Icon name="search" size={16} />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSearch(next);
+                  // Typing a filter opens everything up — but only by resetting
+                  // the state, so the chevron still works while the filter is on.
+                  if (next.trim() && !search.trim()) setCollapsed({});
+                }}
                 placeholder="Filter songs…"
                 aria-label="Filter songs"
               />
@@ -713,7 +719,16 @@ export function BuilderPage() {
 
             <div className="stack-xs">
               {librarySongs.map((song) => {
-                const isOpen = Boolean(search.trim()) || !collapsed[song.id];
+                /*
+                 * The collapse state is the only authority here.
+                 *
+                 * It used to be `search.trim() || !collapsed[id]`, which meant
+                 * that while a search was typed the chevron did nothing at all:
+                 * the click stored "collapsed", the render still forced it open,
+                 * and the next click stored "collapsed" again. Searching is a
+                 * reason to *start* expanded, not a reason to ignore the button.
+                 */
+                const isOpen = !collapsed[song.id];
                 return (
                   <div key={song.id} className="song-picker">
                     <div className="song-picker-head">

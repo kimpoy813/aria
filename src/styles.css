@@ -1251,7 +1251,14 @@ select {
   border: 0;
   padding: 0;
   background: transparent;
-  min-height: 76px;
+  min-height: 96px;
+  /*
+   * The editor grows the box to fit the part; this is the ceiling it grows to
+   * and the reason it scrolls past that instead of running off the page. 60vh
+   * matches the cap the editor measures against.
+   */
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .part-index {
@@ -1603,6 +1610,23 @@ select {
   color: var(--brand-text);
   white-space: nowrap;
   pointer-events: none;
+}
+
+/*
+ * Room on the right for a chord hanging off the last word.
+ *
+ * The note is pinned to the left edge of the word it belongs to, so on a short
+ * last word — "me", "oh" — the note is wider than the word and runs past the
+ * edge of the page. The widest chord a band writes is about five characters
+ * ("Cmaj7"), so this reserves that much and nothing more. Only applies when
+ * chords are actually on the page.
+ */
+.lyric-body-chorded {
+  padding-right: 36px;
+}
+
+.lyric-body-chorded.lyric-body-lg {
+  padding-right: 40px;
 }
 
 .lyric-line-chorded {
@@ -4056,6 +4080,10 @@ select {
 
   .lyric-line-chorded {
     padding-top: 12pt;
+  }
+
+  .lyric-body-chorded {
+    padding-right: 30pt;
   }
 
   .lyric-body-lg .lyric-line-chorded {

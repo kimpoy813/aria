@@ -181,6 +181,34 @@ export function SongFormPage() {
   };
 
   /**
+   * Grows a part's textarea to fit what is in it, up to a cap.
+   *
+   * A verse is four lines and a chorded bridge is twelve; a fixed box makes the
+   * leader scroll inside a box they are trying to read, or drag a handle on a
+   * phone. It stops at 60% of the viewport so one long part cannot push the rest
+   * of the form off the screen.
+   */
+  const autosizeArea = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    const cap = Math.round(window.innerHeight * 0.6);
+    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
+  };
+
+  // Re-measure whenever the words change, and when the viewport does.
+  useEffect(() => {
+    for (const el of Object.values(partAreaRefs.current)) autosizeArea(el);
+  }, [parts]);
+
+  useEffect(() => {
+    const onResize = () => {
+      for (const el of Object.values(partAreaRefs.current)) autosizeArea(el);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  /**
    * Drops a chord marker in at the caret.
    *
    * The leader is already standing in the words at exactly the syllable the
@@ -710,9 +738,10 @@ export function SongFormPage() {
             <div className="part-body">
               <textarea
                 className="textarea"
-                rows={4}
+                rows={6}
                 ref={(el) => {
                   partAreaRefs.current[part.id] = el;
+                  autosizeArea(el);
                 }}
                 onFocus={() => {
                   activePartId.current = part.id;
