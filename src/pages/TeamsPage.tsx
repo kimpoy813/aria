@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon, Sheet, type ToastTone } from '../components/ui';
-import { api } from '../lib/api';
+import { teamSharedCounts } from '../lib/scopes';
 import { useStore } from '../lib/store';
-import type { Lineup, Song, Team } from '../lib/types';
+import type { Team } from '../lib/types';
 
 export function TeamsPage() {
-  const { teams, songs, lineups, user, createTeam, joinTeam, leaveTeam, refresh, notify } =
+  const { teams, songs, lineups, user, createTeam, joinTeam, leaveTeam, notify } =
     useStore();
   const navigate = useNavigate();
 
@@ -16,28 +16,22 @@ export function TeamsPage() {
   const [teamName, setTeamName] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
-  const [copyingKey, setCopyingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const showToast = (m: string, tone: ToastTone = 'success') => {
     notify(m, tone);
   };
 
-  const copiedSongSourceIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const song of songs) {
-      if (song.ownerId === user?.id && song.sourceSongId) s.add(song.sourceSongId);
-    }
-    return s;
-  }, [songs, user?.id]);
-
-  const copiedLineupSourceIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const l of lineups) {
-      if (l.ownerId === user?.id && l.sourceLineupId) s.add(l.sourceLineupId);
-    }
-    return s;
-  }, [lineups, user?.id]);
+  /*
+   * Counts only. The team page used to repeat every shared song and lineup
+   * inline, which is the same list the Songs and Lineups pages already show —
+   * with their search, filters and copy actions. Here it just says how much
+   * there is and takes you there.
+   */
+  const sharedCounts = useMemo(
+    () => teamSharedCounts(teams, songs, lineups, user?.id),
+    [teams, songs, lineups, user?.id],
+  );
 
   const onCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,34 +77,6 @@ export function TeamsPage() {
       showToast(`Copied invite code ${c}`, 'success');
     } catch {
       showToast(c, 'info');
-    }
-  };
-
-  const copySong = async (song: Song) => {
-    const key = `song_${song.id}`;
-    setCopyingKey(key);
-    try {
-      await api.copySong(song.id);
-      await refresh();
-      showToast(`Copied “${song.title}” to your account`, 'success');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not copy song', 'error');
-    } finally {
-      setCopyingKey(null);
-    }
-  };
-
-  const copyLineup = async (lineup: Lineup) => {
-    const key = `lineup_${lineup.id}`;
-    setCopyingKey(key);
-    try {
-      await api.copyLineup(lineup.id);
-      await refresh();
-      showToast(`Copied “${lineup.name}” to your account`, 'success');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not copy lineup', 'error');
-    } finally {
-      setCopyingKey(null);
     }
   };
 
@@ -185,15 +151,7 @@ export function TeamsPage() {
       ) : (
         <div className="stack-sm">
           {teams.map((t) => {
-            const teammateIds = new Set(
-              t.members.filter((m) => m.userId !== user?.id).map((m) => m.userId),
-            );
-            const sharedSongs = songs.filter(
-              (s) => s.ownerId !== user?.id && (teammateIds.has(s.ownerId) || s.teamId === t.id),
-            );
-            const sharedLineups = lineups.filter(
-              (l) => l.ownerId !== user?.id && (teammateIds.has(l.ownerId) || l.teamId === t.id),
-            );
+            const counts = sharedCounts.get(t.id) ?? { songs: 0, lineups: 0 };
 
             return (
               <div key={t.id} className="card stack">
@@ -231,88 +189,43 @@ export function TeamsPage() {
                   ))}
                 </div>
 
-                {sharedLineups.length > 0 && (
-                  <div className="stack-xs">
-                    <span className="label">Member lineups ({sharedLineups.length})</span>
-                    <div className="list-group">
-                      {sharedLineups.map((l) => {
-                        const already = copiedLineupSourceIds.has(l.sourceLineupId || l.id);
-                        const busyItem = copyingKey === `lineup_${l.id}`;
-                        return (
-                          <div key={l.id} className="list-row list-row-split">
-                            <button
-                              type="button"
-                              className="list-row-hit"
-                              onClick={() => navigate(`/lineups/${l.id}`)}
-                            >
-                              <div className="list-row-body">
-                                <div className="list-row-title truncate">{l.name}</div>
-                                <div className="tiny truncate">by {l.ownerName}</div>
-                              </div>
-                            </button>
-                            {already ? (
-                              <Chip tone="brand">Copied</Chip>
-                            ) : (
-                              <button
-                                type="button"
-                                className="copy-action-btn"
-                                disabled={busyItem}
-                                onClick={() => copyLineup(l)}
-                              >
-                                <Icon name="copy" size={12} /> {busyItem ? '…' : 'Copy'}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
+                <div className="list-group">
+                  <button
+                    type="button"
+                    className="list-row"
+                    onClick={() =>
+                      navigate('/songs', { state: { scope: 'team', teamId: t.id } })
+                    }
+                  >
+                    <Icon name="songs" size={16} className="muted" />
+                    <div className="list-row-body">
+                      <div className="list-row-title">Songs</div>
+                      <div className="tiny">
+                        {counts.songs} shared by this team
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                {sharedSongs.length > 0 && (
-                  <div className="stack-xs">
-                    <span className="label">Member songs ({sharedSongs.length})</span>
-                    <div className="list-group">
-                      {sharedSongs.map((s) => {
-                        const already = copiedSongSourceIds.has(s.sourceSongId || s.id);
-                        const busyItem = copyingKey === `song_${s.id}`;
-                        return (
-                          <div key={s.id} className="list-row list-row-split">
-                            <button
-                              type="button"
-                              className="list-row-hit"
-                              onClick={() => navigate(`/songs/${s.id}`)}
-                            >
-                              <div className="list-row-body">
-                                <div className="list-row-title truncate">{s.title}</div>
-                                <div className="tiny truncate">by {s.ownerName}</div>
-                              </div>
-                            </button>
-                            {already ? (
-                              <Chip tone="brand">Copied</Chip>
-                            ) : (
-                              <button
-                                type="button"
-                                className="copy-action-btn"
-                                disabled={busyItem}
-                                onClick={() => copySong(s)}
-                              >
-                                <Icon name="copy" size={12} /> {busyItem ? '…' : 'Copy'}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
+                    <Icon name="chevronRight" size={16} className="muted" />
+                  </button>
+                  <button
+                    type="button"
+                    className="list-row"
+                    onClick={() =>
+                      navigate('/lineups', { state: { scope: 'team', teamId: t.id } })
+                    }
+                  >
+                    <Icon name="lineup" size={16} className="muted" />
+                    <div className="list-row-body">
+                      <div className="list-row-title">Lineups</div>
+                      <div className="tiny">
+                        {counts.lineups} shared by this team
+                      </div>
                     </div>
-                  </div>
-                )}
+                    <Icon name="chevronRight" size={16} className="muted" />
+                  </button>
+                </div>
 
                 <div className="row-between team-foot">
-                  <span className="tiny">
-                    {sharedSongs.length === 0 && sharedLineups.length === 0
-                      ? 'All member songs & lineups share automatically'
-                      : 'Copied items stay on your account'}
-                  </span>
+                  <span className="tiny">Members share automatically</span>
                   <button
                     type="button"
                     className="link-button tiny"
