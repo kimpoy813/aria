@@ -435,6 +435,42 @@ console.log('\n15. The page a reader is handed');
   eq('the parts nobody placed are not on the page', blocks[0].sections.length, 1);
 }
 
+console.log('\n15a. A key is a key whether or not chords were written down');
+{
+  const bare = {
+    ...songOne,
+    id: 'song_bare',
+    title: 'Word Only',
+    key: '',
+    parts: [{ id: 'b1', kind: 'verse', label: 'Verse 1', lyrics: 'How great Thou art' }],
+  };
+  const set = {
+    id: 'l2', name: 'S', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
+    items: [
+      { id: 'k1', songId: 'song_bare', partId: 'b1', key: 'D' },
+      { id: 'k2', songId: 'song_bare', partId: 'b1', key: '' },
+    ],
+    shareToken: 't', createdAt: 1, updatedAt: 1,
+  };
+  const entries = resolveSequence(set, [bare]);
+  eq('a slot key is kept even with nothing to move', entries[0].playKey, 'D');
+  eq('and nothing is transposed to get there', entries[0].lyrics, 'How great Thou art');
+  eq('a slot with no key says so', entries[1].playKey, null);
+
+  // A slot key that is the key the song was written in is not a second opinion
+  // about it, so it must not split one run of the song into two blocks.
+  const same = {
+    ...set,
+    items: [
+      { id: 'k1', songId: 'song_g', partId: 'p1', key: 'G' },
+      { id: 'k2', songId: 'song_g', partId: 'p2', key: '' },
+    ],
+  };
+  const blocks = lineupSequenceBlocks(same, allSongs);
+  eq('naming the written key does not split the run', blocks.length, 1);
+  eq('and is not reported as a move', blocks[0].playKey || '', '');
+}
+
 console.log('\n15b. The shared page moves the same words the same way');
 {
   const payloadItems = [

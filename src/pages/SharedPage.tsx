@@ -75,6 +75,9 @@ export function SharedPage() {
     [songBlocks],
   );
   const singleKey = builtKeys.length === 1 ? builtKeys[0] : '';
+  // Redundant only when the bar is on the page and naming this key. A song with
+  // no chords has no bar, and its key still has to be written down somewhere.
+  const keyNamedByBar = pageHasChords ? singleKey : '';
 
   /** The words as this reader sees them — same function the page renders with. */
   const viewLyrics = (block: (typeof songBlocks)[number], text: string) => {
@@ -215,7 +218,7 @@ export function SharedPage() {
                       <span className="part-index">{i + 1}</span>
                       <h2 className="song-group-title truncate">{block.songTitle}</h2>
                       {/* Named per song only when the bar is not already saying it. */}
-                      {shownKey && shownKey !== singleKey && (
+                      {shownKey && shownKey !== keyNamedByBar && (
                         <span className="song-key-badge" title={`Key of ${shownKey}`}>
                           {shownKey}
                         </span>
