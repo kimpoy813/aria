@@ -9,13 +9,20 @@ import type { Lineup, LineupItem, Song } from './types';
  * So the key lives on the *slot*, and the stored text is moved to it here.
  */
 function inSlotKey(writtenKey: string, playKey: string | undefined, lyrics: string) {
-  // null means "no usable key on one side" — play it exactly as written.
-  const interval = keyInterval(writtenKey, playKey) ?? 0;
+  const wanted = (playKey || '').trim();
+  // null when either side is not a key: there is nothing to move, but the key the
+  // slot names is still the key the band plays it in, and the page has to say so.
+  // A song with no chords written down is not a song with no key.
+  const interval = keyInterval(writtenKey, wanted);
+  const moved = interval ?? 0;
+  // A slot key that *is* the written key is not a second opinion about it, so it
+  // is not reported — otherwise one run of a song splits in two for no reason.
+  const namesWrittenKey = interval === 0;
   return {
-    lyrics: interval === 0 ? lyrics : transposeLyrics(lyrics, interval, playKey),
+    lyrics: moved === 0 ? lyrics : transposeLyrics(lyrics, moved, wanted),
     writtenKey: writtenKey || '',
-    playKey: interval === 0 ? null : (playKey as string),
-    interval,
+    playKey: wanted && !namesWrittenKey ? wanted : null,
+    interval: moved,
   };
 }
 

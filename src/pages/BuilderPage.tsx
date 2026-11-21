@@ -11,7 +11,7 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { MAJOR_KEYS, MINOR_KEYS, hasChords } from '../lib/chords';
+import { MAJOR_KEYS, MINOR_KEYS } from '../lib/chords';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
 import { repointSlotsToCopy } from '../lib/lru';
 import {
@@ -534,51 +534,50 @@ export function BuilderPage() {
                     {firstLine && <div className="lyric-line muted">{firstLine}</div>}
 
                     {/*
-                      Only worth showing when there is something to move. A song
-                      with no chords and no key gains nothing from a key picker,
-                      and the row is already crowded.
+                      Always shown. A key is not a property of the chord notation
+                      — it is the key the band plays the song in — and a library
+                      whose songs have no chords written down still needs to say
+                      "this one is in D" on the sheet.
                     */}
-                    {(song.key || hasChords(part.lyrics)) && (
-                      <div className="slot-key">
-                        <label className="slot-key-label" htmlFor={`slotkey-${item.id}`}>
-                          Key
-                        </label>
-                        <select
-                          id={`slotkey-${item.id}`}
-                          className="select slot-key-select"
-                          value={item.key || ''}
-                          onChange={(e) => setSlotKey(item.id, e.target.value)}
+                    <div className="slot-key">
+                      <label className="slot-key-label" htmlFor={`slotkey-${item.id}`}>
+                        Key
+                      </label>
+                      <select
+                        id={`slotkey-${item.id}`}
+                        className="select slot-key-select"
+                        value={item.key || ''}
+                        onChange={(e) => setSlotKey(item.id, e.target.value)}
+                      >
+                        <option value="">
+                          {song.key ? `${song.key} (as written)` : 'As written'}
+                        </option>
+                        <optgroup label="Major">
+                          {MAJOR_KEYS.map((k) => (
+                            <option key={k} value={k}>
+                              {k}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Minor">
+                          {MINOR_KEYS.map((k) => (
+                            <option key={k} value={k}>
+                              {k}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                      {item.key && (
+                        <button
+                          type="button"
+                          className="slot-key-all"
+                          onClick={() => setSongKey(song.id, item.key!)}
+                          title={`Play all of ${song.title} in ${item.key}`}
                         >
-                          <option value="">
-                            {song.key ? `${song.key} (as written)` : 'As written'}
-                          </option>
-                          <optgroup label="Major">
-                            {MAJOR_KEYS.map((k) => (
-                              <option key={k} value={k}>
-                                {k}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="Minor">
-                            {MINOR_KEYS.map((k) => (
-                              <option key={k} value={k}>
-                                {k}
-                              </option>
-                            ))}
-                          </optgroup>
-                        </select>
-                        {item.key && (
-                          <button
-                            type="button"
-                            className="slot-key-all"
-                            onClick={() => setSongKey(song.id, item.key!)}
-                            title={`Play all of ${song.title} in ${item.key}`}
-                          >
-                            All parts
-                          </button>
-                        )}
-                      </div>
-                    )}
+                          All parts
+                        </button>
+                      )}
+                    </div>
                             {(() => {
                       if (song.ownerId === user?.id) return null;
                       const myVersion = yourVersionOf(songs, song, user?.id);

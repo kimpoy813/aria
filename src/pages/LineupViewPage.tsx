@@ -39,7 +39,12 @@ export function LineupViewPage() {
   // key for their voice. Neither is saved — the band's sheet is untouched.
   const [showChords, setShowChords] = useState(true);
   const [offset, setOffset] = useState(0);
-  const [orderOpen, setOrderOpen] = useState(false);
+  /*
+   * Open by default. This is the owner's page and the key is the thing they came
+   * here to set; a disclosure that hides it behind a tap is how a control ends
+   * up shipped and never found. It never prints, and one tap puts it away.
+   */
+  const [orderOpen, setOrderOpen] = useState(true);
   // Id of the row being saved — a slot id, or a song id for a whole-song save.
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
@@ -74,6 +79,12 @@ export function LineupViewPage() {
     [songBlocks],
   );
   const singleKey = builtKeys.length === 1 ? builtKeys[0] : '';
+  /*
+   * The badge is redundant only when the bar underneath it is really there and
+   * really naming this key. With no chords on the page there is no bar, so a key
+   * the band was told to play in would otherwise be written down nowhere.
+   */
+  const keyNamedByBar = pageHasChords ? singleKey : '';
 
   /**
    * The set in the order it is actually played — one row per slot.
@@ -92,7 +103,6 @@ export function LineupViewPage() {
         partLabel: entry.partLabel,
         writtenKey: entry.writtenKey,
         playKey: item?.key || '',
-        hasChords: hasChords(entry.lyrics),
       };
     });
   }, [lineup, songs]);
@@ -285,7 +295,7 @@ export function LineupViewPage() {
         {metaParts.length > 0 && <div className="tiny">{metaParts.join(' · ')}</div>}
       </div>
 
-      {mine && runningOrder.some((r) => r.hasChords) && (
+      {mine && runningOrder.length > 0 && (
         <div className="running-order print-hide">
           <button
             type="button"
@@ -308,9 +318,6 @@ export function LineupViewPage() {
             runningOrder.map((row, i) => {
               const startsRun = i === 0 || runningOrder[i - 1].songId !== row.songId;
               const songState = songKeyState(lineup.items, row.songId);
-              const songHasChords = runningOrder
-                .filter((r) => r.songId === row.songId)
-                .some((r) => r.hasChords);
               return (
                 <div key={row.itemId}>
                   {startsRun && (
@@ -318,27 +325,23 @@ export function LineupViewPage() {
                       <span className="running-order-what">
                         {row.songTitle} <span>· whole song</span>
                       </span>
-                      {songHasChords ? (
-                        <select
-                          className="select running-order-key"
-                          aria-label={`Key for every part of ${row.songTitle}`}
-                          title="Sets every part of this song in this lineup"
-                          value={songState.key}
-                          disabled={savingKey === row.songId}
-                          onChange={(e) => saveSongKey(row.songId, e.target.value, row.songTitle)}
-                        >
-                          <option value="">
-                            {songState.mixed
-                              ? 'Mixed — set all'
-                              : row.writtenKey
-                                ? `${row.writtenKey} (written)`
-                                : 'As written'}
-                          </option>
-                          {keyOptions}
-                        </select>
-                      ) : (
-                        <span className="tiny">no chords</span>
-                      )}
+                      <select
+                        className="select running-order-key"
+                        aria-label={`Key for every part of ${row.songTitle}`}
+                        title="Sets every part of this song in this lineup"
+                        value={songState.key}
+                        disabled={savingKey === row.songId}
+                        onChange={(e) => saveSongKey(row.songId, e.target.value, row.songTitle)}
+                      >
+                        <option value="">
+                          {songState.mixed
+                            ? 'Mixed — set all'
+                            : row.writtenKey
+                              ? `${row.writtenKey} (written)`
+                              : 'As written'}
+                        </option>
+                        {keyOptions}
+                      </select>
                     </div>
                   )}
 
@@ -348,24 +351,20 @@ export function LineupViewPage() {
                       <span>· {row.partLabel}</span>
                     </span>
 
-                    {row.hasChords ? (
-                      <select
-                        className="select running-order-key"
-                        aria-label={`Key for ${row.songTitle} ${row.partLabel}`}
-                        value={row.playKey}
-                        disabled={savingKey === row.itemId}
-                        onChange={(e) =>
-                          saveSlotKey(row.itemId, e.target.value, `${row.songTitle} · ${row.partLabel}`)
-                        }
-                      >
-                        <option value="">
-                          {row.writtenKey ? `${row.writtenKey} (written)` : 'As written'}
-                        </option>
-                        {keyOptions}
-                      </select>
-                    ) : (
-                      <span className="tiny">no chords</span>
-                    )}
+                    <select
+                      className="select running-order-key"
+                      aria-label={`Key for ${row.songTitle} ${row.partLabel}`}
+                      value={row.playKey}
+                      disabled={savingKey === row.itemId}
+                      onChange={(e) =>
+                        saveSlotKey(row.itemId, e.target.value, `${row.songTitle} · ${row.partLabel}`)
+                      }
+                    >
+                      <option value="">
+                        {row.writtenKey ? `${row.writtenKey} (written)` : 'As written'}
+                      </option>
+                      {keyOptions}
+                    </select>
                   </div>
                 </div>
               );
@@ -399,7 +398,7 @@ export function LineupViewPage() {
                 Named per song, and only when it differs from what the bar
                 already says — otherwise it is the same word twice.
               */}
-              {shownKey && shownKey !== singleKey && (
+              {shownKey && shownKey !== keyNamedByBar && (
                 <span className="song-key-badge" title={`Key of ${shownKey}`}>
                   {shownKey}
                 </span>

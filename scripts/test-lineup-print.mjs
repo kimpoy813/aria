@@ -21,6 +21,15 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 import { createCascade } from './lib/css-cascade.mjs';
+import {
+  pageRenderer,
+  songBlocksOf,
+  partLabelsOf,
+  keyBadgesOf,
+  keyPickersOf,
+  panelRowOf,
+  firstOptionOf,
+} from './lib/render-page.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -661,88 +670,7 @@ console.log('\n5. The preview page, actually rendered');
    * everything else — the real `lru.ts`, the real `chords.ts`, the real
    * components — left alone. This is the only check that sees the JSX.
    */
-  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-ssr-'));
-  const stub = (name, body) => {
-    const file = path.join(stubDir, name);
-    fs.writeFileSync(file, body);
-    return file;
-  };
-
-  const reactStub = stub(
-    'react.mjs',
-    `import * as R from 'react';
-let n = 0;
-export function useState(init) {
-  const i = n++;
-  const forced = globalThis.__FORCE_HOOKS__;
-  if (forced && Object.prototype.hasOwnProperty.call(forced, i)) return [forced[i], () => {}];
-  return R.useState(init);
-}
-export const useMemo = R.useMemo;
-export const useEffect = R.useEffect;
-export const useRef = R.useRef;
-export const useCallback = R.useCallback;
-export const useId = R.useId;
-export const useContext = R.useContext;
-export const createContext = R.createContext;
-export const createElement = R.createElement;
-export const Fragment = R.Fragment;
-export const forwardRef = R.forwardRef;
-globalThis.__RESET_HOOKS__ = () => { n = 0; };
-export default R;
-`,
-  );
-  const routerStub = stub(
-    'router.mjs',
-    `export const useParams = () => ({ id: 'L1' });
-export const useNavigate = () => () => {};
-export const useLocation = () => ({ state: null, pathname: '/' });
-export const Link = (p) => p.children;
-`,
-  );
-  const storeStub = stub('store.mjs', 'export const useStore = () => globalThis.__STORE__;\n');
-  const apiStub = stub(
-    'api.mjs',
-    'const noop = async () => ({});\nexport const api = new Proxy({}, { get: () => noop });\n',
-  );
-
-  const STUBS = { react: reactStub, 'react-router-dom': routerStub, '../lib/store': storeStub, '../lib/api': apiStub };
-  const build = await esbuild.build({
-    stdin: {
-      contents: `import { renderToStaticMarkup } from 'react-dom/server';
-import { LineupViewPage } from './src/pages/LineupViewPage';
-export const renderPage = () => renderToStaticMarkup(<LineupViewPage />);
-`,
-      resolveDir: root,
-      loader: 'tsx',
-    },
-    bundle: true,
-    write: false,
-    format: 'esm',
-    platform: 'node',
-    jsx: 'automatic',
-    nodePaths: [path.join(root, 'node_modules')],
-    banner: {
-      js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
-    },
-    plugins: [
-      {
-        name: 'stubs',
-        setup(b) {
-          b.onResolve({ filter: /^(react|react-router-dom|\.\.\/lib\/(store|api))$/ }, (args) => {
-            // Only the app's own imports are stubbed; react-dom needs real React.
-            if (args.path === 'react' && !args.importer.includes(`${path.sep}src${path.sep}`)) {
-              return null;
-            }
-            return { path: STUBS[args.path] };
-          });
-        },
-      },
-    ],
-  });
-  const bundleFile = path.join(stubDir, 'bundle.mjs');
-  fs.writeFileSync(bundleFile, build.outputFiles[0].text);
-  const page = await import(`file://${bundleFile}`);
+  const render = await pageRenderer('./src/pages/LineupViewPage', 'LineupViewPage');
 
   const part = (id, label, lyrics) => ({ id, kind: 'verse', label, lyrics });
   const grace = {
@@ -761,24 +689,15 @@ export const renderPage = () => renderToStaticMarkup(<LineupViewPage />);
     songTitle: songId === 'a' ? 'Amazing Grace' : 'Blessed Be',
   });
 
-  const render = (items, forceHooks) => {
-    globalThis.__STORE__ = {
-      lineups: [{
-        id: 'L1', name: 'Sunday', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
-        items, shareToken: 'tok', sourceLineupId: null, createdAt: 1, updatedAt: 1,
-        lastUsedAt: null, useCount: 0, lastUsedReason: null,
-      }],
-      songs: [grace, blessed],
-      teams: [],
-      user: { id: 'u1', name: 'Kim' },
-      refresh: async () => {},
-      notify: () => {},
-    };
-    globalThis.window = { location: { origin: 'https://aria.test' }, print() {} };
-    globalThis.__FORCE_HOOKS__ = forceHooks;
-    globalThis.__RESET_HOOKS__();
-    return page.renderPage();
-  };
+  const storeFor = (items, songs) => ({
+    lineups: [{
+      id: 'L1', name: 'Sunday', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
+      items, shareToken: 'tok', sourceLineupId: null, createdAt: 1, updatedAt: 1,
+      lastUsedAt: null, useCount: 0, lastUsedReason: null,
+    }],
+    songs,
+    user: { id: 'u1', name: 'Kim' },
+  });
 
   const placed = [
     slot('i1', 'a', 'a2', 'Chorus', '[C]ch', ''),
@@ -787,10 +706,9 @@ export const renderPage = () => renderToStaticMarkup(<LineupViewPage />);
     slot('i4', 'a', 'a4', 'Bridge', 'br', ''),
   ];
 
-  const html = render(placed, null);
-  const titles = [...html.matchAll(/song-group-title[^>]*>([^<]*)</g)].map((m) => m[1]);
-  const labels = [...html.matchAll(/song-section-label">([^<]*)</g)].map((m) => m[1]);
-  const badges = [...html.matchAll(/song-key-badge[^>]*>([^<]*)</g)].map((m) => m[1]);
+  const html = render({ store: storeFor(placed, [grace, blessed]), route: { id: 'L1' } });
+  const titles = songBlocksOf(html);
+  const labels = partLabelsOf(html);
 
   check(
     'the page opens on the song that was placed first',
@@ -813,9 +731,10 @@ export const renderPage = () => renderToStaticMarkup(<LineupViewPage />);
   );
   check(
     'each block names the key it is actually played in',
-    badges.join('|') === 'G|D|D|G',
-    badges.join('|'),
+    keyBadgesOf(html).join('|') === 'G|D|D|G',
+    keyBadgesOf(html).join('|'),
   );
+
   const chordsIn = (block) =>
     [...block.matchAll(/chord-note[^>]*>([^<]*)</g)].map((m) => m[1]).join(' ');
   const blocks = html.split('song-group-block').slice(1);
@@ -830,42 +749,156 @@ export const renderPage = () => renderToStaticMarkup(<LineupViewPage />);
     chordsIn(blocks[1]),
   );
 
-  // The key panel starts collapsed; hook 5 of the page is `orderOpen`.
-  const open = render(placed, { 5: true });
-  const rowChunks = open.split('running-order-row').slice(1);
-  const rowOf = (needle) => rowChunks.find((c) => c.includes(needle)) || '';
-  const ariaOf = (chunk) => (chunk.match(/aria-label="([^"]*)"/) || [, ''])[1];
-  const firstOptionOf = (chunk) => (chunk.match(/<option value=""[^>]*>([^<]*)</) || [, ''])[1];
+  // The panel is open when the page loads, so the pickers are already there.
+  const open = render({ store: storeFor(placed, [grace, blessed]), route: { id: 'L1' } });
+  check(
+    'the key controls are on the page without a tap to reveal them',
+    keyPickersOf(open).length > 0,
+  );
+  // Hook 5 of the page is `orderOpen`; putting it away must still hide the rows.
+  const shut = render({
+    store: storeFor(placed, [grace, blessed]),
+    route: { id: 'L1' },
+    hooks: { 5: false },
+  });
+  check(
+    'and putting the panel away takes the pickers with it',
+    shut.includes('running-order-head') && keyPickersOf(shut).length === 0,
+    `${keyPickersOf(shut).length}`,
+  );
 
   check('the panel is on the page for the owner', open.includes('running-order-head'));
   check(
     'a whole-song picker is offered for every song in the set',
-    [...open.matchAll(/aria-label="Key for every part of ([^"]*)"/g)].map((m) => m[1]).join('|') ===
-      'Amazing Grace|Blessed Be|Amazing Grace',
-    [...open.matchAll(/aria-label="Key for every part of ([^"]*)"/g)].map((m) => m[1]).join('|'),
+    keyPickersOf(open)
+      .filter((a) => a.startsWith('Key for every part'))
+      .map((a) => a.replace('Key for every part of ', ''))
+      .join('|') === 'Amazing Grace|Blessed Be|Amazing Grace',
+    keyPickersOf(open).join('|'),
   );
   check(
     'and one picker per placed part',
-    [...open.matchAll(/aria-label="Key for [^"]*"/g)].length === 6,
-    `${[...open.matchAll(/aria-label="Key for [^"]*"/g)].length}`,
+    keyPickersOf(open).length === 7,
+    `${keyPickersOf(open).length}`,
   );
   check(
     'a song whose parts disagree says so instead of guessing one of them',
-    firstOptionOf(rowOf('Key for every part of Amazing Grace')) === 'Mixed — set all',
-    firstOptionOf(rowOf('Key for every part of Amazing Grace')),
+    firstOptionOf(panelRowOf(open, 'Key for every part of Amazing Grace')) === 'Mixed — set all',
+    firstOptionOf(panelRowOf(open, 'Key for every part of Amazing Grace')),
   );
   check(
     'a song left as written offers the key it was written in',
-    firstOptionOf(rowOf('Key for every part of Blessed Be')) === 'D (written)',
-    firstOptionOf(rowOf('Key for every part of Blessed Be')),
+    firstOptionOf(panelRowOf(open, 'Key for every part of Blessed Be')) === 'D (written)',
+    firstOptionOf(panelRowOf(open, 'Key for every part of Blessed Be')),
   );
   check(
-    'a part with no chords gets no picker at all',
-    !rowOf('Key for Amazing Grace Bridge').includes('<select') &&
-      rowOf('>· Bridge<').includes('no chords'),
+    'a part with no chords written still gets a picker',
+    panelRowOf(open, 'Key for Amazing Grace Bridge').includes('<select'),
   );
 
-  fs.rmSync(stubDir, { recursive: true, force: true });
+  /*
+   * Most of a real library has no chords written down at all — 33 of the 38 songs
+   * in the live one. The key of a song is not a property of its chord notation,
+   * it is the key the band plays it in, so the controls have to be there for
+   * those songs too and the key still has to reach the page.
+   */
+  const wordOnly = {
+    id: 'w', title: 'How Great', artist: 'x', tempo: 'slow', theme: '', key: 'G',
+    parts: [part('w1', 'Verse 1', 'How great Thou art'), part('w2', 'Chorus', 'Then sings my soul')],
+    analysis: null, ownerId: 'u1', ownerName: 'Kim', teamId: null, sourceSongId: null,
+    createdAt: 1, updatedAt: 1,
+  };
+  const bare = (id, partId, label, lyrics, key) => ({
+    id, songId: 'w', partId, partLabel: label, lyrics, key, songTitle: 'How Great',
+  });
+  const bareStore = (items) => storeFor(items, [wordOnly]);
+  const bareHooks = { route: { id: 'L1' } };
+
+  const noChords = render({
+    store: bareStore([
+      bare('j1', 'w1', 'Verse 1', 'How great Thou art', ''),
+      bare('j2', 'w2', 'Chorus', 'Then sings my soul', ''),
+    ]),
+    ...bareHooks,
+  });
+  check(
+    'a song with no chords written still gets the key panel',
+    noChords.includes('running-order-head') &&
+      keyPickersOf(noChords).join('|') ===
+        'Key for every part of How Great|Key for How Great Verse 1|Key for How Great Chorus',
+    keyPickersOf(noChords).join('|'),
+  );
+  check(
+    'and its written key is still printed on the page',
+    keyBadgesOf(noChords).join('|') === 'G',
+    keyBadgesOf(noChords).join('|'),
+  );
+
+  const movedBare = render({
+    store: bareStore([
+      bare('j1', 'w1', 'Verse 1', 'How great Thou art', 'D'),
+      bare('j2', 'w2', 'Chorus', 'Then sings my soul', ''),
+    ]),
+    ...bareHooks,
+  });
+  check(
+    'a key set on a song with no chords is written down too',
+    keyBadgesOf(movedBare).join('|') === 'D|G',
+    keyBadgesOf(movedBare).join('|'),
+  );
+  check(
+    'and the whole-song picker reports that its parts now disagree',
+    firstOptionOf(panelRowOf(movedBare, 'Key for every part of How Great')) === 'Mixed — set all',
+    firstOptionOf(panelRowOf(movedBare, 'Key for every part of How Great')),
+  );
+  check(
+    'with nothing to transpose, the words are left exactly alone',
+    movedBare.includes('How great Thou art') && movedBare.includes('Then sings my soul'),
+  );
+}
+
+console.log('\n5b. The builder offers a key for every part it is given');
+{
+  const render = await pageRenderer('./src/pages/BuilderPage', 'BuilderPage');
+  const part = (id, label, lyrics) => ({ id, kind: 'verse', label, lyrics });
+  // No key on the song and no chords in a single line of it — the common case.
+  const wordOnly = {
+    id: 'w', title: 'How Great', artist: 'x', tempo: 'slow', theme: '', key: '',
+    parts: [part('w1', 'Verse 1', 'How great Thou art'), part('w2', 'Chorus', 'Then sings my soul')],
+    analysis: null, ownerId: 'u1', ownerName: 'Kim', teamId: null, sourceSongId: null,
+    createdAt: 1, updatedAt: 1,
+  };
+  const slot = (id, partId, label, lyrics) => ({
+    id, songId: 'w', partId, partLabel: label, lyrics, key: '', songTitle: 'How Great',
+  });
+
+  const html = render({
+    route: { id: 'L1' },
+    store: {
+      lineups: [{
+        id: 'L1', name: 'Sunday', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
+        items: [
+          slot('i1', 'w1', 'Verse 1', 'How great Thou art'),
+          slot('i2', 'w2', 'Chorus', 'Then sings my soul'),
+        ],
+        shareToken: 't', sourceLineupId: null, createdAt: 1, updatedAt: 1,
+        lastUsedAt: null, useCount: 0, lastUsedReason: null,
+      }],
+      songs: [wordOnly],
+      user: { id: 'u1', name: 'Kim' },
+    },
+  });
+
+  const selects = (html.match(/class="select slot-key-select"/g) || []).length;
+  check(
+    'a song with no key and no chords still gets a key picker per part',
+    selects === 2,
+    `${selects} pickers`,
+  );
+  check(
+    'each one labelled as the key of the part it sits on',
+    (html.match(/class="slot-key-label"[^>]*>\s*Key\s*</g) || []).length === 2,
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
