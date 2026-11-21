@@ -20,7 +20,8 @@
     "icons": "node scripts/generate-icons.mjs",
     "test:app": "node scripts/test-app-page.mjs",
     "test:pwa": "node scripts/test-pwa-shell.mjs",
-    "test:lineup": "node scripts/test-lineup-print.mjs"
+    "test:lineup": "node scripts/test-lineup-print.mjs",
+    "test:teams": "node scripts/test-team-scopes.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

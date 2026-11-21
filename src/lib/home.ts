@@ -1,4 +1,5 @@
 import { summarizeSongsUsed, type SongUsageStat } from './lru';
+import { ownRecords } from './scopes';
 import type { Lineup, Song } from './types';
 
 export interface HomeFeed {
@@ -33,8 +34,8 @@ export function buildHomeFeed(
   songs: Song[],
   userId?: string | null,
 ): HomeFeed {
-  const mine = lineups.filter((l) => l.ownerId === userId);
-  const mySongs = songs.filter((s) => s.ownerId === userId);
+  const mine = ownRecords(lineups, userId);
+  const mySongs = ownRecords(songs, userId);
   return {
     lineups: mine,
     songs: mySongs,

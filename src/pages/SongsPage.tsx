@@ -1,18 +1,24 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon } from '../components/ui';
 import { api } from '../lib/api';
+import { applyScope, type LibraryScope } from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { Song, Tempo } from '../lib/types';
 
-type Scope = 'all' | 'mine' | 'team';
 type TempoFilter = 'all' | Tempo;
 
 export function SongsPage() {
   const { songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
+  // A team card can deep-link here, already narrowed to that team.
+  const preset = location.state as { scope?: LibraryScope; teamId?: string } | null;
   const [query, setQuery] = useState('');
-  const [scope, setScope] = useState<Scope>('all');
+  // Your own songs first: a team library is something you opt into, not the
+  // thing that greets you.
+  const [scope, setScope] = useState<LibraryScope>(preset?.scope ?? 'mine');
+  const [teamId, setTeamId] = useState<string>(preset?.teamId ?? 'all');
   const [tempoFilter, setTempoFilter] = useState<TempoFilter>('all');
   const [themeFilter, setThemeFilter] = useState<string>('all');
   const [copyingId, setCopyingId] = useState<string | null>(null);
@@ -37,10 +43,8 @@ export function SongsPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return songs
+    return applyScope(songs, { scope, viewerId: user?.id, teams, teamId })
       .filter((s) => {
-        if (scope === 'mine' && s.ownerId !== user?.id) return false;
-        if (scope === 'team' && s.ownerId === user?.id) return false;
         if (tempoFilter !== 'all' && s.tempo !== tempoFilter) return false;
         if (themeFilter !== 'all' && s.theme !== themeFilter) return false;
         if (!q) return true;
@@ -57,10 +61,14 @@ export function SongsPage() {
         return hay.includes(q);
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [songs, scope, tempoFilter, themeFilter, query, user?.id]);
+  }, [songs, scope, teams, teamId, tempoFilter, themeFilter, query, user?.id]);
 
   const hasActiveFilters =
-    Boolean(query.trim()) || scope !== 'all' || tempoFilter !== 'all' || themeFilter !== 'all';
+    Boolean(query.trim()) ||
+    scope !== 'mine' ||
+    teamId !== 'all' ||
+    tempoFilter !== 'all' ||
+    themeFilter !== 'all';
 
   const copySongToAccount = async (song: Song) => {
     setCopyingId(song.id);
@@ -160,6 +168,28 @@ export function SongsPage() {
         </div>
       )}
 
+      {scope === 'team' && teams.length > 1 && (
+        <div className="filter-row" aria-label="Filter by team">
+          <button
+            type="button"
+            className={`filter-pill ${teamId === 'all' ? 'active' : ''}`}
+            onClick={() => setTeamId('all')}
+          >
+            All teams
+          </button>
+          {teams.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`filter-pill ${teamId === t.id ? 'active' : ''}`}
+              onClick={() => setTeamId(teamId === t.id ? 'all' : t.id)}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {songs.length > 0 && (
         <div className="filter-row" aria-label="Filters">
           <button
@@ -202,18 +232,29 @@ export function SongsPage() {
       {filtered.length === 0 ? (
         <Empty
           icon={songs.length === 0 ? 'songs' : 'search'}
-          title={scope === 'team' ? 'No teammate songs yet' : 'No matches'}
+          title={
+            scope === 'team'
+              ? teamId !== 'all'
+                ? 'Nothing shared with that team'
+                : 'No teammate songs yet'
+              : scope === 'mine' && songs.length > 0
+                ? 'No songs of yours yet'
+                : 'No matches'
+          }
           body={
             scope === 'team'
-              ? 'Songs from your teammates appear here automatically.'
-              : 'No matches.'
+              ? 'Songs your teammates share appear here automatically.'
+              : scope === 'mine' && songs.length > 0
+                ? 'Songs from your teams are on the Team tab.'
+                : 'No matches.'
           }
           action={
             hasActiveFilters ? (
               <Button
                 onClick={() => {
                   setQuery('');
-                  setScope('all');
+                  setScope('mine');
+                  setTeamId('all');
                   setTempoFilter('all');
                   setThemeFilter('all');
                 }}

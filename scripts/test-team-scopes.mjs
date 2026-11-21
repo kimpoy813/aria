@@ -1,0 +1,362 @@
+#!/usr/bin/env node
+/**
+ * Multiple teams, and the Mine / All / Team scoping that keeps them apart.
+ *
+ *   npm run test:teams
+ *
+ * It also pins down the account sheet, which used to print `songs.length`
+ * straight off the store and so reported your teammates' work as yours.
+ *
+ * The question this answers: joining a second team does not create a second
+ * library. `canView()` on the server returns the union of everything every team
+ * you are in can see, so `/api/state` hands the client one flat pile. Part 2
+ * proves that against a real server with two teams, and part 1 proves the
+ * client-side scoping splits it back up correctly.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { fileURLToPath } from 'node:url';
+import * as esbuild from 'esbuild';
+
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+let pass = 0;
+let fail = 0;
+const check = (name, ok, detail = '') => {
+  if (ok) {
+    pass += 1;
+    console.log(`  ✓ ${name}`);
+  } else {
+    fail += 1;
+    console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+};
+
+/** Bundles a .ts module so the test runs the shipped code, not a copy. */
+async function loadTs(rel) {
+  const result = await esbuild.build({
+    entryPoints: [path.join(root, rel)],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'neutral',
+    mainFields: [],
+  });
+  const code = result.outputFiles[0].text;
+  return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+}
+
+const { applyScope, ownRecords, sharedWithTeam, teamSharedCounts, teamsForRecord } =
+  await loadTs('src/lib/scopes.ts');
+
+const team = (id, name, memberIds) => ({
+  id,
+  name,
+  code: `ARIA-${id}`,
+  ownerId: memberIds[0],
+  createdAt: 1,
+  members: memberIds.map((userId, i) => ({
+    userId,
+    name: userId,
+    role: i === 0 ? 'owner' : 'member',
+    joinedAt: 1,
+  })),
+  myRole: null,
+});
+const rec = (id, ownerId, teamId = null) => ({ id, ownerId, teamId });
+const ids = (list) => list.map((r) => r.id).sort().join(',');
+
+const ME = 'me';
+const sunday = team('t1', 'Sunday Band', ['alice', 'me', 'carol']);
+const wedding = team('t2', 'Wedding Duo', ['me', 'bob']);
+const teams2 = [sunday, wedding];
+
+console.log('\nAria · teams & scoping\n\n1. Mine / All / Team');
+{
+  const songs = [
+    rec('mine', ME),
+    rec('alice', 'alice'),
+    rec('bob', 'bob'),
+  ];
+  check(
+    'Mine shows only your own',
+    ids(applyScope(songs, { scope: 'mine', viewerId: ME, teams: teams2 })) === 'mine',
+    ids(applyScope(songs, { scope: 'mine', viewerId: ME, teams: teams2 })),
+  );
+  check(
+    'All shows everything the server sent',
+    ids(applyScope(songs, { scope: 'all', viewerId: ME, teams: teams2 })) ===
+      'alice,bob,mine',
+  );
+  check(
+    'Team shows everyone else, never your own',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2 })) ===
+      'alice,bob',
+  );
+}
+
+console.log('\n1b. What the account sheet counts');
+{
+  const songs = [rec('mine', ME), rec('alice', 'alice'), rec('bob', 'bob')];
+  const lineups = [rec('l-mine', ME), rec('l-alice', 'alice')];
+
+  check(
+    'your song count excludes teammates',
+    ownRecords(songs, ME).length === 1,
+    `${ownRecords(songs, ME).length} of ${songs.length}`,
+  );
+  check(
+    'your lineup count excludes teammates',
+    ownRecords(lineups, ME).length === 1,
+    `${ownRecords(lineups, ME).length} of ${lineups.length}`,
+  );
+  // The sheet and the Songs page must never disagree about what "mine" means.
+  check(
+    'the account sheet agrees with the Mine tab',
+    ownRecords(songs, ME).length ===
+      applyScope(songs, { scope: 'mine', viewerId: ME, teams: teams2 }).length,
+  );
+}
+
+console.log('\n2. Two teams at once');
+{
+  const songs = [
+    rec('mine', ME),
+    rec('from-sunday', 'alice'),
+    rec('from-wedding', 'bob'),
+    rec('from-carol', 'carol'), // Sunday only
+  ];
+
+  check(
+    'the Team tab is the union of both teams',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2 })) ===
+      'from-carol,from-sunday,from-wedding',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2 })),
+  );
+  check(
+    'narrowing to Sunday Band leaves out the wedding songs',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2, teamId: 't1' })) ===
+      'from-carol,from-sunday',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2, teamId: 't1' })),
+  );
+  check(
+    'narrowing to Wedding Duo leaves out the Sunday songs',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2, teamId: 't2' })) ===
+      'from-wedding',
+    ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2, teamId: 't2' })),
+  );
+  check(
+    'a team you have left shows nothing',
+    applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2, teamId: 'gone' })
+      .length === 0,
+  );
+}
+
+console.log('\n3. Someone who is in two of your teams');
+{
+  // alice is in both Sunday and Wedding.
+  const sharedTeams = [sunday, team('t2', 'Wedding Duo', ['me', 'alice', 'bob'])];
+  const aliceSong = rec('alice-song', 'alice');
+
+  check(
+    'their song counts toward both teams, because it is shared with both',
+    sharedWithTeam(aliceSong, sharedTeams[0], ME) &&
+      sharedWithTeam(aliceSong, sharedTeams[1], ME),
+  );
+  check(
+    'it is attributed to both, not to whichever came first',
+    teamsForRecord(aliceSong, sharedTeams, ME)
+      .map((t) => t.id)
+      .join(',') === 't1,t2',
+  );
+  check(
+    'your own record is never counted as shared',
+    sharedWithTeam(rec('mine', ME), sharedTeams[0], ME) === false,
+  );
+}
+
+console.log('\n4. A record tagged with a specific team');
+{
+  const tagged = rec('tagged', 'stranger', 't1');
+  check(
+    'a record tagged with your team is shared with it',
+    sharedWithTeam(tagged, sunday, ME) === true,
+  );
+  check(
+    'but not with your other team',
+    sharedWithTeam(tagged, wedding, ME) === false,
+  );
+  check(
+    'a record tagged with a team you are not in is not shared',
+    sharedWithTeam(rec('x', 'stranger', 'other'), sunday, ME) === false,
+  );
+}
+
+console.log('\n5. The counts a team card shows');
+{
+  const songs = [
+    rec('mine', ME),
+    rec('s1', 'alice'),
+    rec('s2', 'carol'),
+    rec('w1', 'bob'),
+  ];
+  const lineups = [rec('l1', 'alice'), rec('l2', 'bob'), rec('l3', ME)];
+  const counts = teamSharedCounts(teams2, songs, lineups, ME);
+  check(
+    'Sunday counts its own members’ songs',
+    counts.get('t1')?.songs === 2,
+    `${counts.get('t1')?.songs}`,
+  );
+  check(
+    'Sunday does not inherit the wedding songs',
+    counts.get('t2')?.songs === 1,
+    `${counts.get('t2')?.songs}`,
+  );
+  check(
+    'your own lineups are not counted as shared',
+    counts.get('t1')?.lineups === 1 && counts.get('t2')?.lineups === 1,
+    `${counts.get('t1')?.lineups} / ${counts.get('t2')?.lineups}`,
+  );
+}
+
+/* ------------------------------------------------- part 6: a real server */
+
+const freePort = () =>
+  new Promise((resolve) => {
+    const server = net.createServer();
+    server.listen(0, '0.0.0.0', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+
+const waitFor = async (port) => {
+  for (let i = 0; i < 100; i += 1) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) return true;
+    } catch {
+      /* keep waiting */
+    }
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return false;
+};
+
+console.log('\n6. What the server actually sends a member of two teams');
+{
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-teams-'));
+  const port = await freePort();
+  Object.assign(process.env, {
+    PORT: String(port),
+    ARIA_STORAGE: 'file',
+    ARIA_AUTH: 'demo',
+    ARIA_DATA_DIR: dataDir,
+  });
+  await import(`${path.join(root, 'server', 'index.js')}?v=${Date.now()}`);
+  if (!(await waitFor(port))) throw new Error('server did not start');
+
+  const call = async (method, route, token, body) => {
+    const res = await fetch(`http://127.0.0.1:${port}${route}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
+
+  const signUp = async (name, email) => {
+    const res = await call('POST', '/api/auth/register', null, {
+      name,
+      email,
+      password: 'hunter2hunter',
+    });
+    if (!res.data?.token) throw new Error(`could not register ${name}`);
+    return res.data.token;
+  };
+  const addSong = async (token, title) =>
+    call('POST', '/api/songs', token, {
+      title,
+      artist: 'Nobody',
+      tempo: 'slow',
+      parts: [{ label: 'Verse 1', kind: 'verse', lyrics: `${title} lyric` }],
+    });
+
+  const me = await signUp('Kim', 'kim@example.com');
+  const alice = await signUp('Alice', 'alice@example.com');
+  const bob = await signUp('Bob', 'bob@example.com');
+
+  const teamA = await call('POST', '/api/teams', me, { name: 'Sunday Band' });
+  const teamB = await call('POST', '/api/teams', me, { name: 'Wedding Duo' });
+  const codeA = teamA.data?.team?.code;
+  const codeB = teamB.data?.team?.code;
+  check('two teams created', Boolean(codeA) && Boolean(codeB), `${codeA} ${codeB}`);
+
+  check('Alice joined Sunday', (await call('POST', '/api/teams/join', alice, { code: codeA })).status === 200);
+  check('Bob joined Wedding', (await call('POST', '/api/teams/join', bob, { code: codeB })).status === 200);
+
+  await addSong(me, 'My Song');
+  await addSong(alice, 'Sunday Song');
+  await addSong(bob, 'Wedding Song');
+
+  const state = await call('GET', '/api/state', me);
+  const songs = state.data?.songs ?? [];
+  const teams = state.data?.teams ?? [];
+  const myId = state.data?.user?.id;
+
+  check('the caller sees both teams', teams.length === 2, `${teams.length}`);
+  check(
+    'and one flat list of every song every team can see',
+    songs.length === 3,
+    songs.map((s) => s.title).join(', '),
+  );
+
+  check(
+    'the account sheet says 1, not 3',
+    songs.length === 3 && ownRecords(songs, myId).length === 1,
+    `sheet=${ownRecords(songs, myId).length} store=${songs.length}`,
+  );
+
+  const byTitle = (list) => list.map((s) => s.title).sort();
+  check(
+    'Mine narrows it to your own song',
+    byTitle(applyScope(songs, { scope: 'mine', viewerId: myId, teams })).join() === 'My Song',
+    byTitle(applyScope(songs, { scope: 'mine', viewerId: myId, teams })).join(),
+  );
+  check(
+    'Team shows both teammates’ songs',
+    byTitle(applyScope(songs, { scope: 'team', viewerId: myId, teams })).join() ===
+      'Sunday Song,Wedding Song',
+    byTitle(applyScope(songs, { scope: 'team', viewerId: myId, teams })).join(),
+  );
+
+  const sundayId = teams.find((t) => t.name === 'Sunday Band')?.id;
+  const weddingId = teams.find((t) => t.name === 'Wedding Duo')?.id;
+  check(
+    'Sunday shows only the Sunday song',
+    byTitle(
+      applyScope(songs, { scope: 'team', viewerId: myId, teams, teamId: sundayId }),
+    ).join() === 'Sunday Song',
+    byTitle(
+      applyScope(songs, { scope: 'team', viewerId: myId, teams, teamId: sundayId }),
+    ).join(),
+  );
+  check(
+    'Wedding shows only the Wedding song',
+    byTitle(
+      applyScope(songs, { scope: 'team', viewerId: myId, teams, teamId: weddingId }),
+    ).join() === 'Wedding Song',
+    byTitle(
+      applyScope(songs, { scope: 'team', viewerId: myId, teams, teamId: weddingId }),
+    ).join(),
+  );
+
+  fs.rmSync(dataDir, { recursive: true, force: true });
+}
+
+console.log(`\n${pass} passed, ${fail} failed\n`);
+process.exit(fail === 0 ? 0 : 1);

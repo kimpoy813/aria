@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Chip, Empty, Icon } from '../components/ui';
 import { api } from '../lib/api';
 import { orderByLRU, summarizeLineupSongs, timeAgo } from '../lib/lru';
+import { applyScope, type LibraryScope } from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { Lineup } from '../lib/types';
-
-type Scope = 'all' | 'mine' | 'team';
 
 export function LineupsPage() {
   const { lineups, songs, teams, user, refresh, notify } = useStore();
   const navigate = useNavigate();
-  const [scope, setScope] = useState<Scope>('all');
+  const location = useLocation();
+  // A team card can deep-link here, already narrowed to that team.
+  const preset = location.state as { scope?: LibraryScope; teamId?: string } | null;
+  // Your own rotation first: the team library is something you opt into.
+  const [scope, setScope] = useState<LibraryScope>(preset?.scope ?? 'mine');
+  const [teamId, setTeamId] = useState<string>(preset?.teamId ?? 'all');
   const [themeFilter, setThemeFilter] = useState<string>('all');
   const [copyingId, setCopyingId] = useState<string | null>(null);
 
@@ -34,13 +38,10 @@ export function LineupsPage() {
   }, [lineups]);
 
   const scoped = useMemo(() => {
-    return lineups.filter((l) => {
-      if (scope === 'mine' && l.ownerId !== user?.id) return false;
-      if (scope === 'team' && l.ownerId === user?.id) return false;
-      if (themeFilter !== 'all' && l.theme !== themeFilter) return false;
-      return true;
-    });
-  }, [lineups, scope, themeFilter, user?.id]);
+    return applyScope(lineups, { scope, viewerId: user?.id, teams, teamId }).filter(
+      (l) => themeFilter === 'all' || l.theme === themeFilter,
+    );
+  }, [lineups, scope, teams, teamId, themeFilter, user?.id]);
 
   const ordered = useMemo(() => orderByLRU(scoped), [scoped]);
 
@@ -99,6 +100,28 @@ export function LineupsPage() {
         </div>
       )}
 
+      {scope === 'team' && teams.length > 1 && (
+        <div className="filter-row" aria-label="Filter by team">
+          <button
+            type="button"
+            className={`filter-pill ${teamId === 'all' ? 'active' : ''}`}
+            onClick={() => setTeamId('all')}
+          >
+            All teams
+          </button>
+          {teams.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`filter-pill ${teamId === t.id ? 'active' : ''}`}
+              onClick={() => setTeamId(teamId === t.id ? 'all' : t.id)}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {themes.length > 1 && (
         <div className="filter-row">
           <button
@@ -126,17 +149,23 @@ export function LineupsPage() {
           icon="lineup"
           title={
             scope === 'team'
-              ? 'No teammate lineups yet'
+              ? teamId !== 'all'
+                ? 'Nothing shared with that team'
+                : 'No teammate lineups yet'
               : lineups.length === 0
                 ? 'No lineups yet'
-                : 'No matches'
+                : scope === 'mine'
+                  ? 'No lineups of yours yet'
+                  : 'No matches'
           }
           body={
             scope === 'team'
-              ? 'Lineups from your teammates appear here automatically.'
+              ? 'Lineups your teammates share appear here automatically.'
               : lineups.length === 0
                 ? 'Create your first lineup.'
-                : 'No matches.'
+                : scope === 'mine'
+                  ? 'Lineups from your teams are on the Team tab.'
+                  : 'No matches.'
           }
           action={
             lineups.length === 0 ? (
@@ -146,7 +175,8 @@ export function LineupsPage() {
             ) : (
               <Button
                 onClick={() => {
-                  setScope('all');
+                  setScope('mine');
+                  setTeamId('all');
                   setThemeFilter('all');
                 }}
               >
