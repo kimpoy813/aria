@@ -55,6 +55,11 @@ export interface Song {
   artist: string;
   tempo: Tempo;
   theme: string;
+  /**
+   * The key the chords are written in, e.g. "G" or "F#m". Empty when nobody has
+   * set one. Chords are always stored in this key; every other key is derived.
+   */
+  key: string;
   parts: SongPart[];
   analysis: Analysis | null;
   ownerId: string;
@@ -76,6 +81,17 @@ export interface LineupItem {
   partKind?: PartKind | string;
   partLabel?: string;
   lyrics?: string;
+  /**
+   * The key this *occurrence* is played in, e.g. "D". Empty means play the song
+   * as written.
+   *
+   * Per slot rather than per song, because a set moves: song 1 opens in G, the
+   * band shifts to D for song 2, and when song 1 comes back it is in D too. Same
+   * song, same stored chords, two keys.
+   */
+  key?: string;
+  /** The key the song's chords are written in, when this item was saved. */
+  songKey?: string;
 }
 
 export interface Lineup {
@@ -219,6 +235,10 @@ export interface SharedLineupItem {
   partKind: PartKind;
   partLabel: string;
   lyrics: string;
+  /** Key the chords are written in, so a viewer can transpose from it. */
+  songKey?: string;
+  /** Key this occurrence is played in, if the builder set one. */
+  playKey?: string;
 }
 
 export interface SharedLineupSongPart {
@@ -233,6 +253,10 @@ export interface SharedLineupSong {
   title: string;
   artist: string;
   tempo: Tempo;
+  /** Key the chords are written in. */
+  key: string;
+  /** Key this occurrence is played in, when the builder moved it. */
+  playKey?: string;
   parts: SharedLineupSongPart[];
 }
 

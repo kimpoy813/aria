@@ -11,6 +11,7 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
+import { MAJOR_KEYS, MINOR_KEYS, hasChords } from '../lib/chords';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
 import { repointSlotsToCopy } from '../lib/lru';
 import {
@@ -195,7 +196,10 @@ export function BuilderPage() {
       const target = prev[index];
       if (!target) return prev;
       const copy = [...prev];
-      copy.splice(index + 1, 0, makeSlot(target.songId, target.partId));
+      const clone = makeSlot(target.songId, target.partId);
+      clone.key = target.key || '';
+      clone.songKey = target.songKey || '';
+      copy.splice(index + 1, 0, clone);
       return copy;
     });
     showToast('Duplicated slot', 'info');
@@ -203,6 +207,26 @@ export function BuilderPage() {
 
   const removeSlot = (index: number) => {
     setItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  /**
+   * The key this one occurrence plays in.
+   *
+   * Deliberately per slot and not per song: a set moves. Song 1 opens in G, the
+   * band shifts to D for song 2, and when song 1 comes back at the end it is in
+   * D as well — same song, same stored chords, two keys in one lineup.
+   */
+  const setSlotKey = (slotId: string, nextKey: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === slotId ? { ...it, key: nextKey } : it)),
+    );
+  };
+
+  /** One move for every part of a song in this lineup — the usual case. */
+  const setSongKey = (songId: string, nextKey: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.songId === songId ? { ...it, key: nextKey } : it)),
+    );
   };
 
   const onSlotDragStart = (e: React.DragEvent, index: number) => {
@@ -508,6 +532,53 @@ export function BuilderPage() {
                       <Chip tone={song.tempo}>{part.label}</Chip>
                     </div>
                     {firstLine && <div className="lyric-line muted">{firstLine}</div>}
+
+                    {/*
+                      Only worth showing when there is something to move. A song
+                      with no chords and no key gains nothing from a key picker,
+                      and the row is already crowded.
+                    */}
+                    {(song.key || hasChords(part.lyrics)) && (
+                      <div className="slot-key">
+                        <label className="slot-key-label" htmlFor={`slotkey-${item.id}`}>
+                          Key
+                        </label>
+                        <select
+                          id={`slotkey-${item.id}`}
+                          className="select slot-key-select"
+                          value={item.key || ''}
+                          onChange={(e) => setSlotKey(item.id, e.target.value)}
+                        >
+                          <option value="">
+                            {song.key ? `${song.key} (as written)` : 'As written'}
+                          </option>
+                          <optgroup label="Major">
+                            {MAJOR_KEYS.map((k) => (
+                              <option key={k} value={k}>
+                                {k}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Minor">
+                            {MINOR_KEYS.map((k) => (
+                              <option key={k} value={k}>
+                                {k}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                        {item.key && (
+                          <button
+                            type="button"
+                            className="slot-key-all"
+                            onClick={() => setSongKey(song.id, item.key!)}
+                            title={`Play all of ${song.title} in ${item.key}`}
+                          >
+                            All parts
+                          </button>
+                        )}
+                      </div>
+                    )}
                             {(() => {
                       if (song.ownerId === user?.id) return null;
                       const myVersion = yourVersionOf(songs, song, user?.id);

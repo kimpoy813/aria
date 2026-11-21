@@ -1293,12 +1293,268 @@ select {
   line-height: 1.72;
 }
 
+/* ------------------------------------------------------- chords & key bar */
+
+/*
+ * The reader's bar: show/hide, then the move. Sits above the lyrics and stays
+ * put, so a hand does not have to travel to find it again three songs later.
+ */
+.chord-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.chord-toggle,
+.chord-reset {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.chord-toggle.active {
+  background: var(--brand-soft);
+  border-color: var(--brand-soft-2);
+  color: var(--brand-text);
+}
+
+.chord-reset {
+  margin-left: auto;
+}
+
+.chord-key {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+
+/* 44px: the smallest target a thumb reliably hits on a platform. */
+.chord-step {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.chord-step:active {
+  background: var(--brand-soft);
+  color: var(--brand-text);
+}
+
+.chord-key-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 74px;
+  padding: 0 4px;
+  line-height: 1.2;
+}
+
+.chord-key-now {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.chord-key-was {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The key a song is being played in, beside its title. */
+.song-key-badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-soft-2);
+  color: var(--brand-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+/* Per-slot key in the lineup builder. */
+.slot-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.slot-key-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.slot-key-select {
+  width: auto;
+  min-width: 132px;
+  height: 32px;
+  padding: 0 26px 0 8px;
+  font-size: 12.5px;
+}
+
+.slot-key-all {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--brand-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Chord entry in the song editor. */
+.chord-panel-head {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chord-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.chord-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Big enough to hit without looking, small enough that all six fit one row. */
+.chord-pill {
+  min-width: 44px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.chord-pill:active {
+  background: var(--brand-soft);
+  border-color: var(--brand-soft-2);
+  color: var(--brand-text);
+}
+
+.chord-custom {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.chord-custom .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chord-entry-error {
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------- lyrics */
+
 .lyric-chord {
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.4;
   color: var(--brand-text);
   font-weight: 500;
+}
+
+/*
+ * Inline chords: the chord floats directly above the word it falls on.
+ *
+ * The run stays `inline-block` so it breaks like one unit, and only lines that
+ * actually carry a chord get the extra rise above them — padding every line
+ * would stretch plain lyrics for no reason.
+ */
+.chord-run {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.chord-note {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.1;
+  font-weight: 600;
+  color: var(--brand-text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.lyric-line-chorded {
+  padding-top: 15px;
+}
+
+.lyric-body-lg .lyric-line-chorded {
+  padding-top: 17px;
+}
+
+.lyric-body-lg .chord-note {
+  font-size: 13.5px;
+}
+
+/*
+ * A chord hanging off the end of a line has no words under it, so its run is
+ * zero wide. Hanging the note off the right instead keeps it inside the column
+ * rather than running off the edge of the page.
+ */
+.chord-run-bare .chord-note {
+  left: auto;
+  right: 0;
 }
 
 .text-size-btn {
@@ -3630,7 +3886,16 @@ select {
   .filter-pill,
   .copy-action-btn,
   .text-size-btn,
-  .brand-home {
+  .brand-home,
+  /*
+   * The controls go; the chords stay. A printout is read by someone with a
+   * guitar, so `.chord-note` must survive — only the bar that moves them is
+   * screen furniture.
+   */
+  .chord-bar,
+  .chord-panel,
+  .chord-entry,
+  .slot-key {
     display: none !important;
   }
 
@@ -3704,6 +3969,25 @@ select {
     font-size: 11.5pt;
     line-height: 1.5;
     color: #000000;
+  }
+
+  /*
+   * Chords print in solid black like everything else: the page goes to a
+   * mono laser printer or a photocopier, where a brand-green chord turns grey
+   * and stops reading as a chord at all.
+   */
+  .chord-note,
+  .lyric-chord {
+    color: #000000;
+    font-size: 9.5pt;
+  }
+
+  .lyric-line-chorded {
+    padding-top: 12pt;
+  }
+
+  .lyric-body-lg .lyric-line-chorded {
+    padding-top: 12pt;
   }
 
   a {

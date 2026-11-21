@@ -1,3 +1,4 @@
+import { sheetToInline } from './chords';
 import { PART_KINDS } from './nlp';
 import type { PartKind, SongPart } from './types';
 
@@ -6,12 +7,19 @@ export interface SplitOptions {
   songTitle?: string;
   /** Collapse near-identical repeated sections (e.g. identical Chorus repeated 3x). Default: true. */
   collapseRepeats?: boolean;
+  /**
+   * Anchor chords from a pasted chord sheet onto the words beneath them.
+   * Default: true. Turn off only to keep the sheet's own chord lines.
+   */
+  inlineChords?: boolean;
 }
 
 export interface SplitResult {
   parts: SongPart[];
   hadExplicitHeaders: boolean;
   collapsedCount: number;
+  /** True when chord lines were converted into inline markers. */
+  inlinedChords: boolean;
 }
 
 const NOISE_LINE_RE =
@@ -157,6 +165,9 @@ function matchHeadingKeyword(core: string): PartKind | null {
 
 function normalizeLineForCompare(line: string): string {
   return line
+    // Chords are decoration for this purpose: two stanzas with the same words
+    // are the same stanza whether or not one of them has been churched up.
+    .replace(/\[[A-G][^\]\n]{0,11}\]/g, ' ')
     .toLowerCase()
     .replace(/[\[(]?(?:[x×]\s*\d+|\d+\s*[x×])[\])]?\s*$/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -486,9 +497,16 @@ function classifyUnlabelledStanzas(
  * (Verse, Pre-Chorus, Chorus, Bridge, Intro, Outro, Refrain) — with or without headers.
  */
 export function splitPastedLyrics(raw: string, options: SplitOptions = {}): SplitResult {
-  const { songTitle, collapseRepeats = true } = options;
+  const { songTitle, collapseRepeats = true, inlineChords = true } = options;
   const normalized = raw.replace(/\r\n?/g, '\n');
-  const rawLines = normalized
+
+  // A chord sheet arrives with its chords floating above the words. Anchor them
+  // to the words now, while the alignment information still exists, so that
+  // transposing the song later can never slide a chord off its syllable.
+  const withInlineChords = inlineChords ? sheetToInline(normalized) : normalized;
+  const inlinedChords = inlineChords && withInlineChords !== normalized;
+
+  const rawLines = withInlineChords
     .split('\n')
     .filter((line) => !NOISE_LINE_RE.test(line.trim()));
 
@@ -703,6 +721,7 @@ export function splitPastedLyrics(raw: string, options: SplitOptions = {}): Spli
     parts: built,
     hadExplicitHeaders: sawExplicitHeader,
     collapsedCount,
+    inlinedChords,
   };
 }
 

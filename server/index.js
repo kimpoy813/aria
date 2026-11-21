@@ -33,6 +33,20 @@ const now = () => Date.now();
 const clean = (value, max = 400) =>
   typeof value === 'string' ? value.trim().slice(0, max) : '';
 
+/**
+ * A musical key, or nothing.
+ *
+ * The editor only ever offers real keys from a picker, so anything else arriving
+ * here was typed at the API directly. Rejecting it matters: a stored "key" that
+ * is not a key cannot be transposed from, and the song would quietly behave as
+ * keyless while still displaying a key to the reader.
+ */
+const KEY_RE = /^[A-G][#b\u266f\u266d]?m?$/;
+const normalizeKey = (value) => {
+  const raw = clean(value, 8).replace(/\u266f/g, '#').replace(/\u266d/g, 'b');
+  return KEY_RE.test(raw) ? raw : '';
+};
+
 /* ------------------------------------------------------------------ store */
 
 let store = null;
@@ -224,7 +238,15 @@ function resolvePartFromSong(song, item) {
   return part || null;
 }
 
-function snapshotSlot(song, part, slotId = uid('slot')) {
+/**
+ * A slot as it is stored.
+ *
+ * `key` is the key *this occurrence* plays in and belongs to the slot, not the
+ * song: a set moves, so the same song can appear twice in one lineup in two
+ * different keys while its stored chords stay in one. `songKey` records where
+ * those chords were written, which is what the transposition is measured from.
+ */
+function snapshotSlot(song, part, slotId = uid('slot'), slot = null) {
   return {
     id: slotId,
     songId: song.id,
@@ -235,6 +257,8 @@ function snapshotSlot(song, part, slotId = uid('slot')) {
     partKind: part.kind || 'verse',
     partLabel: part.label || 'Part',
     lyrics: part.lyrics || '',
+    key: normalizeKey(slot && slot.key),
+    songKey: song.key || '',
   };
 }
 
@@ -255,6 +279,10 @@ function publicLineup(lineup, songs) {
         partKind: part.kind || 'verse',
         partLabel: part.label || 'Part',
         lyrics: part.lyrics,
+        // The viewer transposes locally, so it needs both ends of the move:
+        // what the chords are written in, and what this occurrence plays in.
+        songKey: song.key || '',
+        playKey: normalizeKey(item.key),
       });
     } else if (item && item.lyrics) {
       songKeys.add(item.songId || item.songTitle || item.id);
@@ -265,6 +293,8 @@ function publicLineup(lineup, songs) {
         partKind: item.partKind || 'verse',
         partLabel: item.partLabel || 'Part',
         lyrics: item.lyrics,
+        songKey: song?.key || item.songKey || '',
+        playKey: normalizeKey(item.key),
       });
     }
   }
@@ -282,17 +312,24 @@ function publicLineup(lineup, songs) {
 
   for (const item of lineup.items) {
     const song = songs.find((s) => s.id === item.songId);
-    if (!song || seenSongs.has(song.id)) continue;
+    if (!song) continue;
+    // Deduped by song *and* key: the same song coming back later in a different
+    // key needs its own block, or the reader sings the reprise in the wrong key.
+    const playKey = normalizeKey(item.key);
+    const seenKey = `${song.id}::${playKey.toLowerCase()}`;
+    if (seenSongs.has(seenKey)) continue;
     const parts = (Array.isArray(song.parts) ? song.parts : []).filter(
       (part) => part && part.lyrics,
     );
     if (parts.length === 0) continue;
-    seenSongs.add(song.id);
+    seenSongs.add(seenKey);
     fullSongs.push({
       id: song.id,
       title: song.title,
       artist: song.artist || 'Unknown artist',
       tempo: song.tempo === 'fast' ? 'fast' : 'slow',
+      key: song.key || '',
+      playKey,
       parts: parts.map((part) => ({
         kind: part.kind || 'verse',
         label: part.label || 'Part',
@@ -1980,6 +2017,9 @@ api.post('/songs', async (req, res) => {
     tempo: body.tempo === 'fast' ? 'fast' : 'slow',
     parts,
     theme: clean(body.theme, 40),
+    // The key the chords are written in. Longest real value is something like
+    // "C#m", so 8 characters is roomy and still bounded.
+    key: normalizeKey(body.key),
     analysis: body.analysis || null,
     ownerId: user.id,
     ownerName: user.name,
@@ -2009,6 +2049,7 @@ api.patch('/songs/:id', async (req, res) => {
   if (body.artist !== undefined) song.artist = clean(body.artist, 80) || 'Unknown artist';
   if (body.tempo !== undefined) song.tempo = body.tempo === 'fast' ? 'fast' : 'slow';
   if (body.theme !== undefined) song.theme = clean(body.theme, 40);
+  if (body.key !== undefined) song.key = normalizeKey(body.key);
   if (body.analysis !== undefined) song.analysis = body.analysis;
   if (Array.isArray(body.parts)) {
     const oldParts = Array.isArray(song.parts) ? song.parts : [];
@@ -2134,7 +2175,7 @@ api.post('/lineups', async (req, res) => {
           const song = db.songs.find((s) => s.id === i.songId);
           const part = song ? resolvePartFromSong(song, i) : null;
           if (!song || !part || !canView(song, user.id)) return null;
-          return snapshotSlot(song, part);
+          return snapshotSlot(song, part, uid('slot'), i);
         })
         .filter(Boolean)
     : [];
@@ -2191,9 +2232,9 @@ api.patch('/lineups/:id', async (req, res) => {
           const prev = (lineup.items || []).find(
             (x) => x.songId === i.songId && x.partId === i.partId && x.lyrics,
           );
-          return prev ? { ...prev, id: uid('slot') } : null;
+          return prev ? { ...prev, id: uid('slot'), key: normalizeKey(i.key) } : null;
         }
-        return snapshotSlot(song, part);
+        return snapshotSlot(song, part, uid('slot'), i);
       })
       .filter(Boolean);
     lineup.items = items;
