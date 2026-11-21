@@ -4,6 +4,9 @@
  *
  *   npm run test:teams
  *
+ * It also pins down the account sheet, which used to print `songs.length`
+ * straight off the store and so reported your teammates' work as yours.
+ *
  * The question this answers: joining a second team does not create a second
  * library. `canView()` on the server returns the union of everything every team
  * you are in can see, so `/api/state` hands the client one flat pile. Part 2
@@ -45,7 +48,7 @@ async function loadTs(rel) {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
 
-const { applyScope, sharedWithTeam, teamSharedCounts, teamsForRecord } =
+const { applyScope, ownRecords, sharedWithTeam, teamSharedCounts, teamsForRecord } =
   await loadTs('src/lib/scopes.ts');
 
 const team = (id, name, memberIds) => ({
@@ -91,6 +94,29 @@ console.log('\nAria · teams & scoping\n\n1. Mine / All / Team');
     'Team shows everyone else, never your own',
     ids(applyScope(songs, { scope: 'team', viewerId: ME, teams: teams2 })) ===
       'alice,bob',
+  );
+}
+
+console.log('\n1b. What the account sheet counts');
+{
+  const songs = [rec('mine', ME), rec('alice', 'alice'), rec('bob', 'bob')];
+  const lineups = [rec('l-mine', ME), rec('l-alice', 'alice')];
+
+  check(
+    'your song count excludes teammates',
+    ownRecords(songs, ME).length === 1,
+    `${ownRecords(songs, ME).length} of ${songs.length}`,
+  );
+  check(
+    'your lineup count excludes teammates',
+    ownRecords(lineups, ME).length === 1,
+    `${ownRecords(lineups, ME).length} of ${lineups.length}`,
+  );
+  // The sheet and the Songs page must never disagree about what "mine" means.
+  check(
+    'the account sheet agrees with the Mine tab',
+    ownRecords(songs, ME).length ===
+      applyScope(songs, { scope: 'mine', viewerId: ME, teams: teams2 }).length,
   );
 }
 
@@ -287,6 +313,12 @@ console.log('\n6. What the server actually sends a member of two teams');
     'and one flat list of every song every team can see',
     songs.length === 3,
     songs.map((s) => s.title).join(', '),
+  );
+
+  check(
+    'the account sheet says 1, not 3',
+    songs.length === 3 && ownRecords(songs, myId).length === 1,
+    `sheet=${ownRecords(songs, myId).length} store=${songs.length}`,
   );
 
   const byTitle = (list) => list.map((s) => s.title).sort();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BrowserRouter,
   Navigate,
@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom';
 import { StoreProvider, useStore, type ThemePreference } from './lib/store';
 import { Button, Chip, Icon, IconButton, Sheet } from './components/ui';
+import { ownRecords } from './lib/scopes';
 import type { IconName } from './components/Icon';
 import { LogoHero, Wordmark } from './components/Logo';
 import {
@@ -99,6 +100,14 @@ function TopBar() {
   const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
+  /*
+   * The account sheet is about *you*, so it counts only what you own. The store
+   * holds everything you can see — teammates' songs and lineups included — and
+   * `.length` on that is the team's total, not yours.
+   */
+  const mySongs = useMemo(() => ownRecords(songs, user?.id), [songs, user?.id]);
+  const myLineups = useMemo(() => ownRecords(lineups, user?.id), [lineups, user?.id]);
+
   return (
     <header className="topbar">
       <div className="topbar-inner">
@@ -174,7 +183,7 @@ function TopBar() {
                 navigate('/songs');
               }}
             >
-              <strong>{songs.length}</strong>
+              <strong>{mySongs.length}</strong>
               <span>Songs</span>
             </button>
             <button
@@ -185,7 +194,7 @@ function TopBar() {
                 navigate('/lineups');
               }}
             >
-              <strong>{lineups.length}</strong>
+              <strong>{myLineups.length}</strong>
               <span>Lineups</span>
             </button>
             <button

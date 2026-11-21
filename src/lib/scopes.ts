@@ -13,6 +13,18 @@ export interface TeamCounts {
   lineups: number;
 }
 
+/**
+ * Only the records you own.
+ *
+ * The single definition of "mine" in the app. Anything that shows a count as
+ * *your* total has to go through this: `/api/state` returns everything you can
+ * see, which includes your teammates' work, so `.length` on the raw array is
+ * the team's total wearing your name.
+ */
+export function ownRecords<T extends Ownable>(records: T[], viewerId?: string | null): T[] {
+  return records.filter((r) => r.ownerId === viewerId);
+}
+
 /** Everyone in one team except you. */
 export function teammateIdsOf(team: Team, viewerId?: string | null): Set<string> {
   return new Set(
@@ -57,7 +69,7 @@ export interface ScopeOptions {
  */
 export function applyScope<T extends Ownable>(records: T[], opts: ScopeOptions): T[] {
   const { scope, viewerId, teams, teamId = 'all' } = opts;
-  if (scope === 'mine') return records.filter((r) => r.ownerId === viewerId);
+  if (scope === 'mine') return ownRecords(records, viewerId);
   if (scope === 'all') return records.slice();
   const chosen = teams.filter((t) => teamId === 'all' || t.id === teamId);
   return records.filter(
