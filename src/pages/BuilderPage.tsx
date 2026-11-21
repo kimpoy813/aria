@@ -12,6 +12,8 @@ import {
 } from '../components/ui';
 import { api } from '../lib/api';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
+import { repointSlotsToCopy } from '../lib/lru';
+import { builderLibrary, ownRecords, yourCopyOf } from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { LineupItem, Song, SongPart, Tempo } from '../lib/types';
 
@@ -61,6 +63,7 @@ export function BuilderPage() {
   const [previewSlot, setPreviewSlot] = useState<{ song: Song; part: SongPart } | null>(null);
   const [titleMissing, setTitleMissing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copyingSongId, setCopyingSongId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,6 +74,33 @@ export function BuilderPage() {
 
   const showToast = (m: string, tone: ToastTone = 'success') => {
     notify(m, tone);
+  };
+
+  /**
+   * Brings a shared song into your library and re-points every slot at it.
+   *
+   * If you already own a copy, that copy is used instead of making a second
+   * one. Either way the sequence keeps its parts: a copy has new part ids, so
+   * the slots have to be remapped or they would resolve to nothing.
+   */
+  const useOwnVersionOf = async (song: Song) => {
+    setCopyingSongId(song.id);
+    try {
+      const already = yourCopyOf(songs, song, user?.id);
+      const copy = already ?? (await api.copySong(song.id)).song;
+      if (!already) await refresh();
+      setItems((prev) => repointSlotsToCopy(prev, song, copy));
+      showToast(
+        already
+          ? `Switched to your copy of “${copy.title}”`
+          : `Copied “${copy.title}” to your library`,
+        'success',
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not copy song', 'error');
+    } finally {
+      setCopyingSongId(null);
+    }
   };
 
   const resolved = useMemo(() => {
@@ -278,16 +308,16 @@ export function BuilderPage() {
     setTouchDrag({ index, label, x: e.clientX, y: e.clientY });
   };
 
-  const librarySongs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return songs.filter((s) => {
-      if (libTempo !== 'all' && s.tempo !== libTempo) return false;
-      if (!q) return true;
-      return `${s.title} ${s.artist} ${s.theme} ${s.parts.map((p) => p.lyrics).join(' ')}`
-        .toLowerCase()
-        .includes(q);
-    });
-  }, [songs, search, libTempo]);
+  /*
+   * The picker offers your own library — which is also where copied songs live,
+   * since a copy is a new song you own. Teammates' songs stay on the Songs tab,
+   * where Copy brings them here.
+   */
+  const librarySongs = useMemo(
+    () => builderLibrary(songs, { viewerId: user?.id, search, tempo: libTempo }),
+    [songs, user?.id, search, libTempo],
+  );
+  const mySongs = useMemo(() => ownRecords(songs, user?.id), [songs, user?.id]);
 
   const hasCollapsedSongs = useMemo(
     () => librarySongs.some((s) => Boolean(collapsed[s.id])),
@@ -473,6 +503,24 @@ export function BuilderPage() {
                       <Chip tone={song.tempo}>{part.label}</Chip>
                     </div>
                     {firstLine && <div className="lyric-line muted">{firstLine}</div>}
+                    {song.ownerId !== user?.id && (
+                      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                        <span className="tiny">Shared by {song.ownerName}</span>
+                        <button
+                          type="button"
+                          className="copy-action-btn"
+                          disabled={copyingSongId === song.id}
+                          onClick={() => useOwnVersionOf(song)}
+                        >
+                          <Icon name="copy" size={12} />{' '}
+                          {copyingSongId === song.id
+                            ? '…'
+                            : yourCopyOf(songs, song, user?.id)
+                              ? 'Use my copy'
+                              : 'Copy song'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="seq-toolbar">
@@ -525,15 +573,25 @@ export function BuilderPage() {
           )}
         </div>
 
-        {songs.length === 0 ? (
+        {mySongs.length === 0 ? (
           <Empty
             icon="songs"
-            title="No songs yet"
-            body="Add songs first."
+            title={songs.length === 0 ? 'No songs yet' : 'No songs of yours yet'}
+            body={
+              songs.length === 0
+                ? 'Add songs first.'
+                : 'A lineup is built from your own library. Copy a shared song from the Songs tab, or add your own.'
+            }
             action={
-              <Button variant="primary" onClick={() => navigate('/songs/new')}>
-                <Icon name="add" size={16} /> Add song
-              </Button>
+              songs.length === 0 ? (
+                <Button variant="primary" onClick={() => navigate('/songs/new')}>
+                  <Icon name="add" size={16} /> Add song
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => navigate('/songs')}>
+                  <Icon name="songs" size={16} /> Browse songs
+                </Button>
+              )
             }
           />
         ) : (
