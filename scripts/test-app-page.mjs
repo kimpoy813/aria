@@ -393,112 +393,80 @@ async function run() {
 
     check('the build ships a stylesheet', css.length > 1000, `${css.length} bytes`);
 
-    /** Returns the body of every `@media <query>` block, brace-matched. */
-    const mediaBlocks = (query) => {
-      const out = [];
-      const needle = `@media ${query}`;
-      for (let i = css.indexOf(needle); i !== -1; i = css.indexOf(needle, i + 1)) {
-        const open = css.indexOf('{', i);
-        if (open === -1) break;
-        let depth = 0;
-        for (let j = open; j < css.length; j++) {
-          if (css[j] === '{') depth++;
-          else if (css[j] === '}') {
-            depth--;
-            if (depth === 0) {
-              out.push(css.slice(open + 1, j));
-              break;
-            }
-          }
-        }
-      }
-      return out.join('\n');
-    };
+    // Ask the cascade what actually wins at each width, rather than whether a
+    // string appears somewhere in a media block — a rule that exists but is
+    // overridden would otherwise pass.
+    const { createCascade } = await import('./lib/css-cascade.mjs');
+    const { valueAt } = createCascade(css);
 
-    /**
-     * True when `selector { ... decl }` appears inside a given media block.
-     * Matches the selector exactly — `.sheet` must not match `.sheet-backdrop` —
-     * and ignores whitespace, which the minifier keeps inside custom properties.
-     */
-    const squash = (text) => text.replace(/\s+/g, '');
-    const inMedia = (query, selector, decl) => {
-      const body = mediaBlocks(query);
-      // Walk every rule, split its selector list on commas, and match one part
-      // exactly — so `.sheet` never matches `.sheet-backdrop`.
-      const rule = /([^{}]+)\{([^}]*)\}/g;
-      let match;
-      while ((match = rule.exec(body)) !== null) {
-        const selectors = match[1].split(',').map((part) => squash(part));
-        if (!selectors.includes(squash(selector))) continue;
-        if (squash(match[2]).includes(squash(decl))) return true;
-      }
-      return false;
-    };
+    const PHONE = 375;
+    const SMALL_TABLET = 820;
+    const TABLET = 1024;
+    const LAPTOP = 1440;
+    const DESKTOP = 1920;
+
+    const eq = (name, actual, expected) =>
+      check(name, actual === expected, `got ${actual}, want ${expected}`);
 
     // One token drives the shell, so every full-height surface widens together.
-    check(
-      'the shell width is a variable, not a fixed phone width',
-      (css.match(/max-width:var\(--shell\)/g) || []).length >= 5 &&
-        !/max-width:430px/.test(css),
-    );
-    check(
-      'the shell widens at tablet, laptop and desktop widths',
-      inMedia('(min-width: 700px)', ':root', '--shell:620px') &&
-        inMedia('(min-width: 900px)', ':root', '--shell:860px') &&
-        inMedia('(min-width: 1200px)', ':root', '--shell:1040px') &&
-        inMedia('(min-width: 1600px)', ':root', '--shell:1160px'),
+    eq('the phone shell is still 430px', valueAt('.app', 'max-width', PHONE), '430px');
+    eq('the shell widens on a small tablet', valueAt('.app', 'max-width', SMALL_TABLET), '620px');
+    eq('and again on a tablet', valueAt('.app', 'max-width', TABLET), '860px');
+    eq('and on a laptop', valueAt('.app', 'max-width', LAPTOP), '1040px');
+    eq('and on a wide desktop', valueAt('.app', 'max-width', DESKTOP), '1160px');
+
+    // The main column breathes instead of keeping 16px phone gutters.
+    eq(
+      'the content gutter widens with the shell',
+      valueAt('.app-main', 'padding', TABLET),
+      '22px 26px calc(86px + env(safe-area-inset-bottom))',
     );
 
     // Long lists stop being a single column of half-empty rows.
-    check(
-      'song and lineup lists go two-up on a tablet',
-      inMedia('(min-width: 900px)', '.list-group', 'grid-template-columns:repeat(2'),
-    );
-    check(
-      'and three-up on a laptop',
-      inMedia('(min-width: 1200px)', '.list-group', 'grid-template-columns:repeat(3'),
-    );
-    check(
-      'the column divider follows the new column count',
-      inMedia('(min-width: 1200px)', '.list-row:nth-child(3n)', 'border-right:0'),
-    );
+    eq('lists are still one column on a phone', valueAt('.list-group', 'display', PHONE), null);
+    eq('and on a small tablet', valueAt('.list-group', 'display', SMALL_TABLET), null);
+    eq('lists go two-up on a tablet', valueAt('.list-group', 'grid-template-columns', TABLET), 'repeat(2,minmax(0,1fr))');
+    eq('and three-up on a laptop', valueAt('.list-group', 'grid-template-columns', LAPTOP), 'repeat(3,minmax(0,1fr))');
 
-    // The tab bar becomes a floating pill instead of an edge-to-edge strip.
-    check(
-      'the tab bar becomes a floating pill on wide screens',
-      inMedia('(min-width: 900px)', '.tabbar', 'border-radius:18px') &&
-        inMedia('(min-width: 900px)', '.tabbar', 'bottom:16px'),
+    // The tab bar stops being an edge-to-edge strip under a wide window.
+    eq('the tab bar spans the phone shell', valueAt('.tabbar', 'max-width', PHONE), '430px');
+    eq(
+      'and becomes a floating pill on a tablet',
+      valueAt('.tabbar', 'max-width', TABLET),
+      'min(560px,calc(100% - 32px))',
     );
+    eq('lifted off the bottom edge', valueAt('.tabbar', 'bottom', TABLET), '16px');
+    eq('and rounded', valueAt('.tabbar', 'border-radius', TABLET), '18px');
 
-    // A bottom sheet is unreachable on a laptop, so it becomes a dialog.
-    check(
-      'the bottom sheet becomes a centred dialog',
-      inMedia('(min-width: 700px)', '.sheet-backdrop', 'align-items:center') &&
-        inMedia('(min-width: 700px)', '.sheet', 'border-radius:20px'),
-    );
+    // A bottom sheet is unreachable by thumb on a laptop, so it becomes a dialog.
+    eq('the sheet still rises from the bottom on a phone', valueAt('.sheet-backdrop', 'align-items', PHONE), 'flex-end');
+    eq('and centres from tablet up', valueAt('.sheet-backdrop', 'align-items', SMALL_TABLET), 'center');
+    eq('at a dialog width, not the full shell', valueAt('.sheet', 'max-width', TABLET), 'min(560px,100%)');
 
     // Lyrics keep a readable measure instead of spanning 1040px.
-    check(
-      'lyrics keep a readable measure on a laptop',
-      inMedia('(min-width: 900px)', '.lyric-stanza', 'max-width:var(--measure)'),
-    );
+    eq('lyrics are unconstrained on a phone', valueAt('.lyric-stanza', 'max-width', PHONE), null);
+    eq('and capped at a readable measure on a laptop', valueAt('.lyric-stanza', 'max-width', LAPTOP), '68ch');
 
     // Admin and public-page grids use the extra room.
-    check(
-      'the admin KPI grid fills the row',
-      inMedia('(min-width: 700px)', '.admin-kpi-grid', 'repeat(auto-fit'),
-    );
-    check(
-      'the public page cards go multi-column',
-      inMedia('(min-width: 900px)', '.app-how', 'grid-template-columns:repeat(2') &&
-        inMedia('(min-width: 1200px)', '.app-how', 'grid-template-columns:repeat(3'),
-    );
+    eq('the admin KPI grid fills the row', valueAt('.admin-kpi-grid', 'grid-template-columns', TABLET), 'repeat(auto-fit,minmax(150px,1fr))');
+    eq('the public page cards go two-up on a tablet', valueAt('.app-how', 'grid-template-columns', TABLET), 'repeat(2,minmax(0,1fr))');
+    eq('and three-up on a laptop', valueAt('.app-how', 'grid-template-columns', LAPTOP), 'repeat(3,minmax(0,1fr))');
 
     // Nothing below 700px moved: the phone layout is still the phone layout.
-    check(
-      'the phone layout is untouched below 700px',
-      mediaBlocks('(min-width: 700px)').length > 0 &&
-        !inMedia('(max-width: 600px)', '.list-group', 'grid-template-columns'),
+    eq(
+      'the phone tab bar is unchanged',
+      valueAt('.tabbar', 'border-radius', PHONE),
+      null,
+    );
+    eq(
+      'the phone sheet is unchanged',
+      valueAt('.sheet', 'max-width', PHONE),
+      '430px',
+    );
+    eq(
+      'the phone admin grid is unchanged',
+      valueAt('.admin-kpi-grid', 'grid-template-columns', PHONE),
+      'repeat(2,1fr)',
     );
   }
 

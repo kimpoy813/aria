@@ -2,7 +2,7 @@
   "name": "aria",
   "private": true,
   "version": "1.0.0",
-  "description": "Aria \u2014 a content-aware music recommender built on lyric NLP, part-level lineups, teams, and a least-recently-used lineup engine.",
+  "description": "Aria — a content-aware music recommender built on lyric NLP, part-level lineups, teams, and a least-recently-used lineup engine.",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web -c green,cyan \"node server/index.js\" \"vite --host 0.0.0.0 --port 5173 --strictPort\"",
@@ -36,6 +36,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^9.0.1",
+    "css-tree": "^3.2.1",
     "pg": "^8.11.5",
     "typescript": "^5.5.4",
     "vite": "^5.4.3"
