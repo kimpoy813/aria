@@ -343,7 +343,7 @@ console.log('\n13. Markers are found wherever they sit in a line');
 /* The lineup level: the same song, twice, in two keys, from one stored set.  */
 /* ------------------------------------------------------------------------ */
 
-const { lineupFullLyricBlocks, resolveSequence } = await loadTs('src/lib/lru.ts');
+const { lineupSequenceBlocks, sharedSequenceBlocks, resolveSequence } = await loadTs('src/lib/lru.ts');
 
 const songOne = {
   id: 'song_g',
@@ -412,18 +412,50 @@ console.log('\n14. One song, two keys, one lineup');
 
 console.log('\n15. The page a reader is handed');
 {
-  const blocks = lineupFullLyricBlocks(lineup, allSongs);
+  const blocks = lineupSequenceBlocks(lineup, allSongs);
 
-  // Song 1 appears twice in different keys, so it must not collapse into one
-  // block — the reprise has to be visible as its own moment in D.
+  // The set was placed as: Song One as written, Song Two in D, Song One in D.
+  // That is the order on the page — one section per slot, nothing added.
+  eq('three slots become three sections', blocks.reduce((n, b) => n + b.sections.length, 0), 3);
+  eq(
+    'in the order they were placed',
+    blocks.map((b) => `${b.songTitle}|${b.sections.map((s) => s.partLabel).join('+')}`).join(' / '),
+    'Song One|Verse 1 / Song Two|Verse 1 / Song One|Chorus',
+  );
+  eq('the first plays as written', blocks[0].playKey || '', '');
+  eq('and its words are untouched', blocks[0].sections[0].lyrics, '[G]Amazing [D]grace');
+
+  // Song 1 comes back in a different key, so it is its own block: the reprise
+  // has to be visible as its own moment in D, not folded into the first one.
   const oneBlocks = blocks.filter((b) => b.songTitle === 'Song One');
   eq('Song One gets two blocks, not one', oneBlocks.length, 2);
-  eq('the first plays as written', oneBlocks[0].playKey || '', '');
   eq('the second is in D', oneBlocks[1].playKey, 'D');
-  eq('and its words moved', oneBlocks[1].sections[0].lyrics, '[D]Amazing [A]grace');
-  eq('while the first did not', oneBlocks[0].sections[0].lyrics, '[G]Amazing [D]grace');
-  eq('the first block still shows the original', oneBlocks[0].sections[1].lyrics, '[C]How [G]sweet');
+  eq('and its words moved', oneBlocks[1].sections[0].lyrics, '[G]How [D]sweet');
   eq('both blocks name the key they were written in', oneBlocks[1].writtenKey, 'G');
+  eq('the parts nobody placed are not on the page', blocks[0].sections.length, 1);
+}
+
+console.log('\n15b. The shared page moves the same words the same way');
+{
+  const payloadItems = [
+    { songTitle: 'Song One', partLabel: 'Verse 1', lyrics: '[G]Amazing [D]grace', songKey: 'G', playKey: '' },
+    { songTitle: 'Song Two', partLabel: 'Verse 1', lyrics: '[D]Blessed [A]be', songKey: 'D', playKey: 'D' },
+    { songTitle: 'Song One', partLabel: 'Chorus', lyrics: '[C]How [G]sweet', songKey: 'G', playKey: 'D' },
+  ];
+  const blocks = sharedSequenceBlocks(payloadItems);
+  const preview = lineupSequenceBlocks(lineup, allSongs);
+
+  eq('the stranger gets three sections too', blocks.reduce((n, b) => n + b.sections.length, 0), 3);
+  eq(
+    'word for word what the owner previewed',
+    blocks.map((b) => b.sections.map((s) => s.lyrics).join('')).join(' / '),
+    preview.map((b) => b.sections.map((s) => s.lyrics).join('')).join(' / '),
+  );
+  eq(
+    'and the same keys on the same headings',
+    blocks.map((b) => b.playKey || b.writtenKey).join(','),
+    preview.map((b) => b.playKey || b.writtenKey).join(','),
+  );
 }
 
 /* ------------------------------------------------------------------------ */
@@ -517,6 +549,32 @@ console.log('\n16. The controls fit a phone');
       'the key picker stays a fixed, tappable width',
       at.valueAt('.running-order-key', 'min-width', PHONE),
       '118px',
+    );
+
+    eq(
+      'the whole-song row reads as a heading, so the two levels cannot be confused',
+      at.valueAt('.running-order-song .running-order-what', 'font-weight', PHONE),
+      '600',
+    );
+    eq(
+      'and a part row under it does not',
+      at.valueAt('.running-order-what', 'font-weight', PHONE),
+      null,
+    );
+    eq(
+      'the whole-song row is set apart from the parts beneath it',
+      /var\(--surface-2\)/.test(at.declaredAt('.running-order-song', 'background', PHONE) || ''),
+      true,
+    );
+    eq(
+      'the line explaining the two levels is small',
+      at.valueAt('.running-order-hint', 'font-size', PHONE),
+      '12px',
+    );
+    eq(
+      'and quiet, from a theme token',
+      /var\(--muted\)/.test(at.declaredAt('.running-order-hint', 'color', PHONE) || ''),
+      true,
     );
 
     eq(

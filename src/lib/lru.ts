@@ -50,10 +50,10 @@ export interface SongUsageStat {
 }
 
 export interface GroupedSongSection {
+  /** React identity for the row — never a musical key. */
   key: string;
   partLabel: string;
   lyrics: string;
-  isRepeat: boolean;
 }
 
 export interface GroupedSongBlock {
@@ -231,178 +231,162 @@ export function summarizeSongsUsed(
   });
 }
 
-/**
- * Groups consecutive lineup items belonging to the same song into a single
- * clean block so the song title is shown once instead of repeated per part,
- * and marks duplicate sections within the same song block as compact repeats.
- */
-export function groupLineupSongBlocks(
-  items: {
-    songKey?: string;
-    songTitle: string;
-    partLabel: string;
-    lyrics: string;
-    /** Key this occurrence is performed in, when one was chosen. */
-    playKey?: string;
-    writtenKey?: string;
-    interval?: number;
-  }[],
-): GroupedSongBlock[] {
-  const blocks: (GroupedSongBlock & { seenLyrics: Set<string> })[] = [];
-
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    const title = it.songTitle.trim() || 'Untitled song';
-    // A song sung twice in different keys is two moments, not one block: the
-    // band has to see the new key on its own heading, not buried mid-block.
-    const playKey = (it.playKey || '').trim();
-    const matchKey = `${(it.songKey || title).trim().toLowerCase()}::${playKey.toLowerCase()}`;
-    const prev = blocks[blocks.length - 1];
-
-    const normLyrics = (it.lyrics || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    const sig = `${(it.partLabel || '').trim().toLowerCase()}::${normLyrics}`;
-
-    if (prev && prev.key === matchKey) {
-      const isRepeat = normLyrics.length > 0 && prev.seenLyrics.has(sig);
-      if (!isRepeat && normLyrics.length > 0) {
-        prev.seenLyrics.add(sig);
-      }
-      prev.sections.push({
-        key: String(i),
-        partLabel: it.partLabel || 'Part',
-        lyrics: it.lyrics || '',
-        isRepeat,
-      });
-    } else {
-      const seenLyrics = new Set<string>();
-      if (normLyrics.length > 0) seenLyrics.add(sig);
-      blocks.push({
-        key: matchKey,
-        songTitle: title,
-        writtenKey: it.writtenKey || '',
-        playKey,
-        interval: it.interval || 0,
-        seenLyrics,
-        sections: [
-          {
-            key: String(i),
-            partLabel: it.partLabel || 'Part',
-            lyrics: it.lyrics || '',
-            isRepeat: false,
-          },
-        ],
-      });
-    }
-  }
-
-  return blocks.map(({ seenLyrics: _seen, ...rest }, idx) => ({
-    ...rest,
-    key: `${rest.key}_${idx}`,
-  }));
-}
-
-export interface FullLyricSource {
-  id?: string;
-  title: string;
-  artist?: string;
-  /** Key the chords are written in. */
-  key?: string;
-  /** Key this whole song is performed in, when the lineup moved it. */
+/** A slot, ready to be laid out — lyrics still in the key they are written in. */
+interface RunItem {
+  /** Identity of the song this slot came from; the title when there is no id. */
+  songKey?: string;
+  songTitle: string;
+  partLabel: string;
+  lyrics: string;
+  /** Key this occurrence is performed in, when one was chosen. */
   playKey?: string;
-  parts: { label?: string; lyrics: string }[];
+  writtenKey?: string;
+  interval?: number;
 }
 
 /**
- * Every part of every song, in the order given, as renderable blocks.
+ * One block per run of consecutive slots from the same song in the same key.
  *
- * A lineup only stores the parts that were picked, but whoever is holding the
- * page is singing the whole song. So a preview and a printout carry the song's
- * complete lyrics in the song's own order — not just the sections that made it
- * into the lineup.
+ * The grouping is cosmetic: it saves printing the song's name above every one
+ * of its parts. It never reorders, merges or drops anything — blocks come out
+ * in the order the slots went in, and every slot becomes a section carrying its
+ * own words. A song that comes back later in the set gets its own block there,
+ * because that is the moment the band plays it again.
  */
-export function fullLyricBlocks(songs: FullLyricSource[]): GroupedSongBlock[] {
-  const seen = new Set<string>();
+function groupRuns(items: RunItem[]): GroupedSongBlock[] {
   const blocks: GroupedSongBlock[] = [];
 
-  for (const song of songs) {
-    const id = (song.id || song.title || '').trim().toLowerCase();
-    if (!id) continue;
-    const key = `${id}::${(song.playKey || '').trim().toLowerCase()}`;
-    if (seen.has(key)) continue;
-    const parts = (song.parts || []).filter((p) => (p.lyrics || '').trim());
-    if (parts.length === 0) continue;
-    seen.add(key);
-    const writtenKey = song.key || '';
-    const interval = keyInterval(writtenKey, song.playKey) ?? 0;
-    blocks.push({
-      key: `${key}_${blocks.length}`,
-      songTitle: (song.title || 'Untitled song').trim(),
-      writtenKey,
-      playKey: interval === 0 ? '' : String(song.playKey),
-      interval,
-      sections: parts.map((p, i) => ({
-        key: `${key}_${i}`,
-        partLabel: (p.label || '').trim() || 'Part',
-        lyrics: interval === 0 ? p.lyrics : transposeLyrics(p.lyrics, interval, song.playKey),
-        isRepeat: false,
-      })),
-    });
-  }
+  items.forEach((it, i) => {
+    const title = (it.songTitle || '').trim() || 'Untitled song';
+    const playKey = (it.playKey || '').trim();
+    // A song sung twice in two keys is two moments, not one block: the band has
+    // to see the new key on its own heading, not buried mid-block.
+    const runKey = `${(it.songKey || title).trim().toLowerCase()}::${playKey.toLowerCase()}`;
+    const section = { key: String(i), partLabel: it.partLabel || 'Part', lyrics: it.lyrics || '' };
+    const prev = blocks[blocks.length - 1];
 
-  return blocks;
+    if (prev && prev.key === runKey) {
+      prev.sections.push(section);
+      return;
+    }
+    blocks.push({
+      key: runKey,
+      songTitle: title,
+      writtenKey: it.writtenKey || '',
+      playKey,
+      interval: it.interval || 0,
+      sections: [section],
+    });
+  });
+
+  // Two runs of one song in one key are still two blocks, so the ids have to
+  // differ or React reuses the first run's DOM for the second.
+  return blocks.map((block, idx) => ({ ...block, key: `${block.key}_${idx}` }));
 }
 
 /**
- * The complete lyrics of every song a lineup uses, in lineup order.
+ * The lineup exactly as it was placed.
  *
- * Falls back to the lyric snapshot stored on the item when the song itself is
- * gone — a deleted song must not silently drop a whole block off the page.
+ * One section per slot, in the order the builder put them in — including a part
+ * that appears three times, and a song that comes back after another one. The
+ * page somebody reads from is the set they built, not the songs it drew on.
  */
-export function lineupFullLyricBlocks(lineup: Lineup, songs: Song[]): GroupedSongBlock[] {
-  const ordered: FullLyricSource[] = [];
-  const snapshots = new Map<string, FullLyricSource>();
+export function lineupSequenceBlocks(lineup: Lineup, songs: Song[]): GroupedSongBlock[] {
+  return groupRuns(
+    resolveSequence(lineup, songs).map((entry) => ({
+      songKey: entry.song.id,
+      songTitle: entry.song.title,
+      partLabel: entry.partLabel,
+      lyrics: entry.lyrics,
+      writtenKey: entry.writtenKey,
+      playKey: entry.playKey || '',
+      interval: entry.interval,
+    })),
+  );
+}
 
-  for (const item of lineup.items) {
-    const song = songs.find((s) => s.id === item.songId);
-    // A song played twice in two keys is two pages, not one: whoever is reading
-    // this at 9am on a Sunday has to see which key the copy in front of them is in.
-    const id = song ? song.id : item.songId || item.songTitle || item.id;
-    const playKey = (item.key || '').trim();
-    const cacheKey = `${id}::${playKey.toLowerCase()}`;
-    const existing = snapshots.get(cacheKey);
+/** One slot as the shared payload carries it: written lyrics plus both keys. */
+export interface SharedSequenceItem {
+  songTitle: string;
+  partLabel: string;
+  lyrics: string;
+  /** Key the chords are written in. */
+  songKey?: string;
+  /** Key this occurrence is played in, when the builder set one. */
+  playKey?: string;
+}
 
-    if (song) {
-      if (!existing) {
-        snapshots.set(cacheKey, {
-          id,
-          title: song.title,
-          artist: song.artist,
-          key: song.key || item.songKey || '',
-          playKey,
-          parts: song.parts,
-        });
-        ordered.push(snapshots.get(cacheKey)!);
-      }
-      continue;
-    }
-
-    if (existing) {
-      existing.parts.push({ label: item.partLabel || 'Part', lyrics: item.lyrics || '' });
-    } else {
-      const entry: FullLyricSource = {
-        id,
-        title: item.songTitle || 'Untitled song',
-        artist: item.artist || 'Unknown artist',
-        key: item.songKey || '',
-        playKey,
-        parts: [{ label: item.partLabel || 'Part', lyrics: item.lyrics || '' }],
+/**
+ * The shared page's copy of the same sequence.
+ *
+ * The payload ships each slot as it is stored, with the written key and the
+ * played key beside it, so the move happens here — the same move the owner's
+ * preview makes. Two implementations of it would eventually disagree.
+ */
+export function sharedSequenceBlocks(items: SharedSequenceItem[]): GroupedSongBlock[] {
+  return groupRuns(
+    (items || []).map((item) => {
+      const moved = inSlotKey(item.songKey || '', item.playKey, item.lyrics || '');
+      return {
+        // The payload has no song id, so the title is the only identity it has.
+        songKey: item.songTitle,
+        songTitle: item.songTitle,
+        partLabel: item.partLabel,
+        lyrics: moved.lyrics,
+        writtenKey: moved.writtenKey,
+        playKey: moved.playKey || '',
+        interval: moved.interval,
       };
-      snapshots.set(cacheKey, entry);
-      ordered.push(entry);
-    }
-  }
+    }),
+  );
+}
 
-  return fullLyricBlocks(ordered);
+/** What the whole-song key picker should show for one song. */
+export interface SongKeyState {
+  /** True when the song's parts are not all in the same key. */
+  mixed: boolean;
+  /** The key to select; empty when every part plays as written. */
+  key: string;
+}
+
+/**
+ * What the whole-song picker should show for one song in this lineup.
+ *
+ * Every part already in one key shows that key. Parts that disagree show the
+ * mixed option instead, because pre-selecting one of the two would be a guess
+ * about which of them the band meant — and picking anything else would then
+ * look like no change at all.
+ */
+export function songKeyState(
+  items: { songId: string; key?: string }[],
+  songId: string,
+): SongKeyState {
+  const keys = new Set(
+    (items || [])
+      .filter((item) => item.songId === songId)
+      .map((item) => (item.key || '').trim()),
+  );
+  if (keys.size > 1) return { mixed: true, key: '' };
+  return { mixed: false, key: keys.size === 1 ? [...keys][0] : '' };
+}
+
+/**
+ * The `items` payload that writes `key` onto every slot `match` picks.
+ *
+ * The server re-snapshots the whole set on every save, so the array always goes
+ * back complete: slots that are not matched carry the key they already had,
+ * which is what keeps moving one song from disturbing another.
+ */
+export function withSlotKeys(
+  items: LineupItem[],
+  match: (item: LineupItem) => boolean,
+  key: string,
+): { songId: string; partId: string; key: string }[] {
+  return (items || []).map((item) => ({
+    songId: item.songId,
+    partId: item.partId,
+    key: match(item) ? key : item.key || '',
+  }));
 }
 
 /**

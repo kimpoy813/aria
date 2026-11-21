@@ -62,7 +62,7 @@ const {
   teamsForRecord,
   yourVersionOf,
 } = await loadTs('src/lib/scopes.ts');
-const { lineupFullLyricBlocks, repointSlotsToCopy } = await loadTs('src/lib/lru.ts');
+const { lineupSequenceBlocks, repointSlotsToCopy } = await loadTs('src/lib/lru.ts');
 
 const team = (id, name, memberIds) => ({
   id,
@@ -208,7 +208,7 @@ console.log('\n1c. What the lineup builder offers');
     useCount: 0,
     lastUsedReason: null,
   };
-  const blocks = lineupFullLyricBlocks(legacyLineup, all);
+  const blocks = lineupSequenceBlocks(legacyLineup, all);
   check(
     'a legacy lineup keeps its shared song in the sequence',
     blocks.length === 2,

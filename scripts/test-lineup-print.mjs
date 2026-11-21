@@ -6,11 +6,13 @@
  *
  * Part 1 — Home scoping: `buildHomeFeed` shows your own lineups and songs and
  *          nothing else, without blanking a lineup that borrows a team song.
- * Part 2 — the real `src/lib/lru.ts`, transpiled: a preview carries every part
- *          of every song, not just the parts the builder picked.
- * Part 3 — the real server over HTTP: the shared payload ships whole songs.
+ * Part 2 — the real `src/lib/lru.ts`, transpiled: a preview carries exactly the
+ *          slots that were placed, in the order they were placed.
+ * Part 3 — the real server over HTTP: the shared payload is that same sequence.
  * Part 4 — the built CSS, resolved through the cascade for the print medium:
  *          the chrome is gone and the tokens are forced light.
+ * Part 5 — the real `LineupViewPage`, server-rendered: the page a leader opens
+ *          carries the set they placed, and the key controls are on it.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -55,8 +57,13 @@ async function loadTs(rel) {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
 
-const { lineupFullLyricBlocks, fullLyricBlocks, groupLineupSongBlocks, summarizeLineupSongs } =
-  await loadTs('src/lib/lru.ts');
+const {
+  lineupSequenceBlocks,
+  sharedSequenceBlocks,
+  songKeyState,
+  withSlotKeys,
+  summarizeLineupSongs,
+} = await loadTs('src/lib/lru.ts');
 const { buildHomeFeed } = await loadTs('src/lib/home.ts');
 
 const mkPart = (id, label, lyrics) => ({ id, kind: 'verse', label, lyrics });
@@ -166,7 +173,7 @@ console.log('\nAria · home scoping, lineup preview & print\n\n1. Home shows onl
   );
 }
 
-console.log('\n2. A preview carries the whole song');
+console.log('\n2. A preview carries exactly what was placed');
 {
   const song = mkSong('s1', 'River', [
     mkPart('p1', 'Verse 1', 'one'),
@@ -175,61 +182,63 @@ console.log('\n2. A preview carries the whole song');
     mkPart('p4', 'Bridge', 'four'),
     mkPart('p5', 'Outro', 'five'),
   ]);
-  // The builder only picked the verse and the chorus.
+  // The builder picked the chorus and the bridge, and put the chorus first.
   const lineup = mkLineup([
-    { id: 'i1', songId: 's1', partId: 'p1', partLabel: 'Verse 1', lyrics: 'one' },
-    { id: 'i2', songId: 's1', partId: 'p2', partLabel: 'Chorus', lyrics: 'two' },
+    { id: 'i1', songId: 's1', partId: 'p2', partLabel: 'Chorus', lyrics: 'two' },
+    { id: 'i2', songId: 's1', partId: 'p4', partLabel: 'Bridge', lyrics: 'four' },
   ]);
 
-  const picked = groupLineupSongBlocks(
-    [
-      { songKey: 's1', songTitle: 'River', partLabel: 'Verse 1', lyrics: 'one' },
-      { songKey: 's1', songTitle: 'River', partLabel: 'Chorus', lyrics: 'two' },
-    ],
-  );
+  const blocks = lineupSequenceBlocks(lineup, [song]);
+  check('one block for the one song placed', blocks.length === 1, `${blocks.length}`);
   check(
-    'the picks-only grouping still returns only the picks',
-    picked.length === 1 && picked[0].sections.length === 2,
-    `${picked.length} blocks / ${picked[0]?.sections.length} sections`,
-  );
-
-  const blocks = lineupFullLyricBlocks(lineup, [song]);
-  check('one block per song', blocks.length === 1, `${blocks.length}`);
-  check(
-    'every part of the song is present',
-    blocks[0].sections.length === 5,
+    'only the placed parts are on the page',
+    blocks[0].sections.length === 2,
     blocks[0].sections.map((s) => s.partLabel).join(', '),
   );
   check(
-    'parts keep the song’s own order',
-    blocks[0].sections.map((s) => s.partLabel).join('|') ===
-      'Verse 1|Chorus|Verse 2|Bridge|Outro',
+    'in the order they were placed, not the song’s own order',
+    blocks[0].sections.map((s) => s.partLabel).join('|') === 'Chorus|Bridge',
     blocks[0].sections.map((s) => s.partLabel).join('|'),
   );
   check(
-    'lyrics that were never in the lineup are included',
-    blocks[0].sections.map((s) => s.lyrics).join(',') === 'one,two,three,four,five',
+    'parts that were never placed stay off the page',
+    blocks[0].sections.map((s) => s.lyrics).join(',') === 'two,four',
+    blocks[0].sections.map((s) => s.lyrics).join(','),
   );
 }
 
 {
-  const a = mkSong('s1', 'River', [mkPart('p1', 'Verse 1', 'one')]);
-  const b = mkSong('s2', 'Mountain', [mkPart('p2', 'Verse 1', 'high')]);
-  const lineup = mkLineup([
-    { id: 'i1', songId: 's2', partId: 'p2', partLabel: 'Verse 1', lyrics: 'high' },
-    { id: 'i2', songId: 's1', partId: 'p1', partLabel: 'Verse 1', lyrics: 'one' },
-    // The same song again later in the running order.
-    { id: 'i3', songId: 's2', partId: 'p2', partLabel: 'Verse 1', lyrics: 'high' },
+  // The chorus is placed three times and the song comes back after another one.
+  const river = mkSong('s1', 'River', [
+    mkPart('p1', 'Verse 1', 'one'),
+    mkPart('p2', 'Chorus', 'two'),
   ]);
-  const blocks = lineupFullLyricBlocks(lineup, [a, b]);
+  const mountain = mkSong('s2', 'Mountain', [mkPart('p3', 'Verse 1', 'high')]);
+  const lineup = mkLineup([
+    { id: 'i1', songId: 's1', partId: 'p2', partLabel: 'Chorus', lyrics: 'two' },
+    { id: 'i2', songId: 's2', partId: 'p3', partLabel: 'Verse 1', lyrics: 'high' },
+    { id: 'i3', songId: 's1', partId: 'p2', partLabel: 'Chorus', lyrics: 'two' },
+    { id: 'i4', songId: 's1', partId: 'p2', partLabel: 'Chorus', lyrics: 'two' },
+  ]);
+
+  const blocks = lineupSequenceBlocks(lineup, [river, mountain]);
+  const order = blocks
+    .map((b) => `${b.songTitle}:${b.sections.map((x) => x.partLabel).join('+')}`)
+    .join(' | ');
   check(
-    'songs follow the running order, not the library order',
-    blocks.map((b2) => b2.songTitle).join('|') === 'Mountain|River',
-    blocks.map((b2) => b2.songTitle).join('|'),
+    'a song coming back later in the set is its own block, where it was put',
+    order === 'River:Chorus | Mountain:Verse 1 | River:Chorus+Chorus',
+    order,
   );
   check(
-    'a song repeated in the lineup is not printed twice',
-    blocks.length === 2,
+    'a part placed three times is written out three times, with its words',
+    blocks.reduce((n, b) => n + b.sections.length, 0) === 4 &&
+      blocks.every((b) => b.sections.every((x) => x.lyrics.length > 0)),
+    `${blocks.reduce((n, b) => n + b.sections.length, 0)} sections`,
+  );
+  check(
+    'consecutive slots of one song share a heading rather than repeating it',
+    blocks.length === 3,
     `${blocks.length}`,
   );
 }
@@ -240,7 +249,7 @@ console.log('\n2. A preview carries the whole song');
     { id: 'i1', songId: 'gone', partId: 'x', partLabel: 'Verse 1', songTitle: 'Ghost', lyrics: 'still here' },
     { id: 'i2', songId: 'gone', partId: 'y', partLabel: 'Chorus', songTitle: 'Ghost', lyrics: 'still singing' },
   ]);
-  const blocks = lineupFullLyricBlocks(lineup, []);
+  const blocks = lineupSequenceBlocks(lineup, []);
   check(
     'a deleted song still prints from the lineup snapshot',
     blocks.length === 1 && blocks[0].sections.length === 2,
@@ -253,26 +262,101 @@ console.log('\n2. A preview carries the whole song');
 }
 
 {
-  const song = mkSong('s1', 'River', [
-    mkPart('p1', 'Verse 1', 'one'),
-    mkPart('p2', 'Silent', '   '),
-    mkPart('p3', 'Chorus', 'two'),
-  ]);
+  // A slot whose part has since been emptied still holds the lyric snapshot the
+  // builder took, so the sequence cannot silently lose a place in the order.
+  const song = mkSong('s1', 'River', [mkPart('p1', 'Verse 1', '   ')]);
   const lineup = mkLineup([
-    { id: 'i1', songId: 's1', partId: 'p1', partLabel: 'Verse 1', lyrics: 'one' },
+    { id: 'i1', songId: 's1', partId: 'p1', partLabel: 'Verse 1', lyrics: 'kept' },
   ]);
-  const blocks = lineupFullLyricBlocks(lineup, [song]);
+  const blocks = lineupSequenceBlocks(lineup, [song]);
   check(
-    'a part with no lyrics is not printed as an empty block',
-    blocks[0].sections.length === 2,
-    blocks[0].sections.map((s) => s.partLabel).join(', '),
+    'an emptied part falls back to the snapshot rather than vanishing',
+    blocks.length === 1 && blocks[0].sections.length === 1,
+    `${blocks.length} blocks`,
   );
 }
 
+console.log('\n2b. The shared page reads the same sequence');
 {
+  const items = [
+    { songTitle: 'River', partLabel: 'Chorus', lyrics: 'two', songKey: 'G' },
+    { songTitle: 'River', partLabel: 'Chorus', lyrics: 'two', songKey: 'G', playKey: 'D' },
+    { songTitle: 'Mountain', partLabel: 'Verse 1', lyrics: 'high', songKey: 'D' },
+  ];
+  const blocks = sharedSequenceBlocks(items);
   check(
-    'a song with no usable lyrics produces no block',
-    fullLyricBlocks([{ id: 's', title: 'Empty', parts: [] }]).length === 0,
+    'the stranger sees the same three moments, in the same order',
+    blocks
+      .map((b) => `${b.songTitle}[${b.playKey || b.writtenKey}]`)
+      .join(' | ') === 'River[G] | River[D] | Mountain[D]',
+    blocks.map((b) => `${b.songTitle}[${b.playKey || b.writtenKey}]`).join(' | '),
+  );
+  check(
+    'and the reprise arrives already moved into its key',
+    blocks[1].sections[0].lyrics === blocks[1].sections[0].lyrics &&
+      blocks[1].interval === 7,
+    `${blocks[1].interval}`,
+  );
+}
+
+console.log('\n2c. The key controls in the preview');
+{
+  const items = [
+    { id: 'i1', songId: 'a', partId: 'p1', key: '' },
+    { id: 'i2', songId: 'a', partId: 'p2', key: '' },
+    { id: 'i3', songId: 'b', partId: 'p3', key: 'D' },
+  ];
+  check(
+    'a song left alone offers the written key',
+    songKeyState(items, 'a').key === '' && songKeyState(items, 'a').mixed === false,
+    JSON.stringify(songKeyState(items, 'a')),
+  );
+  check(
+    'a song nobody placed offers nothing to select',
+    songKeyState(items, 'nope').key === '' && songKeyState(items, 'nope').mixed === false,
+  );
+  check(
+    'a song whose parts disagree says so rather than guessing one of them',
+    songKeyState([...items, { id: 'i4', songId: 'a', partId: 'p4', key: 'E' }], 'a').mixed === true,
+    JSON.stringify(songKeyState([...items, { id: 'i4', songId: 'a', partId: 'p4', key: 'E' }], 'a')),
+  );
+  check(
+    'and a song already all in one key offers that key',
+    songKeyState([{ id: 'x', songId: 'b', partId: 'p3', key: 'D' }, { id: 'y', songId: 'b', partId: 'p9', key: 'D' }], 'b').key === 'D',
+  );
+
+  // The whole-song control: every part of one song, and nothing else.
+  const moved = withSlotKeys(items, (it) => it.songId === 'a', 'G');
+  check(
+    'moving a whole song writes every part of it',
+    moved.map((m) => `${m.songId}=${m.key}`).join(',') === 'a=G,a=G,b=D',
+    moved.map((m) => `${m.songId}=${m.key}`).join(','),
+  );
+  check(
+    'another song in the same set keeps the key it had',
+    moved.find((m) => m.songId === 'b').key === 'D',
+  );
+  check(
+    'the running order is sent back unchanged',
+    moved.map((m) => m.partId).join(',') === 'p1,p2,p3',
+    moved.map((m) => m.partId).join(','),
+  );
+
+  // The per-part control: one slot, on top of whatever the song is in.
+  const one = withSlotKeys(
+    items.map((it) => ({ ...it, key: it.songId === 'a' ? 'G' : it.key })),
+    (it) => it.id === 'i2',
+    '',
+  );
+  check(
+    'a single part can be put back without disturbing the rest of its song',
+    one.map((m) => `${m.songId}=${m.key || 'written'}`).join(',') === 'a=G,a=written,b=D',
+    one.map((m) => `${m.songId}=${m.key || 'written'}`).join(','),
+  );
+  check(
+    'and the payload carries no slot ids, because the server mints new ones',
+    one.every((m) => Object.keys(m).join(',') === 'songId,partId,key'),
+    Object.keys(one[0]).join(','),
   );
 }
 
@@ -299,7 +383,7 @@ const waitFor = async (port) => {
   return false;
 };
 
-console.log('\n3. The shared preview payload ships whole songs');
+console.log('\n3. The shared payload is the placed sequence');
 {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-print-'));
   const port = await freePort();
@@ -371,18 +455,30 @@ console.log('\n3. The shared preview payload ships whole songs');
     payload?.items?.length === 2,
     `${payload?.items?.length}`,
   );
-  check('one whole song is attached', payload?.songs?.length === 1, `${payload?.songs?.length}`);
   check(
-    'that song carries all four parts',
-    payload?.songs?.[0]?.parts?.length === 4,
-    payload?.songs?.[0]?.parts?.map((p) => p.label).join(', '),
+    'the picks are in the order they were placed',
+    payload?.items?.map((i) => i.partLabel).join('|') === 'Verse 1|Chorus',
+    payload?.items?.map((i) => i.partLabel).join('|'),
   );
   check(
-    'parts outside the lineup are included',
-    (payload?.songs?.[0]?.parts ?? []).some((p) => p.lyrics === 'second line') &&
-      (payload?.songs?.[0]?.parts ?? []).some((p) => p.lyrics === 'turn line'),
+    'no whole song is attached beside them',
+    payload?.songs === undefined,
+    `${JSON.stringify(payload?.songs)?.slice(0, 60)}`,
+  );
+  check(
+    'parts outside the lineup are nowhere in the payload',
+    JSON.stringify(payload).indexOf('second line') === -1 &&
+      JSON.stringify(payload).indexOf('turn line') === -1,
   );
   check('songCount is unchanged', payload?.songCount === 1, `${payload?.songCount}`);
+
+  // The shared page builds its blocks from these items alone, so they have to
+  // carry both ends of any key move the builder made.
+  check(
+    'each slot still names the key it was written in',
+    (payload?.items ?? []).every((i) => i.songKey === ''),
+    (payload?.items ?? []).map((i) => i.songKey).join(','),
+  );
 
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
@@ -553,6 +649,223 @@ console.log('\n4. The print sheet (resolved from the built CSS)');
       `${print.valueAt('.lyric-line', 'font-size')}`,
     );
   }
+}
+
+/* ------------------------------------------------- part 5: the rendered page */
+
+console.log('\n5. The preview page, actually rendered');
+{
+  /*
+   * There is no browser in here, so the page is rendered the way a server would:
+   * `react-dom/server`, with the router, the store and the API stubbed out and
+   * everything else — the real `lru.ts`, the real `chords.ts`, the real
+   * components — left alone. This is the only check that sees the JSX.
+   */
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-ssr-'));
+  const stub = (name, body) => {
+    const file = path.join(stubDir, name);
+    fs.writeFileSync(file, body);
+    return file;
+  };
+
+  const reactStub = stub(
+    'react.mjs',
+    `import * as R from 'react';
+let n = 0;
+export function useState(init) {
+  const i = n++;
+  const forced = globalThis.__FORCE_HOOKS__;
+  if (forced && Object.prototype.hasOwnProperty.call(forced, i)) return [forced[i], () => {}];
+  return R.useState(init);
+}
+export const useMemo = R.useMemo;
+export const useEffect = R.useEffect;
+export const useRef = R.useRef;
+export const useCallback = R.useCallback;
+export const useId = R.useId;
+export const useContext = R.useContext;
+export const createContext = R.createContext;
+export const createElement = R.createElement;
+export const Fragment = R.Fragment;
+export const forwardRef = R.forwardRef;
+globalThis.__RESET_HOOKS__ = () => { n = 0; };
+export default R;
+`,
+  );
+  const routerStub = stub(
+    'router.mjs',
+    `export const useParams = () => ({ id: 'L1' });
+export const useNavigate = () => () => {};
+export const useLocation = () => ({ state: null, pathname: '/' });
+export const Link = (p) => p.children;
+`,
+  );
+  const storeStub = stub('store.mjs', 'export const useStore = () => globalThis.__STORE__;\n');
+  const apiStub = stub(
+    'api.mjs',
+    'const noop = async () => ({});\nexport const api = new Proxy({}, { get: () => noop });\n',
+  );
+
+  const STUBS = { react: reactStub, 'react-router-dom': routerStub, '../lib/store': storeStub, '../lib/api': apiStub };
+  const build = await esbuild.build({
+    stdin: {
+      contents: `import { renderToStaticMarkup } from 'react-dom/server';
+import { LineupViewPage } from './src/pages/LineupViewPage';
+export const renderPage = () => renderToStaticMarkup(<LineupViewPage />);
+`,
+      resolveDir: root,
+      loader: 'tsx',
+    },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    jsx: 'automatic',
+    nodePaths: [path.join(root, 'node_modules')],
+    banner: {
+      js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
+    },
+    plugins: [
+      {
+        name: 'stubs',
+        setup(b) {
+          b.onResolve({ filter: /^(react|react-router-dom|\.\.\/lib\/(store|api))$/ }, (args) => {
+            // Only the app's own imports are stubbed; react-dom needs real React.
+            if (args.path === 'react' && !args.importer.includes(`${path.sep}src${path.sep}`)) {
+              return null;
+            }
+            return { path: STUBS[args.path] };
+          });
+        },
+      },
+    ],
+  });
+  const bundleFile = path.join(stubDir, 'bundle.mjs');
+  fs.writeFileSync(bundleFile, build.outputFiles[0].text);
+  const page = await import(`file://${bundleFile}`);
+
+  const part = (id, label, lyrics) => ({ id, kind: 'verse', label, lyrics });
+  const grace = {
+    id: 'a', title: 'Amazing Grace', artist: 'x', tempo: 'slow', theme: '', key: 'G',
+    parts: [part('a1', 'Verse 1', '[G]v1'), part('a2', 'Chorus', '[C]ch'),
+            part('a3', 'Verse 2', 'v2'), part('a4', 'Bridge', 'br')],
+    analysis: null, ownerId: 'u1', ownerName: 'Kim', teamId: null, sourceSongId: null,
+    createdAt: 1, updatedAt: 1,
+  };
+  const blessed = {
+    ...grace, id: 'b', title: 'Blessed Be', key: 'D',
+    parts: [part('b1', 'Verse 1', '[D]b-v1'), part('b2', 'Chorus', 'b-ch')],
+  };
+  const slot = (id, songId, partId, partLabel, lyrics, key) => ({
+    id, songId, partId, partLabel, lyrics, key,
+    songTitle: songId === 'a' ? 'Amazing Grace' : 'Blessed Be',
+  });
+
+  const render = (items, forceHooks) => {
+    globalThis.__STORE__ = {
+      lineups: [{
+        id: 'L1', name: 'Sunday', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
+        items, shareToken: 'tok', sourceLineupId: null, createdAt: 1, updatedAt: 1,
+        lastUsedAt: null, useCount: 0, lastUsedReason: null,
+      }],
+      songs: [grace, blessed],
+      teams: [],
+      user: { id: 'u1', name: 'Kim' },
+      refresh: async () => {},
+      notify: () => {},
+    };
+    globalThis.window = { location: { origin: 'https://aria.test' }, print() {} };
+    globalThis.__FORCE_HOOKS__ = forceHooks;
+    globalThis.__RESET_HOOKS__();
+    return page.renderPage();
+  };
+
+  const placed = [
+    slot('i1', 'a', 'a2', 'Chorus', '[C]ch', ''),
+    slot('i2', 'b', 'b1', 'Verse 1', '[D]b-v1', ''),
+    slot('i3', 'a', 'a2', 'Chorus', '[C]ch', 'D'),
+    slot('i4', 'a', 'a4', 'Bridge', 'br', ''),
+  ];
+
+  const html = render(placed, null);
+  const titles = [...html.matchAll(/song-group-title[^>]*>([^<]*)</g)].map((m) => m[1]);
+  const labels = [...html.matchAll(/song-section-label">([^<]*)</g)].map((m) => m[1]);
+  const badges = [...html.matchAll(/song-key-badge[^>]*>([^<]*)</g)].map((m) => m[1]);
+
+  check(
+    'the page opens on the song that was placed first',
+    titles.join('|') === 'Amazing Grace|Blessed Be|Amazing Grace|Amazing Grace',
+    titles.join('|'),
+  );
+  check(
+    'and carries every placed part, in the order it was placed',
+    labels.join('|') === 'Chorus|Verse 1|Chorus|Bridge',
+    labels.join('|'),
+  );
+  check(
+    'a chorus placed twice is printed twice',
+    labels.filter((l) => l === 'Chorus').length === 2,
+    `${labels.filter((l) => l === 'Chorus').length}`,
+  );
+  check(
+    'no part the builder never picked sneaks onto the page',
+    !html.includes('Verse 2') && !html.includes('v2'),
+  );
+  check(
+    'each block names the key it is actually played in',
+    badges.join('|') === 'G|D|D|G',
+    badges.join('|'),
+  );
+  const chordsIn = (block) =>
+    [...block.matchAll(/chord-note[^>]*>([^<]*)</g)].map((m) => m[1]).join(' ');
+  const blocks = html.split('song-group-block').slice(1);
+  check(
+    'the reprise is moved into the key its slot asked for',
+    chordsIn(blocks[0]) === 'C' && chordsIn(blocks[2]) === 'G',
+    `${chordsIn(blocks[0])} / ${chordsIn(blocks[2])}`,
+  );
+  check(
+    'and the song written in D is left exactly as it was written',
+    chordsIn(blocks[1]) === 'D',
+    chordsIn(blocks[1]),
+  );
+
+  // The key panel starts collapsed; hook 5 of the page is `orderOpen`.
+  const open = render(placed, { 5: true });
+  const rowChunks = open.split('running-order-row').slice(1);
+  const rowOf = (needle) => rowChunks.find((c) => c.includes(needle)) || '';
+  const ariaOf = (chunk) => (chunk.match(/aria-label="([^"]*)"/) || [, ''])[1];
+  const firstOptionOf = (chunk) => (chunk.match(/<option value=""[^>]*>([^<]*)</) || [, ''])[1];
+
+  check('the panel is on the page for the owner', open.includes('running-order-head'));
+  check(
+    'a whole-song picker is offered for every song in the set',
+    [...open.matchAll(/aria-label="Key for every part of ([^"]*)"/g)].map((m) => m[1]).join('|') ===
+      'Amazing Grace|Blessed Be|Amazing Grace',
+    [...open.matchAll(/aria-label="Key for every part of ([^"]*)"/g)].map((m) => m[1]).join('|'),
+  );
+  check(
+    'and one picker per placed part',
+    [...open.matchAll(/aria-label="Key for [^"]*"/g)].length === 6,
+    `${[...open.matchAll(/aria-label="Key for [^"]*"/g)].length}`,
+  );
+  check(
+    'a song whose parts disagree says so instead of guessing one of them',
+    firstOptionOf(rowOf('Key for every part of Amazing Grace')) === 'Mixed — set all',
+    firstOptionOf(rowOf('Key for every part of Amazing Grace')),
+  );
+  check(
+    'a song left as written offers the key it was written in',
+    firstOptionOf(rowOf('Key for every part of Blessed Be')) === 'D (written)',
+    firstOptionOf(rowOf('Key for every part of Blessed Be')),
+  );
+  check(
+    'a part with no chords gets no picker at all',
+    !rowOf('Key for Amazing Grace Bridge').includes('<select') &&
+      rowOf('>· Bridge<').includes('no chords'),
+  );
+
+  fs.rmSync(stubDir, { recursive: true, force: true });
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

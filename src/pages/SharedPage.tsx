@@ -7,7 +7,7 @@ import { Button, Empty, Icon, IconButton, type ToastTone } from '../components/u
 import { api } from '../lib/api';
 import { hasChords, stripChords } from '../lib/chords';
 import { applyReaderOffset, displayKey } from '../lib/chordView';
-import { fullLyricBlocks, groupLineupSongBlocks } from '../lib/lru';
+import { sharedSequenceBlocks } from '../lib/lru';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
 
@@ -46,15 +46,15 @@ export function SharedPage() {
   };
 
   /*
-   * A preview shows the whole song. The lineup only picked a few sections, but
-   * this page is what people read from, print, and hand to the band — so it
-   * carries every part. Older payloads without `songs` fall back to the picks.
+   * The set exactly as the owner placed it — the same order, the same parts,
+   * and a part they put in three times appearing three times. This page is what
+   * the band reads from, so it has to be the sheet the owner saw in the preview
+   * and not a rearrangement of it.
    */
-  const songBlocks = useMemo(() => {
-    if (!lineup) return [];
-    if (lineup.songs && lineup.songs.length > 0) return fullLyricBlocks(lineup.songs);
-    return groupLineupSongBlocks(lineup.items);
-  }, [lineup]);
+  const songBlocks = useMemo(
+    () => (lineup ? sharedSequenceBlocks(lineup.items) : []),
+    [lineup],
+  );
 
   /** The key a block was sent in — the slot's key, or the song's if unset. */
   const builtKeyOf = (block: (typeof songBlocks)[number]) =>
@@ -98,11 +98,7 @@ export function SharedPage() {
       '',
       ...songBlocks.map((block, idx) => {
         const body = block.sections
-          .map((sec) =>
-            sec.isRepeat
-              ? `↻ ${sec.partLabel}`
-              : `${sec.partLabel}\n${viewLyrics(block, sec.lyrics).trim()}`,
-          )
+          .map((sec) => `${sec.partLabel}\n${viewLyrics(block, sec.lyrics).trim()}`)
           .join('\n\n');
         const keyLabel = displayKey(builtKeyOf(block), offset);
         const heading = keyLabel
@@ -227,27 +223,18 @@ export function SharedPage() {
                     </div>
 
                     <div className="song-group-sections">
-                      {block.sections.map((sec) =>
-                        sec.isRepeat ? (
-                          <div key={sec.key} className="song-section-repeat">
-                            ↻ {sec.partLabel}
-                          </div>
-                        ) : (
-                          <div key={sec.key} className="song-section">
-                            {!(
-                              block.sections.length === 1 &&
-                              sec.partLabel.toLowerCase() === 'part'
-                            ) && (
-                              <div className="song-section-label">{sec.partLabel}</div>
-                            )}
-                            <LyricView
-                              lyrics={applyReaderOffset(sec.lyrics, builtKey, offset)}
-                              large={largeText}
-                              showChords={showChords}
-                            />
-                          </div>
-                        ),
-                      )}
+                      {block.sections.map((sec) => (
+                        <div key={sec.key} className="song-section">
+                          {!(
+                            block.sections.length === 1 && sec.partLabel.toLowerCase() === 'part'
+                          ) && <div className="song-section-label">{sec.partLabel}</div>}
+                          <LyricView
+                            lyrics={applyReaderOffset(sec.lyrics, builtKey, offset)}
+                            large={largeText}
+                            showChords={showChords}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </article>
                   );

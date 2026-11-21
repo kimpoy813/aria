@@ -252,7 +252,7 @@ My anchor is holding secure
       `${praiseAnalysis.theme}: ${praiseAnalysis.message}`,
     );
 
-    const { summarizeLineupSongs, summarizeSongsUsed, groupLineupSongBlocks } =
+    const { summarizeLineupSongs, summarizeSongsUsed, sharedSequenceBlocks } =
       await vite.ssrLoadModule('/src/lib/lru.ts');
     const mockSongs = [
       {
@@ -355,7 +355,7 @@ My anchor is holding secure
         songStats.every((st) => st.inLineupsCount === 1 && st.lastUsedAt === 9000 && st.useCount === 2),
     );
 
-    const groupedBlocks = groupLineupSongBlocks([
+    const groupedBlocks = sharedSequenceBlocks([
       { songTitle: 'Goodness of God', partLabel: 'Verse 1', lyrics: 'I love You Lord' },
       { songTitle: 'Goodness of God', partLabel: 'Chorus', lyrics: 'All my life You have been faithful' },
       { songTitle: 'Goodness of God', partLabel: 'Verse 2', lyrics: 'I love Your voice' },
@@ -363,13 +363,14 @@ My anchor is holding secure
       { songTitle: 'Praise', partLabel: 'Chorus', lyrics: 'Praise the Lord oh my soul' },
     ]);
     check(
-      'groupLineupSongBlocks shows each song title once and marks repeated identical sections cleanly',
+      'a chorus placed twice is written out twice, with its words, where it was placed',
       groupedBlocks.length === 2 &&
         groupedBlocks[0].songTitle === 'Goodness of God' &&
-        groupedBlocks[0].sections.length === 4 &&
-        groupedBlocks[0].sections[1].isRepeat === false &&
-        groupedBlocks[0].sections[3].isRepeat === true &&
+        groupedBlocks[0].sections.map((x) => x.partLabel).join('|') ===
+          'Verse 1|Chorus|Verse 2|Chorus' &&
+        groupedBlocks[0].sections[3].lyrics === 'All my life You have been faithful' &&
         groupedBlocks[1].songTitle === 'Praise',
+      groupedBlocks.map((b) => b.sections.map((x) => x.partLabel).join('+')).join(' / '),
     );
 
     const builderSrc = fs.readFileSync(
