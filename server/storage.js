@@ -34,7 +34,7 @@ export function defaultSettings() {
     },
     allowRegistration: true,
     /** App-wide counters that must survive a redeploy (APK downloads, etc). */
-    stats: { apkDownloads: 0, apkLastDownloadAt: null },
+    stats: { apkDownloads: 0, apkLastDownloadAt: null, usersCounted: 0 },
   };
 }
 
@@ -56,8 +56,33 @@ function normaliseSettings(raw) {
     stats: {
       apkDownloads: Math.max(0, Number(raw?.stats?.apkDownloads) || 0),
       apkLastDownloadAt: Number(raw?.stats?.apkLastDownloadAt) || null,
+      usersCounted: Math.max(0, Number(raw?.stats?.usersCounted) || 0),
     },
   };
+}
+
+/**
+ * Merges a settings object coming from Postgres into the one already in memory.
+ *
+ * Counters are the reason this exists. Every hydrate — a sign-in on another
+ * device, a public-settings poll, an admin refresh — replaces `db.settings`
+ * wholesale with the settings row, and that row holds a *snapshot* of the
+ * counters taken whenever it was last written. Taking it verbatim reset the
+ * download total to that snapshot (in practice 0) every time a device signed in.
+ * Each counter is therefore kept at the highest value either side has seen.
+ */
+export function mergeSettings(existing, incoming) {
+  const next = normaliseSettings(incoming);
+  const prev = normaliseSettings(existing);
+  next.stats = {
+    apkDownloads: Math.max(next.stats.apkDownloads, prev.stats.apkDownloads),
+    apkLastDownloadAt: Math.max(
+      next.stats.apkLastDownloadAt || 0,
+      prev.stats.apkLastDownloadAt || 0,
+    ) || null,
+    usersCounted: Math.max(next.stats.usersCounted, prev.stats.usersCounted),
+  };
+  return next;
 }
 
 function emptyState() {
@@ -208,6 +233,27 @@ export class FileStore {
     this.file = file;
   }
 
+  /** File driver: the counters live in the same settings object it persists. */
+  async loadStats() {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      return normaliseSettings(parsed.settings).stats;
+    } catch {
+      return normaliseSettings(null).stats;
+    }
+  }
+
+  async countUsersAsDownloads(users) {
+    const stats = await this.loadStats();
+    const total = Math.max(0, Math.floor(Number(users) || 0));
+    const fresh = Math.max(total - stats.usersCounted, 0);
+    return {
+      apkDownloads: Math.max(0, stats.apkDownloads) + fresh,
+      apkLastDownloadAt: stats.apkLastDownloadAt,
+      usersCounted: Math.max(stats.usersCounted, total),
+    };
+  }
+
   async load() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
@@ -290,29 +336,35 @@ export class SupabaseStore {
     if (this.hasSettingsTable) {
       const { data } = await client.from('system_settings').select('*');
       const globalRow = (data || []).find((r) => r.id === 'global');
+      const counterRow = (data || []).find((r) => r.id === 'aria_stats');
       if (globalRow?.data) {
         state.settings = normaliseSettings(globalRow.data);
       }
-      // The APK download counter gets its own row, written by the
-      // `aria_bump_apk_download()` RPC and never overwritten by a whole-state
-      // save. Keeping it out of the mirrored settings row is the point: a boot
-      // snapshot can otherwise write an older number back over the live one.
-      const counterRow = (data || []).find((r) => r.id === 'aria_stats');
-      if (counterRow?.data) {
-        state.settings.stats = normaliseSettings({ stats: counterRow.data }).stats;
-      }
 
-      // A counter an older server left inside the settings row is honoured when it
-      // is ahead — it counts real clicks — and ignored when it is behind, because
-      // a stale snapshot must never pull the number down.
-      const carried = normaliseSettings(globalRow?.data).stats.apkDownloads;
-      if (carried > state.settings.stats.apkDownloads) {
+      // The counter has its own row (`aria_stats`), written only by the increment
+      // RPCs and never by a whole-state save. Keeping it out of the mirrored
+      // settings row is the point: a boot snapshot would otherwise write an older
+      // number back over the live one.
+      const inRow = counterRow?.data
+        ? normaliseSettings({ stats: counterRow.data }).stats
+        : null;
+
+      // An older build kept the counter inside the settings row. Those are real
+      // clicks, so the difference is added into the counter row — but only the
+      // difference, so a stale copy can never double-count or lower the total.
+      const legacy = normaliseSettings(globalRow?.data).stats;
+      const gap = Math.max(legacy.apkDownloads - (inRow?.apkDownloads || 0), 0);
+      if (gap > 0) {
         try {
-          const total = await this.bumpDownloadCount(carried - state.settings.stats.apkDownloads);
-          state.settings.stats.apkDownloads = Math.max(total, carried);
+          await this.bumpDownloadCount(gap);
         } catch {
           /* the next save will try again */
         }
+      }
+
+      const live = gap > 0 ? await this.loadStats() : inRow;
+      if (live) {
+        state.settings = mergeSettings(state.settings, { ...state.settings, stats: live });
       }
     }
 
@@ -345,11 +397,15 @@ export class SupabaseStore {
       }
     }
     if (this.hasSettingsTable && state.settings) {
+      // The counters are deliberately left out of this row. They live in
+      // `aria_stats`, written only by the increment RPCs; a copy here is a
+      // snapshot that every later read would treat as authoritative and merge
+      // back over the live number.
+      const mirrored = normaliseSettings(state.settings);
+      mirrored.stats = normaliseSettings(null).stats;
       const { error } = await client
         .from('system_settings')
-        .upsert([{ id: 'global', data: normaliseSettings(state.settings) }], {
-          onConflict: 'id',
-        });
+        .upsert([{ id: 'global', data: mirrored }], { onConflict: 'id' });
       if (error) throw new Error(`Could not save system_settings: ${error.message}`);
     }
   }
@@ -378,6 +434,11 @@ export class SupabaseStore {
 
   /** The live counter, straight from its own row. */
   async loadDownloadCount() {
+    return (await this.loadStats()).apkDownloads;
+  }
+
+  /** Both live counters, straight from their own row. */
+  async loadStats() {
     const client = await this.connect();
     const { data, error } = await client
       .from('system_settings')
@@ -386,7 +447,24 @@ export class SupabaseStore {
       .limit(1);
     if (error) throw new Error(`Could not read the download count: ${error.message}`);
     const row = Array.isArray(data) ? data[0] : data;
-    return normaliseSettings({ stats: row?.data }).stats.apkDownloads;
+    return normaliseSettings({ stats: row?.data }).stats;
+  }
+
+  /**
+   * Counts every registered user as a download, once each.
+   *
+   * The RPC raises `usersCounted` to `p_users` (a high-water mark, so a deleted
+   * and re-added account is not counted twice) and adds only the *new* accounts
+   * to `apkDownloads`, all in one statement. Calling it with the same total
+   * therefore adds nothing. Returns the live counters.
+   */
+  async countUsersAsDownloads(users) {
+    const client = await this.connect();
+    const { data, error } = await client.rpc('aria_count_users_as_downloads', {
+      p_users: Math.max(0, Math.floor(Number(users) || 0)),
+    });
+    if (error) throw new Error(`Could not count the users: ${error.message}`);
+    return normaliseSettings({ stats: data }).stats;
   }
 
   describe() {
@@ -534,7 +612,7 @@ export class SupabaseCallerBridge {
     ];
 
     if (payload.settings && typeof payload.settings === 'object') {
-      db.settings = normaliseSettings(payload.settings);
+      db.settings = mergeSettings(db.settings, payload.settings);
     }
   }
 
@@ -714,7 +792,7 @@ export class SupabaseCallerBridge {
       }
       this.publicSettingsAt = nowMs;
       if (data && typeof data === 'object') {
-        db.settings = normaliseSettings(data);
+        db.settings = mergeSettings(db.settings, data);
       }
       return true;
     } catch (err) {
@@ -790,7 +868,7 @@ export class SupabaseCallerBridge {
     db.lineups = remoteLineups;
 
     if (payload.settings && typeof payload.settings === 'object') {
-      db.settings = normaliseSettings(payload.settings);
+      db.settings = mergeSettings(db.settings, payload.settings);
     }
   }
 
