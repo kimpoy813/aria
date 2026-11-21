@@ -1,6 +1,8 @@
 /* ==========================================================================
-   Aria — Minimalist Mobile Design System
-   Mobile-only viewport (max-width: 430px) · Neutral Midnight Dark Mode
+   Aria — Minimalist Design System
+   Mobile-first · Neutral Midnight Dark Mode
+   Phone-sized by default (430px shell); tablet and laptop breakpoints widen the
+   shell and reflow content — see the "Responsive" section at the end.
    ========================================================================== */
 
 :root,
@@ -217,7 +219,7 @@ select {
 
 .app {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--shell);
   min-height: 100dvh;
   margin: 0 auto;
   display: flex;
@@ -311,7 +313,7 @@ select {
   transform: translateX(-50%);
   bottom: 0;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--shell);
   z-index: 45;
   background: var(--glass-bg);
   backdrop-filter: blur(20px);
@@ -2001,7 +2003,7 @@ select {
 
 .sheet {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--shell);
   background: var(--surface);
   border-radius: 20px 20px 0 0;
   padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
@@ -2164,7 +2166,7 @@ select {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--shell);
   margin: 0 auto;
   padding: calc(12px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom));
   background: var(--bg);
@@ -2470,7 +2472,7 @@ select {
 
 .app-page-main {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--shell);
   margin: 0 auto;
   padding: 18px 16px calc(40px + env(safe-area-inset-bottom));
   display: flex;
@@ -3239,4 +3241,296 @@ select {
 
 .app-count svg {
   color: var(--brand-text);
+}
+
+/* ==========================================================================
+   Responsive: tablet & laptop
+
+   The design is mobile-first and stays exactly as it is below 700px. Above
+   that the same components get the room they were missing: the shell widens,
+   long lists become multi-column, and reading content (lyrics, forms, alerts)
+   keeps a comfortable measure instead of stretching edge to edge.
+
+   Everything here is additive — no rule below 700px is changed.
+   ========================================================================== */
+
+:root {
+  /* Width of the app column, and its side padding. One pair of tokens drives
+     the shell, the tab bar, the bottom sheet and the public page. */
+  --shell: 430px;
+  --shell-pad: 16px;
+  /* Longest comfortable line of body text on a wide screen. */
+  --measure: 68ch;
+}
+
+@media (min-width: 700px) {
+  :root {
+    --shell: 620px;
+    --shell-pad: 22px;
+  }
+}
+
+@media (min-width: 900px) {
+  :root {
+    --shell: 860px;
+    --shell-pad: 26px;
+  }
+}
+
+@media (min-width: 1200px) {
+  :root {
+    --shell: 1040px;
+    --shell-pad: 30px;
+  }
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --shell: 1160px;
+  }
+}
+
+/* ------------------------------------------------------------ shell & chrome */
+
+@media (min-width: 700px) {
+  .app-main {
+    padding: 22px var(--shell-pad) calc(86px + env(safe-area-inset-bottom));
+  }
+
+  .app-main.no-nav {
+    padding-bottom: 48px;
+  }
+
+  .topbar-inner {
+    padding: calc(10px + env(safe-area-inset-top)) var(--shell-pad) 10px;
+    min-height: 58px;
+  }
+
+  .page-head h1,
+  .detail-title {
+    font-size: 27px;
+  }
+
+  .card {
+    padding: 16px 18px;
+  }
+
+  /* The public page and the auth/onboarding flows get the same side padding. */
+  .app-page-main {
+    padding: 26px var(--shell-pad) calc(56px + env(safe-area-inset-bottom));
+    gap: 26px;
+  }
+
+  .auth {
+    padding: calc(16px + env(safe-area-inset-top)) var(--shell-pad)
+      calc(28px + env(safe-area-inset-bottom));
+  }
+
+  .onb {
+    padding: calc(16px + env(safe-area-inset-top)) var(--shell-pad)
+      calc(22px + env(safe-area-inset-bottom));
+  }
+
+  /* A system notice spans the shell, so it follows the shell padding rather
+     than the reading measure. */
+  .sys-banner {
+    margin: 12px var(--shell-pad) 0;
+  }
+}
+
+/*
+ * From tablet up the tab bar stops being an edge-to-edge strip and becomes a
+ * floating pill. A full-width bar under a 1440px window reads as a mistake;
+ * a centred pill reads as a deliberate control.
+ */
+@media (min-width: 900px) {
+  .tabbar {
+    width: auto;
+    max-width: min(560px, calc(100% - 32px));
+    bottom: 16px;
+    border: 1px solid var(--line-strong);
+    border-radius: 18px;
+    box-shadow: var(--shadow-lg);
+    padding: 6px 8px;
+  }
+
+  .tab {
+    padding: 8px 6px;
+  }
+
+  /* The floating bar no longer needs the 86px reservation, but keeping some
+     clearance stops the last row hiding behind it. */
+  .app-main {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
+
+/*
+ * A bottom sheet is right on a phone and wrong on a laptop, where nothing is
+ * within thumb reach. From tablet up it becomes a centred dialog.
+ */
+@media (min-width: 700px) {
+  .sheet-backdrop {
+    align-items: center;
+    padding: 24px;
+  }
+
+  .sheet {
+    max-width: min(560px, 100%);
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+    max-height: min(86dvh, 760px);
+    animation: fade 0.16s ease;
+  }
+}
+
+/* --------------------------------------------------------------- lists */
+
+/*
+ * Long lists are the main thing a phone layout wastes on a wide screen. The
+ * rows are direct children of `.list-group`, so the group can become a grid
+ * without touching any markup.
+ */
+@media (min-width: 900px) {
+  .list-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .list-row {
+    border-right: 1px solid var(--line);
+  }
+
+  .list-row:nth-child(2n) {
+    border-right: 0;
+  }
+
+  /* The base rule drops the last row's divider; in a grid the final *line* of
+     rows needs it, and the container clips the edge. */
+  .list-row:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .list-row:hover {
+    background: var(--surface-2);
+  }
+}
+
+@media (min-width: 1200px) {
+  .list-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .list-row:nth-child(2n) {
+    border-right: 1px solid var(--line);
+  }
+
+  .list-row:nth-child(3n) {
+    border-right: 0;
+  }
+}
+
+/* ------------------------------------------------- grids that were 2-up */
+
+@media (min-width: 700px) {
+  .admin-kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .app-specs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 900px) {
+  .app-how,
+  .app-features,
+  .app-faq {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 12px;
+  }
+
+  .app-glance-row + .app-glance-row {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .app-how {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .app-features {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/*
+ * Reading measure. Lyrics and prose at 1040px wide are hard to read, so the
+ * text columns are capped and centred while the shell around them stays wide.
+ */
+@media (min-width: 900px) {
+  .lyric-stanza,
+  .excerpt {
+    max-width: var(--measure);
+  }
+
+  .lyric-line {
+    font-size: 16px;
+  }
+
+  .auth-body,
+  .auth-head {
+    width: 100%;
+    max-width: 420px;
+    margin-inline: auto;
+  }
+
+  .auth-title {
+    font-size: 26px;
+  }
+
+  .onb-body {
+    width: 100%;
+    max-width: 460px;
+    margin-inline: auto;
+  }
+
+  .onb-title {
+    font-size: 26px;
+  }
+}
+
+/* Public page hero: the copy and the call to action sit side by side once
+   there is room, which is the usual shape for a landing hero on a laptop. */
+@media (min-width: 900px) {
+  .app-hero {
+    padding: 34px 32px 36px;
+    gap: 14px;
+  }
+
+  .app-hero-title {
+    font-size: 34px;
+    max-width: 20ch;
+  }
+
+  .app-hero-lede {
+    font-size: 15px;
+    max-width: 46ch;
+  }
+
+  .app-cta {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    width: auto;
+    max-width: 620px;
+  }
+
+  .app-cta-main {
+    min-width: 240px;
+  }
 }

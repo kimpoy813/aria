@@ -382,6 +382,126 @@ async function run() {
     check('the formatter is covered by the build (source import skipped)', true);
   }
 
+  /* ------------------------------------------ 7. tablet & laptop layout */
+  console.log('\n7. Tablet & laptop layout');
+  {
+    const css = fs
+      .readdirSync(path.join(process.cwd(), 'dist', 'assets'))
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
+      .join('\n');
+
+    check('the build ships a stylesheet', css.length > 1000, `${css.length} bytes`);
+
+    /** Returns the body of every `@media <query>` block, brace-matched. */
+    const mediaBlocks = (query) => {
+      const out = [];
+      const needle = `@media ${query}`;
+      for (let i = css.indexOf(needle); i !== -1; i = css.indexOf(needle, i + 1)) {
+        const open = css.indexOf('{', i);
+        if (open === -1) break;
+        let depth = 0;
+        for (let j = open; j < css.length; j++) {
+          if (css[j] === '{') depth++;
+          else if (css[j] === '}') {
+            depth--;
+            if (depth === 0) {
+              out.push(css.slice(open + 1, j));
+              break;
+            }
+          }
+        }
+      }
+      return out.join('\n');
+    };
+
+    /**
+     * True when `selector { ... decl }` appears inside a given media block.
+     * Matches the selector exactly — `.sheet` must not match `.sheet-backdrop` —
+     * and ignores whitespace, which the minifier keeps inside custom properties.
+     */
+    const squash = (text) => text.replace(/\s+/g, '');
+    const inMedia = (query, selector, decl) => {
+      const body = mediaBlocks(query);
+      // Walk every rule, split its selector list on commas, and match one part
+      // exactly — so `.sheet` never matches `.sheet-backdrop`.
+      const rule = /([^{}]+)\{([^}]*)\}/g;
+      let match;
+      while ((match = rule.exec(body)) !== null) {
+        const selectors = match[1].split(',').map((part) => squash(part));
+        if (!selectors.includes(squash(selector))) continue;
+        if (squash(match[2]).includes(squash(decl))) return true;
+      }
+      return false;
+    };
+
+    // One token drives the shell, so every full-height surface widens together.
+    check(
+      'the shell width is a variable, not a fixed phone width',
+      (css.match(/max-width:var\(--shell\)/g) || []).length >= 5 &&
+        !/max-width:430px/.test(css),
+    );
+    check(
+      'the shell widens at tablet, laptop and desktop widths',
+      inMedia('(min-width: 700px)', ':root', '--shell:620px') &&
+        inMedia('(min-width: 900px)', ':root', '--shell:860px') &&
+        inMedia('(min-width: 1200px)', ':root', '--shell:1040px') &&
+        inMedia('(min-width: 1600px)', ':root', '--shell:1160px'),
+    );
+
+    // Long lists stop being a single column of half-empty rows.
+    check(
+      'song and lineup lists go two-up on a tablet',
+      inMedia('(min-width: 900px)', '.list-group', 'grid-template-columns:repeat(2'),
+    );
+    check(
+      'and three-up on a laptop',
+      inMedia('(min-width: 1200px)', '.list-group', 'grid-template-columns:repeat(3'),
+    );
+    check(
+      'the column divider follows the new column count',
+      inMedia('(min-width: 1200px)', '.list-row:nth-child(3n)', 'border-right:0'),
+    );
+
+    // The tab bar becomes a floating pill instead of an edge-to-edge strip.
+    check(
+      'the tab bar becomes a floating pill on wide screens',
+      inMedia('(min-width: 900px)', '.tabbar', 'border-radius:18px') &&
+        inMedia('(min-width: 900px)', '.tabbar', 'bottom:16px'),
+    );
+
+    // A bottom sheet is unreachable on a laptop, so it becomes a dialog.
+    check(
+      'the bottom sheet becomes a centred dialog',
+      inMedia('(min-width: 700px)', '.sheet-backdrop', 'align-items:center') &&
+        inMedia('(min-width: 700px)', '.sheet', 'border-radius:20px'),
+    );
+
+    // Lyrics keep a readable measure instead of spanning 1040px.
+    check(
+      'lyrics keep a readable measure on a laptop',
+      inMedia('(min-width: 900px)', '.lyric-stanza', 'max-width:var(--measure)'),
+    );
+
+    // Admin and public-page grids use the extra room.
+    check(
+      'the admin KPI grid fills the row',
+      inMedia('(min-width: 700px)', '.admin-kpi-grid', 'repeat(auto-fit'),
+    );
+    check(
+      'the public page cards go multi-column',
+      inMedia('(min-width: 900px)', '.app-how', 'grid-template-columns:repeat(2') &&
+        inMedia('(min-width: 1200px)', '.app-how', 'grid-template-columns:repeat(3'),
+    );
+
+    // Nothing below 700px moved: the phone layout is still the phone layout.
+    check(
+      'the phone layout is untouched below 700px',
+      mediaBlocks('(min-width: 700px)').length > 0 &&
+        !inMedia('(max-width: 600px)', '.list-group', 'grid-template-columns'),
+    );
+  }
+
   fixture.server.close();
 
   console.log(`\n${passed} passed, ${failed} failed\n`);

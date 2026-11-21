@@ -169,6 +169,12 @@ public/logo.svg          the same artwork as a standalone file / favicon
 src/styles.css           design tokens for both themes and the mobile-first layout
 ```
 
+The layout is mobile-first: below 700px it is exactly the phone design. Above that the shell widens
+(620px → 860px → 1040px → 1160px), long lists go two-up on a tablet and three-up on a laptop, the
+tab bar becomes a floating pill, the bottom sheet becomes a centred dialog, and lyrics keep a
+68-character measure instead of stretching across the window. Everything lives in one additive
+"Responsive" section at the end of `src/styles.css`, so nothing below 700px is affected.
+
 ## Try it in a minute
 
 0. Sign in with Google or create an account to take the interactive four-step tour. Replay it any
