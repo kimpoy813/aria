@@ -221,6 +221,21 @@ export interface SharedLineupItem {
   lyrics: string;
 }
 
+export interface SharedLineupSongPart {
+  kind: string;
+  label: string;
+  lyrics: string;
+}
+
+/** A whole song as the shared page needs it: every part, not just the picks. */
+export interface SharedLineupSong {
+  id: string;
+  title: string;
+  artist: string;
+  tempo: Tempo;
+  parts: SharedLineupSongPart[];
+}
+
 export interface SharedLineup {
   name: string;
   theme: string;
@@ -231,4 +246,9 @@ export interface SharedLineup {
   useCount: number;
   songCount: number;
   items: SharedLineupItem[];
+  /**
+   * Complete lyrics per song, in lineup order. Absent on payloads from an older
+   * server, so the page falls back to grouping `items`.
+   */
+  songs?: SharedLineupSong[];
 }

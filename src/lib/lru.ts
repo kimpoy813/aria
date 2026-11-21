@@ -257,6 +257,81 @@ export function groupLineupSongBlocks(
   }));
 }
 
+export interface FullLyricSource {
+  id?: string;
+  title: string;
+  artist?: string;
+  parts: { label?: string; lyrics: string }[];
+}
+
+/**
+ * Every part of every song, in the order given, as renderable blocks.
+ *
+ * A lineup only stores the parts that were picked, but whoever is holding the
+ * page is singing the whole song. So a preview and a printout carry the song's
+ * complete lyrics in the song's own order — not just the sections that made it
+ * into the lineup.
+ */
+export function fullLyricBlocks(songs: FullLyricSource[]): GroupedSongBlock[] {
+  const seen = new Set<string>();
+  const blocks: GroupedSongBlock[] = [];
+
+  for (const song of songs) {
+    const key = (song.id || song.title || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    const parts = (song.parts || []).filter((p) => (p.lyrics || '').trim());
+    if (parts.length === 0) continue;
+    seen.add(key);
+    blocks.push({
+      key: `${key}_${blocks.length}`,
+      songTitle: (song.title || 'Untitled song').trim(),
+      sections: parts.map((p, i) => ({
+        key: `${key}_${i}`,
+        partLabel: (p.label || '').trim() || 'Part',
+        lyrics: p.lyrics,
+        isRepeat: false,
+      })),
+    });
+  }
+
+  return blocks;
+}
+
+/**
+ * The complete lyrics of every song a lineup uses, in lineup order.
+ *
+ * Falls back to the lyric snapshot stored on the item when the song itself is
+ * gone — a deleted song must not silently drop a whole block off the page.
+ */
+export function lineupFullLyricBlocks(lineup: Lineup, songs: Song[]): GroupedSongBlock[] {
+  const ordered: FullLyricSource[] = [];
+  const snapshots = new Map<string, FullLyricSource>();
+
+  for (const item of lineup.items) {
+    const song = songs.find((s) => s.id === item.songId);
+    if (song) {
+      ordered.push(song);
+      continue;
+    }
+    const key = item.songId || item.songTitle || item.id;
+    const existing = snapshots.get(key);
+    if (existing) {
+      existing.parts.push({ label: item.partLabel || 'Part', lyrics: item.lyrics || '' });
+    } else {
+      const entry: FullLyricSource = {
+        id: key,
+        title: item.songTitle || 'Untitled song',
+        artist: item.artist || 'Unknown artist',
+        parts: [{ label: item.partLabel || 'Part', lyrics: item.lyrics || '' }],
+      };
+      snapshots.set(key, entry);
+      ordered.push(entry);
+    }
+  }
+
+  return fullLyricBlocks(ordered);
+}
+
 export function timeAgo(ts: number | null): string {
   if (!ts) return 'never used';
   const diff = Date.now() - ts;

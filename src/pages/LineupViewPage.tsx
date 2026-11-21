@@ -11,7 +11,7 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { groupLineupSongBlocks, resolveSequence } from '../lib/lru';
+import { lineupFullLyricBlocks } from '../lib/lru';
 import { useStore } from '../lib/store';
 
 export function LineupViewPage() {
@@ -29,26 +29,22 @@ export function LineupViewPage() {
 
   const lineup = lineups.find((l) => l.id === id);
 
-  const resolved = useMemo(
-    () => (lineup ? resolveSequence(lineup, songs) : []),
-    [lineup, songs],
-  );
-
+  /*
+   * The whole song, not just the parts that were picked into the lineup. The
+   * builder selects a verse and a chorus; the person reading or printing this
+   * page is singing everything.
+   */
   const songBlocks = useMemo(
-    () =>
-      groupLineupSongBlocks(
-        resolved.map((r) => ({
-          songKey: r.song.id,
-          songTitle: r.song.title,
-          partLabel: r.partLabel,
-          lyrics: r.lyrics,
-        })),
-      ),
-    [resolved],
+    () => (lineup ? lineupFullLyricBlocks(lineup, songs) : []),
+    [lineup, songs],
   );
 
   const showToast = (m: string, tone: ToastTone = 'success') => {
     notify(m, tone);
+  };
+
+  const printLineup = () => {
+    if (typeof window.print === 'function') window.print();
   };
 
   if (!lineup) {
@@ -133,6 +129,9 @@ export function LineupViewPage() {
         label={backLabel}
         right={
           <div className="row" style={{ gap: 6 }}>
+            <IconButton label="Print lineup" onClick={printLineup}>
+              <Icon name="print" size={16} />
+            </IconButton>
             {mine ? (
               <>
                 <Button variant="primary" onClick={() => setShareOpen(true)}>
@@ -195,6 +194,14 @@ export function LineupViewPage() {
         ))}
       </div>
 
+      <footer className="print-only print-foot">
+        <span>{lineup.name}</span>
+        <span>
+          {songBlocks.length} {songBlocks.length === 1 ? 'song' : 'songs'} · printed{' '}
+          {new Date().toLocaleDateString()}
+        </span>
+      </footer>
+
       <Sheet
         open={shareOpen}
         onClose={() => setShareOpen(false)}
@@ -223,6 +230,9 @@ export function LineupViewPage() {
             }}
           >
             Preview shared page
+          </Button>
+          <Button variant="quiet" block onClick={printLineup}>
+            <Icon name="print" size={14} /> Print lineup
           </Button>
         </div>
       </Sheet>

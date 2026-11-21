@@ -4,7 +4,7 @@ import { LyricView } from '../components/LyricView';
 import { Wordmark } from '../components/Logo';
 import { Button, Empty, Icon, IconButton, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
-import { groupLineupSongBlocks } from '../lib/lru';
+import { fullLyricBlocks, groupLineupSongBlocks } from '../lib/lru';
 import { useStore } from '../lib/store';
 import type { SharedLineup } from '../lib/types';
 
@@ -33,8 +33,18 @@ export function SharedPage() {
     notify(msg, tone);
   };
 
+  const printLineup = () => {
+    if (typeof window.print === 'function') window.print();
+  };
+
+  /*
+   * A preview shows the whole song. The lineup only picked a few sections, but
+   * this page is what people read from, print, and hand to the band — so it
+   * carries every part. Older payloads without `songs` fall back to the picks.
+   */
   const songBlocks = useMemo(() => {
     if (!lineup) return [];
+    if (lineup.songs && lineup.songs.length > 0) return fullLyricBlocks(lineup.songs);
     return groupLineupSongBlocks(lineup.items);
   }, [lineup]);
 
@@ -90,6 +100,15 @@ export function SharedPage() {
             >
               Aa
             </button>
+          )}
+          {songBlocks.length > 0 && (
+            <IconButton
+              label="Print lineup"
+              className="icon-btn-ghost"
+              onClick={printLineup}
+            >
+              <Icon name="print" size={16} />
+            </IconButton>
           )}
           <IconButton
             label="Copy link"
@@ -180,6 +199,18 @@ export function SharedPage() {
                 <Icon name="link" size={14} /> Copy link
               </Button>
             </div>
+
+            <Button block onClick={printLineup}>
+              <Icon name="print" size={14} /> Print lineup
+            </Button>
+
+            <footer className="print-only print-foot">
+              <span>{lineup.name}</span>
+              <span>
+                {songBlocks.length} {songBlocks.length === 1 ? 'song' : 'songs'} · printed{' '}
+                {new Date().toLocaleDateString()}
+              </span>
+            </footer>
           </div>
         )}
       </main>

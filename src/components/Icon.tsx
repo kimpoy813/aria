@@ -50,7 +50,8 @@ export type IconName =
   | 'device'
   | 'eyeOff'
   | 'paste'
-  | 'monitor';
+  | 'monitor'
+  | 'print';
 
 /** Sanctioned sizes; anything else is rounded to the nearest. */
 const SIZES = [12, 14, 16, 18, 20, 24] as const;
@@ -243,6 +244,13 @@ const PATHS: Record<IconName, JSX.Element> = {
       <rect x="7.2" y="2.8" width="9.6" height="18.4" rx="2.2" />
       <path d="M10.6 5.6h2.8" />
       <circle cx="12" cy="17.8" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  print: (
+    <>
+      <path d="M7.5 8.9V3.9h9v5" />
+      <path d="M7.5 17.2H5.4a1.8 1.8 0 0 1-1.8-1.8v-4.7a1.8 1.8 0 0 1 1.8-1.8h13.2a1.8 1.8 0 0 1 1.8 1.8v4.7a1.8 1.8 0 0 1-1.8 1.8h-2.1" />
+      <path d="M7.5 13.9h9v6.2h-9z" />
     </>
   ),
 };

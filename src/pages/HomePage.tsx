@@ -2,12 +2,8 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Empty, Icon, type ToastTone } from '../components/ui';
 import { api } from '../lib/api';
-import {
-  orderByLRU,
-  summarizeLineupSongs,
-  summarizeSongsUsed,
-  timeAgo,
-} from '../lib/lru';
+import { buildHomeFeed } from '../lib/home';
+import { orderByLRU, summarizeLineupSongs, timeAgo } from '../lib/lru';
 import { useStore } from '../lib/store';
 
 export function HomePage() {
@@ -20,18 +16,27 @@ export function HomePage() {
     notify(msg, tone);
   };
 
+  // Home is your own library; see buildHomeFeed for why this is not two filters.
+  const feed = useMemo(
+    () => buildHomeFeed(lineups, songs, user?.id),
+    [lineups, songs, user?.id],
+  );
+  const myLineups = feed.lineups;
+  const mySongs = feed.songs;
+  const hasTeamLineups = feed.hasTeamLineups;
+
   const themes = useMemo(() => {
     const s = new Set<string>();
-    lineups.forEach((l) => {
+    myLineups.forEach((l) => {
       if (l.theme) s.add(l.theme);
     });
     return Array.from(s).sort();
-  }, [lineups]);
+  }, [myLineups]);
 
   const filtered = useMemo(() => {
-    if (themeFilter === 'all') return lineups;
-    return lineups.filter((l) => l.theme === themeFilter);
-  }, [lineups, themeFilter]);
+    if (themeFilter === 'all') return myLineups;
+    return myLineups.filter((l) => l.theme === themeFilter);
+  }, [myLineups, themeFilter]);
 
   const ordered = useMemo(() => orderByLRU(filtered), [filtered]);
   const featured = ordered[0] ?? null;
@@ -42,20 +47,16 @@ export function HomePage() {
     [featured, songs],
   );
 
-  const allSongStats = useMemo(
-    () => summarizeSongsUsed(songs, filtered),
-    [songs, filtered],
-  );
   const songsInLineups = useMemo(
-    () => allSongStats.filter((s) => s.inLineupsCount > 0),
-    [allSongStats],
+    () => feed.songStats.filter((s) => s.inLineupsCount > 0),
+    [feed.songStats],
   );
   const displayedSongStats =
-    songsInLineups.length > 0 ? songsInLineups : allSongStats;
+    songsInLineups.length > 0 ? songsInLineups : feed.songStats;
 
-  const hasFast = songs.some((s) => s.tempo === 'fast');
-  const hasSlow = songs.some((s) => s.tempo === 'slow');
-  const canBuildLineup = songs.length >= 2 && hasFast && hasSlow;
+  const hasFast = mySongs.some((s) => s.tempo === 'fast');
+  const hasSlow = mySongs.some((s) => s.tempo === 'slow');
+  const canBuildLineup = mySongs.length >= 2 && hasFast && hasSlow;
 
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'there';
 
@@ -92,7 +93,7 @@ export function HomePage() {
       <div className="page-head-row">
         <div className="page-head">
           <h1>Home</h1>
-          {lineups.length === 0 && <p>Hi {firstName}</p>}
+          {myLineups.length === 0 && <p>Hi {firstName}</p>}
         </div>
         <Button
           variant="primary"
@@ -172,8 +173,14 @@ export function HomePage() {
       ) : (
         <Empty
           icon="lineup"
-          title="No lineups yet"
-          body={canBuildLineup ? 'Create your first lineup.' : 'Add songs first.'}
+          title={hasTeamLineups ? 'No lineups of yours yet' : 'No lineups yet'}
+          body={
+            hasTeamLineups
+              ? 'Home shows your own lineups. Your team\u2019s are on the Lineups tab.'
+              : canBuildLineup
+                ? 'Create your first lineup.'
+                : 'Add songs first.'
+          }
           action={
             canBuildLineup ? (
               <Button variant="primary" onClick={() => navigate('/lineups/new')}>
