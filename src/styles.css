@@ -1386,6 +1386,76 @@ select {
   white-space: nowrap;
 }
 
+/*
+ * The running order, with a key per part.
+ *
+ * This is the last-minute control: a leader standing in the preview who has just
+ * decided the bridge should come down a step, and needs that to still be true on
+ * Sunday. So it writes to the lineup rather than to the page.
+ */
+.running-order {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.running-order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.running-order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.running-order-num {
+  flex: none;
+  width: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: right;
+}
+
+.running-order-what {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running-order-what span {
+  color: var(--muted);
+}
+
+.running-order-key {
+  flex: none;
+  width: auto;
+  min-width: 118px;
+  height: 34px;
+  padding: 0 26px 0 8px;
+  font-size: 12.5px;
+}
+
 /* The key a song is being played in, beside its title. */
 .song-key-badge {
   flex: none;
@@ -3895,7 +3965,9 @@ select {
   .chord-bar,
   .chord-panel,
   .chord-entry,
-  .slot-key {
+  .slot-key,
+  .print-hide,
+  .running-order {
     display: none !important;
   }
 

@@ -355,10 +355,17 @@ export function sheetToInline(text: string): string {
       continue;
     }
 
-    // The words this chord line belongs to. Usually the very next line; some
-    // sheets put a blank line between, so one blank line is allowed.
-    let j = i + 1;
-    if (lines[j] !== undefined && lines[j].trim() === '') j++;
+    /*
+     * The words this chord line belongs to: the line directly underneath, and
+     * only that line.
+     *
+     * Reaching past a blank line looks helpful and is not. A blank line is where
+     * one section ends and the next begins, so an instrumental intro sitting
+     * above a gap would have its chords pulled down onto the first line of the
+     * verse — the intro loses its chords and the verse gains ones that were never
+     * meant for it. Better to leave the chord line alone.
+     */
+    const j = i + 1;
     const next = lines[j];
 
     if (

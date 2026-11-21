@@ -503,6 +503,22 @@ console.log('\n16. The controls fit a phone');
       'auto',
     );
 
+    eq(
+      'the running-order title can shrink instead of pushing the picker out',
+      at.valueAt('.running-order-what', 'min-width', PHONE),
+      '0',
+    );
+    eq(
+      'and truncates rather than wrapping the row taller',
+      at.valueAt('.running-order-what', 'white-space', PHONE),
+      'nowrap',
+    );
+    eq(
+      'the key picker stays a fixed, tappable width',
+      at.valueAt('.running-order-key', 'min-width', PHONE),
+      '118px',
+    );
+
     /*
      * Every token the chord UI reads must exist in the dark block too. A token
      * defined only for light resolves to nothing in dark, and the chord simply
@@ -591,11 +607,15 @@ console.log('\n18. Sheets that arrive in awkward shapes');
     '[G]Amazing [D/F#]grace, [Em7]how [C]sweet the sound',
   );
 
-  // Some sheets leave a blank line between the chords and the words.
+  /*
+   * A blank line is a section boundary. Reaching across it would move an
+   * instrumental intro's chords onto the first line of the next section, so a
+   * chord line with a gap under it stays a chord line.
+   */
   eq(
-    'one blank line between chords and words is allowed',
+    'a blank line under a chord line is a boundary, not a gap to cross',
     sheetToInline('G       D\n\nAmazing grace'),
-    '\n[G]Amazing [D]grace',
+    'G       D\n\nAmazing grace',
   );
 
   /*
@@ -628,6 +648,126 @@ console.log('\n18. Sheets that arrive in awkward shapes');
     'two chords on one word is kept, not refused',
     sheetToInline('G   D\nAmazing grace'),
     '[G][D]Amazing grace',
+  );
+}
+
+console.log('\n19. Nothing is quietly dropped when a chord sheet is pasted');
+{
+  /*
+   * The report this is a regression test for: a song went into the library
+   * missing a chorus, because the sheet said [Chorus] twice and the splitter
+   * decided the second one was a duplicate. Whoever pasted it wrote the section
+   * twice on purpose — the collapse heuristic earns its keep on an unlabelled
+   * wall of text, not on a sheet that labels its own sections.
+   */
+  const labelled = [
+    '[Verse 1]',
+    'G            D',
+    'Here I am to worship',
+    '',
+    '[Chorus]',
+    'G        D',
+    'Holy, holy',
+    '',
+    '[Verse 2]',
+    'G            D',
+    'Here I stand forgiven',
+    '',
+    '[Chorus]',
+    'G        D',
+    'Holy, holy',
+  ].join('\n');
+
+  const kept = splitPastedLyrics(labelled);
+  eq('a labelled sheet keeps every section it was given', kept.collapsedCount, 0);
+  eq('so both choruses survive', kept.parts.filter((p) => p.kind === 'chorus').length, 2);
+
+  const unlabelled = [
+    'Here I am to worship',
+    'Here I bow down',
+    '',
+    'Holy, holy',
+    'Is Your name',
+    '',
+    'Here I stand forgiven',
+    'Sinner saved by grace',
+    '',
+    'Holy, holy',
+    'Is Your name',
+  ].join('\n');
+  check(
+    'an unlabelled wall of text still collapses its repeats',
+    splitPastedLyrics(unlabelled).collapsedCount >= 1,
+    `collapsed=${splitPastedLyrics(unlabelled).collapsedCount}`,
+  );
+
+  /*
+   * Even when collapsing is forced on, a repeat in a different key is not a
+   * duplicate — it is the only place that arrangement was written down.
+   */
+  const sameWordsNewKey = [
+    '[Chorus]',
+    'G        D',
+    'Holy, holy',
+    '',
+    '[Chorus]',
+    'D        A',
+    'Holy, holy',
+  ].join('\n');
+  const forced = splitPastedLyrics(sameWordsNewKey, { collapseRepeats: true });
+  eq('a repeat in a different key is not collapsed', forced.collapsedCount, 0);
+  eq('both versions are kept', forced.parts.length, 2);
+
+  const trueDuplicate = [
+    'Holy, holy',
+    'Is Your name',
+    '',
+    'Holy, holy',
+    'Is Your name',
+  ].join('\n');
+  check(
+    'a genuine unlabelled duplicate still collapses',
+    splitPastedLyrics(trueDuplicate, { collapseRepeats: true }).collapsedCount >= 1,
+  );
+}
+
+console.log('\n20. Sections nobody sings');
+{
+  const sheet = [
+    '[Intro]',
+    'G   D   Em   C',
+    '',
+    '[Verse 1]',
+    'G            D',
+    'Here I am to worship',
+    '',
+    '[Interlude]',
+    'G   D   Em   C',
+    '',
+    '[Instrumental]',
+    'Am   G   D',
+  ].join('\n');
+  const split = splitPastedLyrics(sheet);
+  const kinds = split.parts.map((p) => p.kind).join(',');
+
+  eq('an interlude is an interlude, not a bridge', kinds, 'intro,verse,interlude,instrumental');
+  eq('and is labelled as one', split.parts[2].label, 'Interlude');
+  eq(
+    'its chords are stored verbatim',
+    split.parts[2].lyrics,
+    'G   D   Em   C',
+  );
+
+  // No heading at all — a bare block of chord names.
+  const bare = splitPastedLyrics('G   D   Em   C\n\nHere I am to worship\nHere I bow down');
+  eq('an unlabelled block of chords is called Instrumental', bare.parts[0].kind, 'instrumental');
+  eq('and gets that label', bare.parts[0].label, 'Instrumental');
+
+  // The whole point: a chord-only part must survive into a lineup and transpose.
+  eq(
+    'a chord-only part transposes like any other',
+    transposeLyrics(split.parts[0].lyrics, keyInterval('G', 'D'), 'D'),
+    'D   A   Bm   G',
   );
 }
 

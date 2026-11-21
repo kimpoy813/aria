@@ -301,10 +301,9 @@ export function SongFormPage() {
       return;
     }
 
-    const split = splitPastedLyrics(pasted, {
-      songTitle: title,
-      collapseRepeats: true,
-    });
+    // No toggle is offered on this path, so leave repeats alone rather than
+    // deleting a section the leader has no way to get back.
+    const split = splitPastedLyrics(pasted, { songTitle: title });
     if (split.parts.length === 0) return;
 
     if (split.parts.length < 2 && !split.hadExplicitHeaders) {
@@ -334,10 +333,7 @@ export function SongFormPage() {
       nextLyrics.includes('\n') &&
       shouldAutoSplitPaste(nextLyrics, prevLyrics, false)
     ) {
-      const split = splitPastedLyrics(nextLyrics, {
-        songTitle: title,
-        collapseRepeats: true,
-      });
+      const split = splitPastedLyrics(nextLyrics, { songTitle: title });
       if (split.parts.length >= 2 || split.hadExplicitHeaders) {
         mergeSplitPartsAt(index, split.parts);
         return;

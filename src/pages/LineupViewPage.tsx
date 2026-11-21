@@ -12,9 +12,9 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { hasChords } from '../lib/chords';
+import { MAJOR_KEYS, MINOR_KEYS, hasChords } from '../lib/chords';
 import { applyReaderOffset, displayKey } from '../lib/chordView';
-import { lineupFullLyricBlocks } from '../lib/lru';
+import { lineupFullLyricBlocks, resolveSequence } from '../lib/lru';
 import { useStore } from '../lib/store';
 
 export function LineupViewPage() {
@@ -33,6 +33,8 @@ export function LineupViewPage() {
   // key for their voice. Neither is saved — the band's sheet is untouched.
   const [showChords, setShowChords] = useState(true);
   const [offset, setOffset] = useState(0);
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const lineup = lineups.find((l) => l.id === id);
 
@@ -74,6 +76,31 @@ export function LineupViewPage() {
     if (typeof window.print === 'function') window.print();
   };
 
+  /**
+   * Change the key one part is played in, and keep it.
+   *
+   * The −/+ bar above is for the moment — it moves the page and forgets. This is
+   * for the decision made in rehearsal that has to still be true on Sunday, so
+   * it writes to the slot. It touches only that slot: the same song elsewhere in
+   * the set keeps the key it was given.
+   */
+  const saveSlotKey = async (itemId: string, nextKey: string) => {
+    if (!lineup) return;
+    const items = lineup.items.map((it) =>
+      it.id === itemId ? { songId: it.songId, partId: it.partId, key: nextKey } : { songId: it.songId, partId: it.partId, key: it.key || '' },
+    );
+    setSavingKey(itemId);
+    try {
+      await api.updateLineup(lineup.id, { items });
+      await refresh();
+      showToast(nextKey ? `Saved — played in ${nextKey}` : 'Saved — back to the written key');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not save the key', 'error');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
   if (!lineup) {
     return (
       <div className="stack">
@@ -85,6 +112,23 @@ export function LineupViewPage() {
 
   const mine = lineup.ownerId === user?.id;
   const team = lineup.teamId ? teams.find((t) => t.id === lineup.teamId) : null;
+
+  /** The set in the order it is actually played — one row per part. */
+  const runningOrder = useMemo(() => {
+    if (!lineup) return [];
+    return resolveSequence(lineup, songs).map((entry) => {
+      const item = lineup.items.find((it) => it.id === entry.itemId);
+      return {
+        itemId: entry.itemId,
+        songId: entry.song.id,
+        songTitle: entry.song.title,
+        partLabel: entry.partLabel,
+        writtenKey: entry.writtenKey,
+        playKey: item?.key || '',
+        hasChords: hasChords(entry.lyrics),
+      };
+    });
+  }, [lineup, songs]);
   const shareUrl = `${window.location.origin}/s/${lineup.shareToken}`;
 
   const copyShareLink = async () => {
@@ -192,6 +236,60 @@ export function LineupViewPage() {
         <h1 className="detail-title">{lineup.name}</h1>
         {metaParts.length > 0 && <div className="tiny">{metaParts.join(' · ')}</div>}
       </div>
+
+      {mine && runningOrder.some((r) => r.hasChords) && (
+        <div className="running-order print-hide">
+          <button
+            type="button"
+            className="running-order-head"
+            onClick={() => setOrderOpen((v) => !v)}
+            aria-expanded={orderOpen}
+          >
+            <span>Key per part</span>
+            <span className="tiny">{orderOpen ? 'Hide' : `${runningOrder.length} parts`}</span>
+          </button>
+
+          {orderOpen &&
+            runningOrder.map((row, i) => (
+              <div key={row.itemId} className="running-order-row">
+                <span className="running-order-num">{i + 1}</span>
+                <span className="running-order-what">
+                  {row.songTitle} <span>· {row.partLabel}</span>
+                </span>
+
+                {row.hasChords ? (
+                  <select
+                    className="select running-order-key"
+                    aria-label={`Key for ${row.songTitle} ${row.partLabel}`}
+                    value={row.playKey}
+                    disabled={savingKey === row.itemId}
+                    onChange={(e) => saveSlotKey(row.itemId, e.target.value)}
+                  >
+                    <option value="">
+                      {row.writtenKey ? `${row.writtenKey} (written)` : 'As written'}
+                    </option>
+                    <optgroup label="Major">
+                      {MAJOR_KEYS.map((k) => (
+                        <option key={k} value={k}>
+                          {k}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Minor">
+                      {MINOR_KEYS.map((k) => (
+                        <option key={k} value={k}>
+                          {k}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                ) : (
+                  <span className="tiny">no chords</span>
+                )}
+              </div>
+            ))}
+        </div>
+      )}
 
       {pageHasChords && (
         <div className="print-hide">

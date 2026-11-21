@@ -212,7 +212,38 @@ async function run() {
     eq('both say where they were written', fullSongs.every((s) => s.key === 'G'), true);
   }
 
-  console.log('\n4. A key that is not a key is not stored');
+  console.log('\n4. Changing one part’s key from the preview leaves the rest alone');
+  {
+    const state = await apiCall('/state', 'GET', null, tk);
+    const lineup = state.lineups.find((l) => l.name === 'Sunday morning');
+    const song = state.songs.find((s) => s.title === 'Amazing Grace');
+
+    // The preview's "key per part" control writes exactly this shape: every
+    // slot resent, one of them with a new key.
+    const moved = lineup.items.map((it) => ({
+      songId: it.songId,
+      partId: it.partId,
+      key: it.songId === song.id && it.partLabel === 'Chorus' ? 'E' : it.key || '',
+    }));
+    await apiCall('/lineups/' + lineup.id, 'PATCH', { items: moved }, tk);
+
+    const after = (await apiCall('/state', 'GET', null, tk)).lineups.find(
+      (l) => l.id === lineup.id,
+    );
+    const chorus = after.items.find((i) => i.partLabel === 'Chorus');
+    const verse = after.items.find((i) => i.partLabel === 'Verse 1');
+    const other = after.items.find((i) => i.songId !== song.id);
+
+    eq('the edited part moved', chorus.key, 'E');
+    eq('another part of the same song did not', verse.key, '');
+    eq('and nor did a different song', other.key, 'D');
+    eq('the song’s own key is still untouched', song.key, 'G');
+
+    const shared = await apiCall('/shared/' + after.shareToken);
+    eq('and the share link reflects the change', shared.lineup.items.find((i) => i.partLabel === 'Chorus').playKey, 'E');
+  }
+
+  console.log('\n5. A key that is not a key is not stored');
   {
     const junk = await apiCall(
       '/songs',
