@@ -83,6 +83,26 @@ export function builderLibrary(
   });
 }
 
+/**
+ * A copy of this song that you already own, if there is one.
+ *
+ * Compared by lineage rather than by direct parent: `copySong` sets
+ * `sourceSongId` to the *root* of the chain, so copying a song that was itself
+ * a copy does not produce a record pointing at the immediate original. Matching
+ * roots handles that, and cannot false-positive on an unrelated song you own —
+ * two songs only share a root if one genuinely descends from the other.
+ */
+export function yourCopyOf(
+  songs: Song[],
+  song: Song,
+  viewerId?: string | null,
+): Song | undefined {
+  const root = song.sourceSongId || song.id;
+  return songs.find(
+    (s) => s.ownerId === viewerId && (s.sourceSongId || s.id) === root,
+  );
+}
+
 export interface ScopeOptions {
   scope: LibraryScope;
   viewerId?: string | null;

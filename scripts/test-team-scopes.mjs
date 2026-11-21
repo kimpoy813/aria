@@ -56,8 +56,9 @@ const {
   sharedWithTeam,
   teamSharedCounts,
   teamsForRecord,
+  yourCopyOf,
 } = await loadTs('src/lib/scopes.ts');
-const { lineupFullLyricBlocks } = await loadTs('src/lib/lru.ts');
+const { lineupFullLyricBlocks, repointSlotsToCopy } = await loadTs('src/lib/lru.ts');
 
 const team = (id, name, memberIds) => ({
   id,
@@ -208,6 +209,77 @@ console.log('\n1c. What the lineup builder offers');
     'a legacy lineup keeps its shared song in the sequence',
     blocks.length === 2,
     blocks.map((b) => b.songTitle).join(', '),
+  );
+}
+
+console.log('\n1d. Taking a shared song into your own library');
+{
+  const full = (id, title, ownerId, sourceSongId = null) => ({
+    id,
+    title,
+    artist: 'Nobody',
+    tempo: 'slow',
+    theme: '',
+    parts: [
+      { id: `${id}-p1`, kind: 'verse', label: 'Verse 1', lyrics: 'one' },
+      { id: `${id}-p2`, kind: 'chorus', label: 'Chorus', lyrics: 'two' },
+    ],
+    analysis: null,
+    ownerId,
+    ownerName: ownerId === ME ? 'Kim' : 'Alice',
+    teamId: null,
+    sourceSongId,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+
+  const shared = full('a1', 'Alice Song', 'alice');
+  const myCopy = full('c1', 'Alice Song', ME, 'a1');
+  const unrelated = full('m1', 'My Own', ME);
+  // A copy of a copy: the server stores the *root*, not the immediate parent.
+  const chained = full('d1', 'Alice Song', ME, 'a1');
+
+  check(
+    'finds the copy you already own',
+    yourCopyOf([unrelated, myCopy], shared, ME)?.id === 'c1',
+    yourCopyOf([unrelated, myCopy], shared, ME)?.id,
+  );
+  check(
+    'does not mistake an unrelated song of yours for a copy',
+    yourCopyOf([unrelated], shared, ME) === undefined,
+  );
+  check(
+    'a copy of a copy still counts, because the root matches',
+    yourCopyOf([chained], shared, ME)?.id === 'd1',
+  );
+  check('says so when you have no copy', yourCopyOf([unrelated], shared, ME) === undefined);
+
+  const slots = [
+    { id: 's1', songId: 'a1', partId: 'a1-p1', partLabel: 'Verse 1' },
+    { id: 's2', songId: 'm1', partId: 'm1-p2', partLabel: 'Chorus' },
+    { id: 's3', songId: 'a1', partId: 'a1-p2', partLabel: 'Chorus' },
+    { id: 's4', songId: 'a1', partId: 'a1-missing', partLabel: 'Bridge' },
+  ];
+  const moved = repointSlotsToCopy(slots, shared, myCopy);
+
+  check(
+    'slots move to the copy',
+    moved[0].songId === 'c1' && moved[2].songId === 'c1',
+    moved.map((m) => m.songId).join(','),
+  );
+  check(
+    'and pick up the copy’s new part ids',
+    moved[0].partId === 'c1-p1' && moved[2].partId === 'c1-p2',
+    moved.map((m) => m.partId).join(','),
+  );
+  check(
+    'other songs are left alone',
+    moved[1].songId === 'm1' && moved[1].partId === 'm1-p2',
+  );
+  check(
+    'a slot that cannot be mapped is kept, not dropped',
+    moved.length === 4 && moved[3].songId === 'a1' && moved[3].partId === 'a1-missing',
+    `${moved.length} slots`,
   );
 }
 
@@ -444,6 +516,60 @@ console.log('\n6. What the server actually sends a member of two teams');
     byTitle(
       applyScope(songs, { scope: 'team', viewerId: myId, teams, teamId: weddingId }),
     ).join(),
+  );
+
+  /*
+   * The whole point of remapping: a copy has new part ids, so a lineup that
+   * simply swapped songId would save parts the server cannot resolve.
+   */
+  const mySong = songs.find((s) => s.title === 'My Song');
+  const sundaySong = songs.find((s) => s.title === 'Sunday Song');
+
+  const created = await call('POST', '/api/lineups', me, {
+    name: 'Mixed',
+    theme: '',
+    items: [
+      { songId: mySong.id, partId: mySong.parts[0].id },
+      { songId: sundaySong.id, partId: sundaySong.parts[0].id },
+    ],
+  });
+  const lineupId = created.data?.lineup?.id;
+  check(
+    'a lineup can hold a shared song',
+    created.status === 200 && created.data?.lineup?.items?.length === 2,
+    `${created.status}`,
+  );
+
+  const copied = await call('POST', `/api/songs/${sundaySong.id}/copy`, me);
+  const copy = copied.data?.song;
+  check('the shared song is copied into your library', Boolean(copy?.id));
+  check(
+    'and the copy has brand-new part ids',
+    copy?.parts?.[0]?.id !== sundaySong.parts[0].id,
+    `${copy?.parts?.[0]?.id}`,
+  );
+  check(
+    'yourCopyOf now finds it',
+    yourCopyOf([...songs, copy], sundaySong, myId)?.id === copy?.id,
+  );
+
+  const repointed = repointSlotsToCopy(created.data.lineup.items, sundaySong, copy);
+  const saved = await call('PATCH', `/api/lineups/${lineupId}`, me, {
+    name: 'Mixed',
+    theme: '',
+    items: repointed.map((i) => ({ songId: i.songId, partId: i.partId })),
+  });
+  const savedItems = saved.data?.lineup?.items ?? [];
+  check(
+    'the remapped lineup saves',
+    saved.status === 200 && savedItems.length === 2,
+    `${saved.status} / ${savedItems.length} items`,
+  );
+  check(
+    'and now points at your copy, with resolvable parts',
+    savedItems.every((i) => i.lyrics) &&
+      savedItems.some((i) => i.songId === copy.id),
+    savedItems.map((i) => `${i.songId}:${i.partLabel}`).join(', '),
   );
 
   fs.rmSync(dataDir, { recursive: true, force: true });

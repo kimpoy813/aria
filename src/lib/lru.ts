@@ -1,4 +1,4 @@
-import type { Lineup, Song } from './types';
+import type { Lineup, LineupItem, Song } from './types';
 
 export interface SequenceEntry {
   itemId: string;
@@ -330,6 +330,36 @@ export function lineupFullLyricBlocks(lineup: Lineup, songs: Song[]): GroupedSon
   }
 
   return fullLyricBlocks(ordered);
+}
+
+/**
+ * Re-points lineup slots from a shared song to the copy you now own.
+ *
+ * A copy gets brand-new part ids, so the slot's `partId` stops existing the
+ * moment the copy is made — silently, which is how a lineup ends up rendering
+ * nothing. The copy preserves part order and count, so map by index and fall
+ * back to the label.
+ *
+ * A slot that cannot be mapped is returned untouched rather than dropped:
+ * losing one part quietly is worse than leaving it pointing where it was.
+ */
+export function repointSlotsToCopy<T extends LineupItem>(
+  items: T[],
+  source: Song,
+  copy: Song,
+): T[] {
+  const partMap = new Map<string, string>();
+  source.parts.forEach((part, i) => {
+    const target = copy.parts[i] ?? copy.parts.find((p) => p.label === part.label);
+    if (target) partMap.set(part.id, target.id);
+  });
+
+  return items.map((item) => {
+    if (item.songId !== source.id) return item;
+    const nextPartId = partMap.get(item.partId);
+    if (!nextPartId) return item;
+    return { ...item, songId: copy.id, partId: nextPartId };
+  });
 }
 
 export function timeAgo(ts: number | null): string {

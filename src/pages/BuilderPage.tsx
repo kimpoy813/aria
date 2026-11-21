@@ -12,7 +12,8 @@ import {
 } from '../components/ui';
 import { api } from '../lib/api';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
-import { builderLibrary, ownRecords } from '../lib/scopes';
+import { repointSlotsToCopy } from '../lib/lru';
+import { builderLibrary, ownRecords, yourCopyOf } from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { LineupItem, Song, SongPart, Tempo } from '../lib/types';
 
@@ -62,6 +63,7 @@ export function BuilderPage() {
   const [previewSlot, setPreviewSlot] = useState<{ song: Song; part: SongPart } | null>(null);
   const [titleMissing, setTitleMissing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copyingSongId, setCopyingSongId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,6 +74,33 @@ export function BuilderPage() {
 
   const showToast = (m: string, tone: ToastTone = 'success') => {
     notify(m, tone);
+  };
+
+  /**
+   * Brings a shared song into your library and re-points every slot at it.
+   *
+   * If you already own a copy, that copy is used instead of making a second
+   * one. Either way the sequence keeps its parts: a copy has new part ids, so
+   * the slots have to be remapped or they would resolve to nothing.
+   */
+  const useOwnVersionOf = async (song: Song) => {
+    setCopyingSongId(song.id);
+    try {
+      const already = yourCopyOf(songs, song, user?.id);
+      const copy = already ?? (await api.copySong(song.id)).song;
+      if (!already) await refresh();
+      setItems((prev) => repointSlotsToCopy(prev, song, copy));
+      showToast(
+        already
+          ? `Switched to your copy of “${copy.title}”`
+          : `Copied “${copy.title}” to your library`,
+        'success',
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not copy song', 'error');
+    } finally {
+      setCopyingSongId(null);
+    }
   };
 
   const resolved = useMemo(() => {
@@ -475,8 +504,21 @@ export function BuilderPage() {
                     </div>
                     {firstLine && <div className="lyric-line muted">{firstLine}</div>}
                     {song.ownerId !== user?.id && (
-                      <div className="tiny">
-                        Shared by {song.ownerName} · copy it on the Songs tab to edit
+                      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                        <span className="tiny">Shared by {song.ownerName}</span>
+                        <button
+                          type="button"
+                          className="copy-action-btn"
+                          disabled={copyingSongId === song.id}
+                          onClick={() => useOwnVersionOf(song)}
+                        >
+                          <Icon name="copy" size={12} />{' '}
+                          {copyingSongId === song.id
+                            ? '…'
+                            : yourCopyOf(songs, song, user?.id)
+                              ? 'Use my copy'
+                              : 'Copy song'}
+                        </button>
                       </div>
                     )}
                   </div>
