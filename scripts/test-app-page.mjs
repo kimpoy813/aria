@@ -438,6 +438,19 @@ async function run() {
     eq('lifted off the bottom edge', valueAt('.tabbar', 'bottom', TABLET), '16px');
     eq('and rounded', valueAt('.tabbar', 'border-radius', TABLET), '18px');
 
+    // The sticky action bar clears the phone tab bar at 68px, which is exactly
+    // where the floating pill's top edge now sits.
+    eq(
+      'the sticky action bar still clears the phone tab bar',
+      valueAt('.sticky-bar', 'bottom', PHONE),
+      'calc(68px + env(safe-area-inset-bottom))',
+    );
+    eq(
+      'and clears the floating pill on a tablet',
+      valueAt('.sticky-bar', 'bottom', TABLET),
+      'calc(96px + env(safe-area-inset-bottom))',
+    );
+
     // A bottom sheet is unreachable by thumb on a laptop, so it becomes a dialog.
     eq('the sheet still rises from the bottom on a phone', valueAt('.sheet-backdrop', 'align-items', PHONE), 'flex-end');
     eq('and centres from tablet up', valueAt('.sheet-backdrop', 'align-items', SMALL_TABLET), 'center');

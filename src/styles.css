@@ -3363,6 +3363,13 @@ select {
   .app-main {
     padding-bottom: calc(96px + env(safe-area-inset-bottom));
   }
+
+  /* The sticky action bar clears the phone tab bar at 68px, which is exactly
+     where the floating pill's top edge now sits — without this the two overlap
+     on the builder and song forms. */
+  .sticky-bar {
+    bottom: calc(96px + env(safe-area-inset-bottom));
+  }
 }
 
 /*
