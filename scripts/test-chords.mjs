@@ -503,6 +503,43 @@ console.log('\n16. The controls fit a phone');
       'auto',
     );
 
+    eq(
+      'the running-order title can shrink instead of pushing the picker out',
+      at.valueAt('.running-order-what', 'min-width', PHONE),
+      '0',
+    );
+    eq(
+      'and truncates rather than wrapping the row taller',
+      at.valueAt('.running-order-what', 'white-space', PHONE),
+      'nowrap',
+    );
+    eq(
+      'the key picker stays a fixed, tappable width',
+      at.valueAt('.running-order-key', 'min-width', PHONE),
+      '118px',
+    );
+
+    eq(
+      'a chorded page reserves room so an edge chord cannot fall off',
+      at.valueAt('.lyric-body-chorded', 'padding-right', PHONE),
+      '36px',
+    );
+    eq(
+      'a plain page does not pay for it',
+      at.valueAt('.lyric-body', 'padding-right', PHONE),
+      null,
+    );
+    eq(
+      'a part textarea is capped rather than running off the page',
+      at.valueAt('.part-body .textarea', 'max-height', PHONE),
+      '60vh',
+    );
+    eq(
+      'and starts tall enough to read a verse',
+      at.valueAt('.part-body .textarea', 'min-height', PHONE),
+      '96px',
+    );
+
     /*
      * Every token the chord UI reads must exist in the dark block too. A token
      * defined only for light resolves to nothing in dark, and the chord simply
@@ -591,11 +628,15 @@ console.log('\n18. Sheets that arrive in awkward shapes');
     '[G]Amazing [D/F#]grace, [Em7]how [C]sweet the sound',
   );
 
-  // Some sheets leave a blank line between the chords and the words.
+  /*
+   * A blank line is a section boundary. Reaching across it would move an
+   * instrumental intro's chords onto the first line of the next section, so a
+   * chord line with a gap under it stays a chord line.
+   */
   eq(
-    'one blank line between chords and words is allowed',
+    'a blank line under a chord line is a boundary, not a gap to cross',
     sheetToInline('G       D\n\nAmazing grace'),
-    '\n[G]Amazing [D]grace',
+    'G       D\n\nAmazing grace',
   );
 
   /*
@@ -629,6 +670,156 @@ console.log('\n18. Sheets that arrive in awkward shapes');
     sheetToInline('G   D\nAmazing grace'),
     '[G][D]Amazing grace',
   );
+}
+
+console.log('\n19. Nothing is quietly dropped when a chord sheet is pasted');
+{
+  /*
+   * The report this is a regression test for: a song went into the library
+   * missing a chorus, because the sheet said [Chorus] twice and the splitter
+   * decided the second one was a duplicate. Whoever pasted it wrote the section
+   * twice on purpose — the collapse heuristic earns its keep on an unlabelled
+   * wall of text, not on a sheet that labels its own sections.
+   */
+  const labelled = [
+    '[Verse 1]',
+    'G            D',
+    'Here I am to worship',
+    '',
+    '[Chorus]',
+    'G        D',
+    'Holy, holy',
+    '',
+    '[Verse 2]',
+    'G            D',
+    'Here I stand forgiven',
+    '',
+    '[Chorus]',
+    'G        D',
+    'Holy, holy',
+  ].join('\n');
+
+  const kept = splitPastedLyrics(labelled);
+  eq('a labelled sheet keeps every section it was given', kept.collapsedCount, 0);
+  eq('so both choruses survive', kept.parts.filter((p) => p.kind === 'chorus').length, 2);
+
+  const unlabelled = [
+    'Here I am to worship',
+    'Here I bow down',
+    '',
+    'Holy, holy',
+    'Is Your name',
+    '',
+    'Here I stand forgiven',
+    'Sinner saved by grace',
+    '',
+    'Holy, holy',
+    'Is Your name',
+  ].join('\n');
+  check(
+    'an unlabelled wall of text still collapses its repeats',
+    splitPastedLyrics(unlabelled).collapsedCount >= 1,
+    `collapsed=${splitPastedLyrics(unlabelled).collapsedCount}`,
+  );
+
+  /*
+   * Even when collapsing is forced on, a repeat in a different key is not a
+   * duplicate — it is the only place that arrangement was written down.
+   */
+  const sameWordsNewKey = [
+    '[Chorus]',
+    'G        D',
+    'Holy, holy',
+    '',
+    '[Chorus]',
+    'D        A',
+    'Holy, holy',
+  ].join('\n');
+  const forced = splitPastedLyrics(sameWordsNewKey, { collapseRepeats: true });
+  eq('a repeat in a different key is not collapsed', forced.collapsedCount, 0);
+  eq('both versions are kept', forced.parts.length, 2);
+
+  const trueDuplicate = [
+    'Holy, holy',
+    'Is Your name',
+    '',
+    'Holy, holy',
+    'Is Your name',
+  ].join('\n');
+  check(
+    'a genuine unlabelled duplicate still collapses',
+    splitPastedLyrics(trueDuplicate, { collapseRepeats: true }).collapsedCount >= 1,
+  );
+}
+
+console.log('\n20. Sections nobody sings');
+{
+  const sheet = [
+    '[Intro]',
+    'G   D   Em   C',
+    '',
+    '[Verse 1]',
+    'G            D',
+    'Here I am to worship',
+    '',
+    '[Interlude]',
+    'G   D   Em   C',
+    '',
+    '[Instrumental]',
+    'Am   G   D',
+  ].join('\n');
+  const split = splitPastedLyrics(sheet);
+  const kinds = split.parts.map((p) => p.kind).join(',');
+
+  eq('an interlude is an interlude, not a bridge', kinds, 'intro,verse,interlude,instrumental');
+  eq('and is labelled as one', split.parts[2].label, 'Interlude');
+  eq(
+    'its chords are stored verbatim',
+    split.parts[2].lyrics,
+    'G   D   Em   C',
+  );
+
+  // No heading at all — a bare block of chord names.
+  const bare = splitPastedLyrics('G   D   Em   C\n\nHere I am to worship\nHere I bow down');
+  eq('an unlabelled block of chords is called Instrumental', bare.parts[0].kind, 'instrumental');
+  eq('and gets that label', bare.parts[0].label, 'Instrumental');
+
+  // The whole point: a chord-only part must survive into a lineup and transpose.
+  eq(
+    'a chord-only part transposes like any other',
+    transposeLyrics(split.parts[0].lyrics, keyInterval('G', 'D'), 'D'),
+    'D   A   Bm   G',
+  );
+}
+
+console.log('\n21. The schema the live database runs cannot drift from the repo');
+{
+  /*
+   * The key column shipped, the song editor saved it, the API returned it — and
+   * it still vanished on refresh, because production writes songs through
+   * aria_sync_caller_state, whose column list did not mention key. The column
+   * was there; the function that fills it was not. Nothing in the app could see
+   * that, so the schema is checked here instead.
+   */
+  const fs2 = await import('node:fs');
+  const schema = fs2.readFileSync(path.join(root, 'supabase', 'schema.sql'), 'utf8');
+
+  const start = schema.indexOf('create or replace function public.aria_sync_caller_state(');
+  check('aria_sync_caller_state is defined in schema.sql', start !== -1);
+  const body = start === -1 ? '' : schema.slice(start, schema.indexOf('$body$;', start));
+
+  check('its song insert lists the key column', /id, title, artist, tempo, theme, key, parts/.test(body));
+  check('its values read the key from the payload', body.includes("coalesce(v_song->>'key', '')"));
+  check('its on-conflict update writes the key', body.includes('key = excluded.key'));
+
+  // The table itself, so a fresh database gets both.
+  check('the songs table declares a key column', /create table if not exists public\.songs \([\s\S]*?\n\s*key\s+text not null default ''/.test(schema));
+  check('and an existing database is migrated', /alter table public\.songs add column if not exists key text not null default ''/.test(schema));
+
+  // Lineup slot keys ride inside the items jsonb, so the column list must not
+  // try to name them — worth stating, because it is why slots survived while
+  // song keys did not.
+  check('lineup items are stored as one jsonb column', /v_lineup->'items'/.test(body));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -6,6 +6,8 @@ export type PartKind =
   | 'prechorus'
   | 'chorus'
   | 'bridge'
+  | 'interlude'
+  | 'instrumental'
   | 'outro'
   | 'refrain'
   | 'other';

@@ -547,6 +547,10 @@ const SECTION_WEIGHTS: Record<PartKind | 'title', number> = {
   verse: 1.0,
   intro: 0.9,
   outro: 0.95,
+  // Nobody sings these — an interlude is often nothing but chord names, which
+  // would otherwise feed "G D Em C" into the theme analysis.
+  interlude: 0.15,
+  instrumental: 0.15,
   other: 1.0,
 };
 
@@ -988,6 +992,8 @@ export const PART_KINDS: { kind: PartKind; label: string }[] = [
   { kind: 'prechorus', label: 'Pre-Chorus' },
   { kind: 'chorus', label: 'Chorus' },
   { kind: 'bridge', label: 'Bridge' },
+  { kind: 'interlude', label: 'Interlude' },
+  { kind: 'instrumental', label: 'Instrumental' },
   { kind: 'refrain', label: 'Refrain' },
   { kind: 'outro', label: 'Outro' },
   { kind: 'other', label: 'Other' },

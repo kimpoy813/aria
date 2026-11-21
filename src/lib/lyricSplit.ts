@@ -5,8 +5,19 @@ import type { PartKind, SongPart } from './types';
 export interface SplitOptions {
   /** Optional song title — helps identify the chorus when lyrics have no headers. */
   songTitle?: string;
-  /** Collapse near-identical repeated sections (e.g. identical Chorus repeated 3x). Default: true. */
-  collapseRepeats?: boolean;
+  /**
+   * Collapse near-identical repeated sections (e.g. an identical Chorus pasted
+   * three times).
+   *
+   * Default `'auto'`: collapse only when the sheet had no section headings of
+   * its own. A wall of unlabelled lyrics genuinely benefits — without it you get
+   * four parts all called "Verse". A sheet that says `[Chorus]` twice does not:
+   * whoever typed it wrote the section twice on purpose, and quietly deleting
+   * the second one is how a song ends up missing words.
+   *
+   * Pass `true` or `false` to force it either way.
+   */
+  collapseRepeats?: boolean | 'auto';
   /**
    * Anchor chords from a pasted chord sheet onto the words beneath them.
    * Default: true. Turn off only to keep the sheet's own chord lines.
@@ -138,7 +149,7 @@ export function detectSectionHeading(
 
   // Bare standalone heading line (e.g. "Verse 1", "CHORUS", "Pre-Chorus", "Bridge 2", "V1", "C1")
   const bareMatch =
-    /^(?:(?:pre[-\s]?chorus|chorus|refrain|hook|verse|stanza|bridge|intro(?:duction)?|outro|ending|tag|coda|vamp|interlude)(?:\s*(?:#?\d+|one|two|three|four|i|ii|iii|iv))?(?:\s*[\[(]?(?:[x×]\d+|\d+[x×])[\])]?)?|v\d+|c\d+|pc\d*|br\d*)$/i.test(
+    /^(?:(?:pre[-\s]?chorus|chorus|refrain|hook|verse|stanza|bridge|intro(?:duction)?|outro|ending|tag|coda|vamp|interlude|instrumental|inst|music\s+only)(?:\s*(?:#?\d+|one|two|three|four|i|ii|iii|iv))?(?:\s*[\[(]?(?:[x×]\d+|\d+[x×])[\])]?)?|v\d+|c\d+|pc\d*|br\d*)$/i.test(
       core,
     );
   if (bareMatch) {
@@ -155,7 +166,9 @@ function matchHeadingKeyword(core: string): PartKind | null {
   if (/^(?:refrain)\b/.test(lower)) return 'refrain';
   if (/^(?:chorus|hook|c\d+)\b/.test(lower)) return 'chorus';
   if (/^(?:verse|stanza|v\d+)\b/.test(lower)) return 'verse';
-  if (/^(?:bridge|vamp|interlude|br\d*)\b/.test(lower)) return 'bridge';
+  if (/^(?:interlude|interlude\s*\d*)\b/.test(lower)) return 'interlude';
+  if (/^(?:instrumental|inst\b|music only|no vocals)/.test(lower)) return 'instrumental';
+  if (/^(?:bridge|vamp|br\d*)\b/.test(lower)) return 'bridge';
   if (/^(?:intro|introduction)\b/.test(lower)) return 'intro';
   if (/^(?:outro|ending|tag|coda)\b/.test(lower)) return 'outro';
   return null;
@@ -179,6 +192,34 @@ function lyricLinesOnly(lines: string[]): string[] {
   return lines
     .map((l) => l.trim())
     .filter((l) => l.length > 0 && !isChordLine(l));
+}
+
+/**
+ * The chords a stanza carries, in order, as one comparable string.
+ *
+ * Used to decide whether two sections really are the same section. Words alone
+ * are not enough once a song has chords: a chorus sung twice is very often sung
+ * the second time in a different key, or with a different turnaround, and
+ * treating that as a duplicate deletes the only place the second arrangement was
+ * written down.
+ *
+ * A stanza with no chords produces an empty string, so unchurched songs keep
+ * collapsing exactly as they always did.
+ */
+function chordSequence(lines: string[]): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (isChordLine(line)) {
+      for (const token of line.split(/\s+/)) {
+        if (token && CHORD_TOKEN_RE.test(token)) out.push(token.toLowerCase());
+      }
+      continue;
+    }
+    for (const m of line.matchAll(/\[([A-G][^\]\n]{0,11})\]/g)) {
+      out.push(m[1].toLowerCase());
+    }
+  }
+  return out.join(' ');
 }
 
 function stanzaSimilarity(aLines: string[], bLines: string[]): number {
@@ -497,7 +538,7 @@ function classifyUnlabelledStanzas(
  * (Verse, Pre-Chorus, Chorus, Bridge, Intro, Outro, Refrain) — with or without headers.
  */
 export function splitPastedLyrics(raw: string, options: SplitOptions = {}): SplitResult {
-  const { songTitle, collapseRepeats = true, inlineChords = true } = options;
+  const { songTitle, collapseRepeats = 'auto', inlineChords = true } = options;
   const normalized = raw.replace(/\r\n?/g, '\n');
 
   // A chord sheet arrives with its chords floating above the words. Anchor them
@@ -690,13 +731,31 @@ export function splitPastedLyrics(raw: string, options: SplitOptions = {}): Spli
       .trimEnd();
     if (!text.trim()) continue;
 
-    if (collapseRepeats && sec.kind !== 'verse') {
+    /*
+     * A section made only of chord names is an instrumental — an intro vamp, an
+     * interlude, a turnaround. Left as a "verse" it reads as words nobody sings
+     * and drags chord names into the theme analysis, so name it for what it is.
+     * An explicit Intro/Interlude/Outro heading is kept as written.
+     */
+    const chordOnly = text.split('\n').every((l) => !l.trim() || isChordLine(l));
+    const kind: PartKind =
+      chordOnly && sec.kind !== 'intro' && sec.kind !== 'interlude' && sec.kind !== 'outro'
+        ? 'instrumental'
+        : sec.kind;
+
+    // 'auto' defers to whether the sheet labelled its own sections.
+    const collapsing =
+      collapseRepeats === true || (collapseRepeats === 'auto' && !sawExplicitHeader);
+
+    if (collapsing && kind !== 'verse') {
       const secLines = text.split('\n');
-      const duplicate = built.find(
-        (existing) =>
-          existing.kind === sec.kind &&
-          stanzaSimilarity(existing.lyrics.split('\n'), secLines) >= 0.88,
-      );
+      const secChords = chordSequence(secLines);
+      const duplicate = built.find((existing) => {
+        if (existing.kind !== kind) return false;
+        // Same chords required as well as same words — see chordSequence.
+        if (chordSequence(existing.lyrics.split('\n')) !== secChords) return false;
+        return stanzaSimilarity(existing.lyrics.split('\n'), secLines) >= 0.88;
+      });
       if (duplicate) {
         collapsedCount++;
         continue;
@@ -706,12 +765,12 @@ export function splitPastedLyrics(raw: string, options: SplitOptions = {}): Spli
     // Ensure customLabel doesn't collide with an already-used label
     let label = sec.customLabel;
     if (!label || built.some((p) => p.label.toLowerCase() === label!.toLowerCase())) {
-      label = defaultPartLabel(sec.kind, built);
+      label = defaultPartLabel(kind, built);
     }
 
     built.push({
       id: makeId(),
-      kind: sec.kind,
+      kind,
       label,
       lyrics: text,
     });
