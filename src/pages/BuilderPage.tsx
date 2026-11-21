@@ -12,6 +12,7 @@ import {
 } from '../components/ui';
 import { api } from '../lib/api';
 import { THEME_LIST, analyzeLyrics } from '../lib/nlp';
+import { builderLibrary, ownRecords } from '../lib/scopes';
 import { useStore } from '../lib/store';
 import type { LineupItem, Song, SongPart, Tempo } from '../lib/types';
 
@@ -278,16 +279,16 @@ export function BuilderPage() {
     setTouchDrag({ index, label, x: e.clientX, y: e.clientY });
   };
 
-  const librarySongs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return songs.filter((s) => {
-      if (libTempo !== 'all' && s.tempo !== libTempo) return false;
-      if (!q) return true;
-      return `${s.title} ${s.artist} ${s.theme} ${s.parts.map((p) => p.lyrics).join(' ')}`
-        .toLowerCase()
-        .includes(q);
-    });
-  }, [songs, search, libTempo]);
+  /*
+   * The picker offers your own library — which is also where copied songs live,
+   * since a copy is a new song you own. Teammates' songs stay on the Songs tab,
+   * where Copy brings them here.
+   */
+  const librarySongs = useMemo(
+    () => builderLibrary(songs, { viewerId: user?.id, search, tempo: libTempo }),
+    [songs, user?.id, search, libTempo],
+  );
+  const mySongs = useMemo(() => ownRecords(songs, user?.id), [songs, user?.id]);
 
   const hasCollapsedSongs = useMemo(
     () => librarySongs.some((s) => Boolean(collapsed[s.id])),
@@ -473,6 +474,11 @@ export function BuilderPage() {
                       <Chip tone={song.tempo}>{part.label}</Chip>
                     </div>
                     {firstLine && <div className="lyric-line muted">{firstLine}</div>}
+                    {song.ownerId !== user?.id && (
+                      <div className="tiny">
+                        Shared by {song.ownerName} · copy it on the Songs tab to edit
+                      </div>
+                    )}
                   </div>
 
                   <div className="seq-toolbar">
@@ -525,15 +531,25 @@ export function BuilderPage() {
           )}
         </div>
 
-        {songs.length === 0 ? (
+        {mySongs.length === 0 ? (
           <Empty
             icon="songs"
-            title="No songs yet"
-            body="Add songs first."
+            title={songs.length === 0 ? 'No songs yet' : 'No songs of yours yet'}
+            body={
+              songs.length === 0
+                ? 'Add songs first.'
+                : 'A lineup is built from your own library. Copy a shared song from the Songs tab, or add your own.'
+            }
             action={
-              <Button variant="primary" onClick={() => navigate('/songs/new')}>
-                <Icon name="add" size={16} /> Add song
-              </Button>
+              songs.length === 0 ? (
+                <Button variant="primary" onClick={() => navigate('/songs/new')}>
+                  <Icon name="add" size={16} /> Add song
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => navigate('/songs')}>
+                  <Icon name="songs" size={16} /> Browse songs
+                </Button>
+              )
             }
           />
         ) : (

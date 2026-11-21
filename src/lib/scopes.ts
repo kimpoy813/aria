@@ -1,4 +1,4 @@
-import type { Lineup, Song, Team } from './types';
+import type { Lineup, Song, Team, Tempo } from './types';
 
 export type LibraryScope = 'mine' | 'all' | 'team';
 
@@ -49,6 +49,38 @@ export function sharedWithTeam<T extends Ownable>(
   if (record.ownerId === viewerId) return false;
   if (record.teamId) return record.teamId === team.id;
   return teammateIdsOf(team, viewerId).has(record.ownerId);
+}
+
+export interface BuilderLibraryOptions {
+  viewerId?: string | null;
+  search?: string;
+  tempo?: 'all' | Tempo;
+}
+
+/**
+ * What the lineup builder offers to pick from: your own songs.
+ *
+ * That covers "songs you have copied" for free — `copySong` on the server makes
+ * a brand new record owned by you, so a copy is simply one of your songs with a
+ * `sourceSongId` pointing back at where it came from. There is no separate
+ * "copied" state to include.
+ *
+ * Teammates' songs stay out of the picker. They are still one tap away on the
+ * Songs tab, where Copy brings them into your library and then into this list.
+ */
+export function builderLibrary(
+  songs: Song[],
+  opts: BuilderLibraryOptions = {},
+): Song[] {
+  const { viewerId, search = '', tempo = 'all' } = opts;
+  const q = search.trim().toLowerCase();
+  return ownRecords(songs, viewerId).filter((s) => {
+    if (tempo !== 'all' && s.tempo !== tempo) return false;
+    if (!q) return true;
+    return `${s.title} ${s.artist} ${s.theme} ${s.parts.map((p) => p.lyrics).join(' ')}`
+      .toLowerCase()
+      .includes(q);
+  });
 }
 
 export interface ScopeOptions {

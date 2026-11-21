@@ -5,7 +5,8 @@
  *   npm run test:teams
  *
  * It also pins down the account sheet, which used to print `songs.length`
- * straight off the store and so reported your teammates' work as yours.
+ * straight off the store and so reported your teammates' work as yours, and the
+ * lineup builder, which used to offer teammates' songs for picking.
  *
  * The question this answers: joining a second team does not create a second
  * library. `canView()` on the server returns the union of everything every team
@@ -48,8 +49,15 @@ async function loadTs(rel) {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
 
-const { applyScope, ownRecords, sharedWithTeam, teamSharedCounts, teamsForRecord } =
-  await loadTs('src/lib/scopes.ts');
+const {
+  applyScope,
+  builderLibrary,
+  ownRecords,
+  sharedWithTeam,
+  teamSharedCounts,
+  teamsForRecord,
+} = await loadTs('src/lib/scopes.ts');
+const { lineupFullLyricBlocks } = await loadTs('src/lib/lru.ts');
 
 const team = (id, name, memberIds) => ({
   id,
@@ -117,6 +125,89 @@ console.log('\n1b. What the account sheet counts');
     'the account sheet agrees with the Mine tab',
     ownRecords(songs, ME).length ===
       applyScope(songs, { scope: 'mine', viewerId: ME, teams: teams2 }).length,
+  );
+}
+
+console.log('\n1c. What the lineup builder offers');
+{
+  const song = (id, title, ownerId, extra = {}) => ({
+    id,
+    title,
+    artist: extra.artist ?? 'Nobody',
+    tempo: extra.tempo ?? 'slow',
+    theme: extra.theme ?? '',
+    parts: [{ id: `${id}-p1`, kind: 'verse', label: 'Verse 1', lyrics: extra.lyrics ?? 'la' }],
+    analysis: null,
+    ownerId,
+    ownerName: ownerId === ME ? 'Kim' : 'Alice',
+    teamId: null,
+    sourceSongId: extra.sourceSongId ?? null,
+    copiedFrom: extra.copiedFrom ?? null,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+
+  const mine = song('mine', 'My Song', ME);
+  const copied = song('copy', 'Alice Song', ME, {
+    sourceSongId: 'alice-1',
+    copiedFrom: 'Alice Song · Alice',
+  });
+  const teammate = song('alice-1', 'Alice Song', 'alice');
+  const all = [mine, copied, teammate];
+
+  check(
+    'the picker offers your own songs',
+    builderLibrary(all, { viewerId: ME }).map((s) => s.id).join(',') === 'mine,copy',
+    builderLibrary(all, { viewerId: ME })
+      .map((s) => s.id)
+      .join(','),
+  );
+  check(
+    'a song you copied is offered, because a copy is yours',
+    builderLibrary(all, { viewerId: ME }).some((s) => s.id === 'copy' && s.sourceSongId === 'alice-1'),
+  );
+  check(
+    'the original it was copied from is not',
+    !builderLibrary(all, { viewerId: ME }).some((s) => s.id === 'alice-1'),
+  );
+  check(
+    'search still reaches into lyrics',
+    builderLibrary(all, { viewerId: ME, search: 'la' }).length === 2,
+  );
+  check(
+    'the tempo filter still works',
+    builderLibrary(all, { viewerId: ME, tempo: 'fast' }).length === 0,
+  );
+
+  /*
+   * A lineup built before this rule can still hold a teammate's song. The
+   * picker must not offer it again, but the lineup itself must keep rendering —
+   * tightening this by dropping items would quietly delete someone's sequence.
+   */
+  const legacyLineup = {
+    id: 'l1',
+    name: 'Old',
+    theme: '',
+    ownerId: ME,
+    ownerName: 'Kim',
+    teamId: null,
+    items: [
+      { id: 'i1', songId: 'mine', partId: 'mine-p1', partLabel: 'Verse 1', lyrics: 'la' },
+      { id: 'i2', songId: 'alice-1', partId: 'alice-1-p1', partLabel: 'Verse 1', lyrics: 'la' },
+    ],
+    shareToken: 't',
+    sourceLineupId: null,
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: null,
+    useCount: 0,
+    lastUsedReason: null,
+  };
+  const blocks = lineupFullLyricBlocks(legacyLineup, all);
+  check(
+    'a legacy lineup keeps its shared song in the sequence',
+    blocks.length === 2,
+    blocks.map((b) => b.songTitle).join(', '),
   );
 }
 
