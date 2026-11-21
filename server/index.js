@@ -269,6 +269,38 @@ function publicLineup(lineup, songs) {
     }
   }
 
+  /*
+   * The complete lyrics of every song in the lineup, in lineup order.
+   *
+   * `items` only carries the parts that were picked into the lineup, which is
+   * right for the builder and for the running order. It is not enough for a
+   * preview or a printout: whoever is holding the page is singing the whole
+   * song, so the shared payload ships every part too.
+   */
+  const fullSongs = [];
+  const seenSongs = new Set();
+
+  for (const item of lineup.items) {
+    const song = songs.find((s) => s.id === item.songId);
+    if (!song || seenSongs.has(song.id)) continue;
+    const parts = (Array.isArray(song.parts) ? song.parts : []).filter(
+      (part) => part && part.lyrics,
+    );
+    if (parts.length === 0) continue;
+    seenSongs.add(song.id);
+    fullSongs.push({
+      id: song.id,
+      title: song.title,
+      artist: song.artist || 'Unknown artist',
+      tempo: song.tempo === 'fast' ? 'fast' : 'slow',
+      parts: parts.map((part) => ({
+        kind: part.kind || 'verse',
+        label: part.label || 'Part',
+        lyrics: part.lyrics,
+      })),
+    });
+  }
+
   return {
     name: lineup.name,
     theme: lineup.theme,
@@ -279,6 +311,7 @@ function publicLineup(lineup, songs) {
     useCount: lineup.useCount,
     songCount: songKeys.size || new Set(lineup.items.map((i) => i.songId)).size,
     items,
+    songs: fullSongs,
   };
 }
 

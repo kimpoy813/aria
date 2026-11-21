@@ -3544,3 +3544,174 @@ select {
     min-width: 240px;
   }
 }
+
+/* ----------------------------------------------------- print: lineup sheet */
+
+/*
+ * A lineup is read on paper as often as on a phone — at the front of a room,
+ * handed to whoever is playing. Two things have to be true for that:
+ *
+ *   1. Only the lyrics print. The tab bar, back bar, share sheet and buttons
+ *      are controls for the screen; on paper they are noise.
+ *   2. It prints in black on white. The app can be in dark mode, and the theme
+ *      is applied as an inline style on <html> and <body>, so the overrides
+ *      here need !important to win — otherwise a dark session prints a page of
+ *      white text on a black background.
+ *
+ * Song blocks are allowed to break across pages (a whole song will not fit on
+ * one sheet), but a heading never ends a page alone and a stanza stays together.
+ */
+
+.print-only {
+  display: none;
+}
+
+.print-foot {
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-strong);
+  font-size: 9pt;
+  color: var(--muted);
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  :root,
+  :root[data-theme='dark'],
+  body[data-theme='dark'] {
+    color-scheme: light;
+    --canvas: #ffffff;
+    --bg: #ffffff;
+    --glass-bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #ffffff;
+    --surface-3: #ffffff;
+    --line: #c9ccd2;
+    --line-strong: #8d9199;
+    --ink: #000000;
+    --ink-2: #1c1f24;
+    --muted: #454a52;
+    --brand: #000000;
+    --brand-strong: #000000;
+    --brand-ink: #ffffff;
+    --brand-soft: #ffffff;
+    --brand-soft-2: #ffffff;
+    --brand-text: #000000;
+    --danger: #000000;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    color-scheme: light !important;
+    print-color-adjust: economy;
+    -webkit-print-color-adjust: economy;
+  }
+
+  /* Screen-only chrome. */
+  .topbar,
+  .tabbar,
+  .backbar,
+  .sticky-bar,
+  .sheet-backdrop,
+  .toast-stack,
+  .sys-banner,
+  .filter-row,
+  .seg,
+  .btn,
+  .icon-btn,
+  .link-button,
+  .filter-pill,
+  .copy-action-btn,
+  .text-size-btn,
+  .brand-home {
+    display: none !important;
+  }
+
+  .app {
+    display: block;
+    max-width: none;
+    min-height: 0;
+    border: 0 !important;
+    background: #ffffff;
+  }
+
+  .app-main,
+  .app-main.no-nav {
+    flex: none;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .stack {
+    gap: 14px;
+  }
+
+  .detail-title {
+    font-size: 20pt;
+    line-height: 1.2;
+  }
+
+  .song-group-block {
+    border: 0;
+    border-radius: 0;
+    background: #ffffff;
+    /* `overflow: hidden` on screen clips a block that breaks across a page. */
+    overflow: visible;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .song-group-head {
+    padding: 0 0 4px;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .song-group-title {
+    font-size: 14pt;
+  }
+
+  .song-section {
+    break-inside: auto;
+  }
+
+  .song-section-label {
+    font-size: 9pt;
+    letter-spacing: 0.06em;
+    color: #454a52;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .lyric-body {
+    gap: 10px;
+  }
+
+  .lyric-stanza {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .lyric-line,
+  .lyric-body-lg .lyric-line {
+    font-size: 11.5pt;
+    line-height: 1.5;
+    color: #000000;
+  }
+
+  a {
+    color: #000000;
+    text-decoration: none;
+  }
+
+  .print-only {
+    display: flex;
+  }
+}
