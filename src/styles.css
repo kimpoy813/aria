@@ -1686,6 +1686,13 @@ select {
   position: relative;
   display: inline-block;
   max-width: 100%;
+  /*
+   * Every chorded run reserves a minimum width so two chords that sit close
+   * together (or a marker with no word under it) cannot collapse into one
+   * zero-width box — which was making one chord's note paint over and hide
+   * the other ("one chord falls off").
+   */
+  min-width: 26px;
 }
 
 .chord-note {
@@ -1736,8 +1743,7 @@ select {
  * rather than running off the edge of the page.
  */
 .chord-run-bare .chord-note {
-  left: auto;
-  right: 0;
+  left: 0;
 }
 
 .text-size-btn {
