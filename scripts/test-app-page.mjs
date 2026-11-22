@@ -345,11 +345,12 @@ async function run() {
     .map((f) => fs.readFileSync(path.join(process.cwd(), 'dist', 'assets', f), 'utf8'))
     .join('\n');
   check(
-    'the page labels the metric as downloads',
-    // minified JSX splits the text: "download" / "downloads" + " so far"
-    /"download"\s*:\s*"downloads"/.test(bundle) &&
-      bundle.includes('so far') &&
-      bundle.includes('Downloads'),
+    'the page headlines the user total and keeps downloads alongside it',
+    // minified JSX splits the ternary into "person uses" / "people use"
+    bundle.includes('people use') &&
+      bundle.includes('person uses') &&
+      bundle.includes('Users') &&
+      /"download"\s*:\s*"downloads"/.test(bundle),
   );
   check('the page uses K/M/B suffixes', /[KMBT]"?\)/.test(bundle) || /`\$\{[^}]*\}[KMBT]`/.test(bundle));
 
@@ -381,6 +382,72 @@ async function run() {
   } else {
     check('the formatter is covered by the build (source import skipped)', true);
   }
+
+  /* ------------------------- 6b. the user total the admin reports */
+  console.log('\n6b. Public user total');
+  await withServer(5186, async (base) => {
+    const post = async (path, body, token) => {
+      const res = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, data: await res.json().catch(() => ({})) };
+    };
+
+    const empty = await (await fetch(`${base}/api/app/release`)).json();
+    check(
+      'a fresh install counts only the built-in admin',
+      empty.totalUsers === 1,
+      String(empty.totalUsers),
+    );
+
+    for (const [name, email] of [
+      ['Grace Choir', 'grace@example.com'],
+      ['Kim Dave', 'kim@example.com'],
+    ]) {
+      const reg = await post('/api/auth/register', {
+        name,
+        email,
+        password: 'Password123!',
+      });
+      check(`${email} registers`, reg.status === 200, `${reg.status}`);
+    }
+
+    const release = await (await fetch(`${base}/api/app/release`)).json();
+    check(
+      'the release payload reports the new sign-ups at once',
+      release.totalUsers === 3,
+      String(release.totalUsers),
+    );
+
+    const admin = await post('/api/auth/admin-login', {
+      email: 'admin@aria.app',
+      password: 'AriaAdmin2026!',
+    });
+    const overview = await (
+      await fetch(`${base}/api/admin/overview`, {
+        headers: { authorization: `Bearer ${admin.data.token}` },
+      })
+    ).json();
+    check(
+      'the public figure is the same number the admin dashboard shows',
+      overview.stats?.totalUsers === release.totalUsers,
+      `admin ${overview.stats?.totalUsers} vs app ${release.totalUsers}`,
+    );
+
+    // The download counter counts each registered user once too, but never the
+    // built-in admin — so the user total is the two figures plus one. Asserting
+    // the relationship, not a coincidence, keeps this honest if either moves.
+    check(
+      'the user total also counts the built-in admin, which downloads do not',
+      release.totalUsers === release.downloads + 1,
+      `downloads ${release.downloads}, users ${release.totalUsers}`,
+    );
+  });
 
   /* ------------------------------------------ 7. tablet & laptop layout */
   console.log('\n7. Tablet & laptop layout');

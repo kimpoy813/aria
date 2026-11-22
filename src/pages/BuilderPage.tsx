@@ -52,8 +52,13 @@ export function BuilderPage() {
     existing ? existing.items.map((x) => ({ ...x })) : [],
   );
 
-  // Keep ALL songs expanded by default so parts never collapse unless explicitly tucked away
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /*
+   * Songs start tucked away. Forty songs is forty open accordions of parts, and
+   * the builder only needs the titles until they have picked one. The record
+   * holds the exceptions — the songs that have been opened — so an empty record
+   * *is* the collapsed default, and nothing has to be initialised per song.
+   */
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
   const [libTempo, setLibTempo] = useState<'all' | Tempo>('all');
 
@@ -387,10 +392,14 @@ export function BuilderPage() {
   );
   const mySongs = useMemo(() => ownRecords(songs, user?.id), [songs, user?.id]);
 
-  const hasCollapsedSongs = useMemo(
-    () => librarySongs.some((s) => Boolean(collapsed[s.id])),
-    [librarySongs, collapsed],
+  /** True when every song the filter is showing is already open. */
+  const allSongsOpen = useMemo(
+    () => librarySongs.length > 0 && librarySongs.every((s) => Boolean(expanded[s.id])),
+    [librarySongs, expanded],
   );
+  /** Opens every song currently in the list — the filtered one, not the library. */
+  const openEverySong = () =>
+    setExpanded(Object.fromEntries(librarySongs.map((s) => [s.id, true])));
 
   const keyRow = keyIndex !== null ? resolved[keyIndex] : null;
   const menuRow = menuIndex !== null ? resolved[menuIndex] : null;
@@ -692,13 +701,13 @@ export function BuilderPage() {
       <div className="stack-sm">
         <div className="row-between">
           <span className="label">Songs</span>
-          {hasCollapsedSongs && (
+          {librarySongs.length > 0 && (
             <button
               type="button"
               className="link-button tiny"
-              onClick={() => setCollapsed({})}
+              onClick={() => (allSongsOpen ? setExpanded({}) : openEverySong())}
             >
-              Expand all
+              {allSongsOpen ? 'Collapse all' : 'Expand all'}
             </button>
           )}
         </div>
@@ -733,9 +742,15 @@ export function BuilderPage() {
                 onChange={(e) => {
                   const next = e.target.value;
                   setSearch(next);
-                  // Typing a filter opens everything up — but only by resetting
-                  // the state, so the chevron still works while the filter is on.
-                  if (next.trim() && !search.trim()) setCollapsed({});
+                  /*
+                   * A filter opens what it finds — you searched for a song, you
+                   * want its parts — by writing the state rather than by
+                   * overriding it, so the chevron still works while the filter is
+                   * on. Clearing the filter puts the list back to collapsed
+                   * instead of leaving forty accordions open.
+                   */
+                  if (next.trim() && !search.trim()) openEverySong();
+                  else if (!next.trim() && search.trim()) setExpanded({});
                 }}
                 placeholder="Filter songs…"
                 aria-label="Filter songs"
@@ -768,15 +783,15 @@ export function BuilderPage() {
             <div className="stack-xs">
               {librarySongs.map((song) => {
                 /*
-                 * The collapse state is the only authority here.
+                 * The open state is the only authority here.
                  *
                  * It used to be `search.trim() || !collapsed[id]`, which meant
                  * that while a search was typed the chevron did nothing at all:
                  * the click stored "collapsed", the render still forced it open,
                  * and the next click stored "collapsed" again. Searching is a
-                 * reason to *start* expanded, not a reason to ignore the button.
+                 * reason to *start* open, not a reason to ignore the button.
                  */
-                const isOpen = !collapsed[song.id];
+                const isOpen = Boolean(expanded[song.id]);
                 return (
                   <div key={song.id} className="song-picker">
                     <div className="song-picker-head">
@@ -801,9 +816,9 @@ export function BuilderPage() {
                         aria-label={isOpen ? `Collapse ${song.title}` : `Expand ${song.title}`}
                         aria-expanded={isOpen}
                         onClick={() =>
-                          setCollapsed((prev) => ({
+                          setExpanded((prev) => ({
                             ...prev,
-                            [song.id]: isOpen,
+                            [song.id]: !isOpen,
                           }))
                         }
                       >
