@@ -651,6 +651,57 @@ My anchor is holding secure
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
+  /* ------------------------------------ song message box is tall enough */
+  console.log('\nSong message field');
+  {
+    const assets = path.join(process.cwd(), 'dist', 'assets');
+    if (!fs.existsSync(assets)) {
+      check('stylesheet assertions skipped (run npm run build)', true);
+    } else {
+      const css = fs
+        .readdirSync(assets)
+        .filter((f) => f.endsWith('.css'))
+        .map((f) => fs.readFileSync(path.join(assets, f), 'utf8'))
+        .join('\n');
+      const { createCascade } = await import('./lib/css-cascade.mjs');
+      const { valueAt } = createCascade(css);
+
+      // Ask the cascade what wins, not whether the string exists: `.textarea`
+      // also declares min-height, so a rule that lost on source order would
+      // otherwise pass here while rendering 86px in the browser.
+      for (const width of [375, 900]) {
+        check(
+          `the song message box is taller than a plain textarea at ${width}px`,
+          valueAt('.textarea-message', 'min-height', width) === '168px',
+          String(valueAt('.textarea-message', 'min-height', width)),
+        );
+        check(
+          `and still has a ceiling so the save bar stays reachable at ${width}px`,
+          valueAt('.textarea-message', 'max-height', width) === 'min(70vh,420px)',
+          String(valueAt('.textarea-message', 'max-height', width)),
+        );
+      }
+
+      // Both editing surfaces must actually carry the class, or the rule is dead.
+      const form = fs.readFileSync(
+        path.join(process.cwd(), 'src', 'pages', 'SongFormPage.tsx'),
+        'utf8',
+      );
+      const detail = fs.readFileSync(
+        path.join(process.cwd(), 'src', 'pages', 'SongDetailPage.tsx'),
+        'utf8',
+      );
+      check(
+        'the song form uses the taller box',
+        /id="song-message"\s+className="textarea textarea-message"/.test(form),
+      );
+      check(
+        'the detail page message sheet uses it too',
+        /id="detail-song-message"\s+className="textarea textarea-message"/.test(detail),
+      );
+    }
+  }
+
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);
 }

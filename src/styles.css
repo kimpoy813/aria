@@ -1067,6 +1067,20 @@ select {
   line-height: 1.6;
 }
 
+/*
+ * The classified song message.
+ *
+ * A generated message runs to two sentences, which at the default three rows
+ * left most of it behind a scrollbar inside a box too short to read. This gives
+ * it room for the whole thing, and the ceiling keeps a long hand-written
+ * message from pushing the save bar off screen — past it the box scrolls.
+ */
+.textarea-message {
+  min-height: 168px;
+  max-height: min(70vh, 420px);
+  line-height: 1.65;
+}
+
 .code-input {
   font-family: var(--font-mono);
   letter-spacing: 0.08em;

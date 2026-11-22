@@ -988,8 +988,8 @@ export function SongFormPage() {
           <label htmlFor="song-message">Song message</label>
           <textarea
             id="song-message"
-            className="textarea"
-            rows={3}
+            className="textarea textarea-message"
+            rows={6}
             value={messageDraft}
             onChange={(e) => {
               setMessageDraft(e.target.value);
