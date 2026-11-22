@@ -1398,6 +1398,52 @@ select {
 }
 
 /*
+ * Per-part key nudge on the shared lineup page. Each part of a set can be
+ * transposed on its own without moving the rest of the set — a reader shifts
+ * the one part their voice needs today while leaving every other part as the
+ * band sent it.
+ */
+.section-key-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.section-key-step {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.section-key-step:active {
+  background: var(--brand-soft);
+  color: var(--brand-text);
+}
+
+.section-key-readout {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  min-width: 34px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/*
  * The running order, with a key per part.
  *
  * This is the last-minute control: a leader standing in the preview who has just
