@@ -11,10 +11,32 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!--
+      Preview metadata for link unfurling.
+
+      Everything between these markers is swapped out by the server when the URL
+      is a shared lineup (see renderShellHtml in server/index.js), so a setlist
+      pasted into a group chat previews with its own name, size and thumbnail
+      instead of a bare "Aria". Keep the block self-contained, and keep exactly
+      one of each tag: a previewer reads the first match it finds, so a second
+      og:title later in the head can quietly lose to this one.
+    -->
+    <!--aria-preview-->
+    <title>Aria</title>
     <meta
       name="description"
       content="Aria — minimalist mobile song library, lyric classification, and setlist builder."
     />
+    <meta property="og:site_name" content="Aria" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Aria" />
+    <meta
+      property="og:description"
+      content="Minimalist mobile song library, lyric classification, and setlist builder."
+    />
+    <meta property="og:image" content="/icons/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <!--/aria-preview-->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
@@ -25,7 +47,6 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     />
-    <title>Aria</title>
     <script>
       (function () {
         try {

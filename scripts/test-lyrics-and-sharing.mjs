@@ -552,6 +552,85 @@ My anchor is holding secure
         shared1.items[2].lyrics === 'Sing aloud across the earth\nJoy has come today',
     );
 
+    /* --- the link preview a group chat builds, before anyone taps it --- */
+    const previewUrl = `${base}/s/${lineup.shareToken}`;
+    const preview = await fetch(previewUrl);
+    const html = await preview.text();
+    const songs = shared1.songCount;
+
+    check('the share link serves HTML to a scraper', preview.status === 200);
+    check(
+      'the preview names the lineup',
+      html.includes('<meta property="og:title" content="Sunday Morning Set" />'),
+    );
+    check(
+      'the document title names the lineup too',
+      html.includes('<title>Sunday Morning Set · Aria</title>'),
+    );
+    check(
+      'the preview gives a glimpse of the set',
+      html.includes(
+        `<meta property="og:description" content="${songs} songs · Joy · Setlist by ${shared1.ownerName}" />`,
+      ),
+      (html.match(/og:description" content="[^"]*"/) || [''])[0],
+    );
+    check(
+      'the preview carries an absolute thumbnail URL',
+      html.includes(
+        `<meta property="og:image" content="${base}/icons/icon-512.png" />`,
+      ),
+    );
+    /*
+     * Exactly one of each tag, and it must be the lineup's. A previewer takes the
+     * first match it finds, so a leftover generic og:title ahead of the real one
+     * would win while every assertion above still passed on `includes`.
+     */
+    /** Every value the document declares for one tag, in document order. */
+    const values = (attr, name) =>
+      (html.match(new RegExp(`${attr}="${name}" content="[^"]*"`, 'g')) || []).map(
+        (m) => /content="([^"]*)"/.exec(m)[1],
+      );
+    check(
+      'only one title survives in the head',
+      (html.match(/<title>/g) || []).length === 1,
+      String((html.match(/<title>/g) || []).length),
+    );
+    check(
+      'the generic og:title is replaced, not duplicated',
+      values('property', 'og:title').join('|') === 'Sunday Morning Set',
+      values('property', 'og:title').join(' | '),
+    );
+    check(
+      'the generic og:description and og:image are replaced too',
+      values('property', 'og:description').length === 1 &&
+        values('property', 'og:image').length === 1 &&
+        values('property', 'og:image')[0] === `${base}/icons/icon-512.png`,
+      `${values('property', 'og:description').join(' | ')} / ${values('property', 'og:image').join(' | ')}`,
+    );
+    check(
+      'no stale "Aria" preview title is left ahead of the lineup name',
+      !html.includes('<meta property="og:title" content="Aria" />'),
+    );
+
+    // A chat app fetches the link the moment it is pasted. If that counted as an
+    // open, sharing a set in a group chat would quietly rewrite its use stats.
+    const openedBefore = shared1.useCount;
+    for (let i = 0; i < 3; i++) await fetch(previewUrl);
+    const openedAfter = (await apiCall(`/shared/${lineup.shareToken}`)).lineup.useCount;
+    check(
+      'three link previews do not count as opening the lineup',
+      openedAfter === openedBefore + 1,
+      `${openedBefore} -> ${openedAfter}`,
+    );
+
+    // An unknown token must still serve the app, not an error page.
+    const missing = await fetch(`${base}/s/not-a-real-token`);
+    const missingHtml = await missing.text();
+    check(
+      'an unknown share token still serves the app shell',
+      missing.status === 200 && missingHtml.includes('<title>Aria</title>'),
+    );
+
     // Re-paste / edit song WITHOUT passing old part IDs (simulating full re-split!)
     await apiCall(
       `/songs/${slowSong.id}`,
