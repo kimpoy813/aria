@@ -287,8 +287,8 @@ export function SongDetailPage() {
             <label htmlFor="detail-song-message">Classified message</label>
             <textarea
               id="detail-song-message"
-              className="textarea"
-              rows={4}
+              className="textarea textarea-message"
+              rows={6}
               value={draftMessage}
               onChange={(e) => {
                 setDraftMessage(e.target.value);
