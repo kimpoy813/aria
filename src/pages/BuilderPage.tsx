@@ -21,6 +21,7 @@ import {
   yourVersionOf,
 } from '../lib/scopes';
 import { useStore } from '../lib/store';
+import { LyricView } from '../components/LyricView';
 import type { LineupItem, Song, SongPart, Tempo } from '../lib/types';
 
 function makeSlot(songId: string, partId: string): LineupItem {
@@ -1125,11 +1126,7 @@ export function BuilderPage() {
         {previewSlot && (
           <div className="part-block">
             <div className="part-body">
-              {previewSlot.part.lyrics.split(/\r?\n/).map((line, i) => (
-                <div key={i} className="lyric-line">
-                  {line || '\u00A0'}
-                </div>
-              ))}
+              <LyricView lyrics={previewSlot.part.lyrics} showChords={true} />
             </div>
           </div>
         )}
