@@ -21,7 +21,9 @@ export function SharedPage() {
   // Everything below is this reader's view only. Nothing here is written back:
   // a visitor transposing for their own voice must not move the band's sheet,
   // and the next person to open the same link sees it as it was sent.
-  const [showChords, setShowChords] = useState(true);
+  // Chords start hidden when a lineup link is opened; the reader turns them on
+  // with the ChordControls bar if they want to see them.
+  const [showChords, setShowChords] = useState(false);
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
