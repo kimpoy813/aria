@@ -566,9 +566,24 @@ console.log('\n16. The controls fit a phone');
       '36px',
     );
     eq(
-      'the per-slot key picker does not stretch the row',
-      at.valueAt('.slot-key-select', 'width', PHONE),
-      'auto',
+      'the per-slot key chip does not stretch the row',
+      at.valueAt('.key-chip', 'flex', PHONE),
+      '0 0 auto',
+    );
+    eq(
+      'and is wide enough to read a key at a glance',
+      at.valueAt('.key-chip', 'min-width', PHONE),
+      '46px',
+    );
+    eq(
+      'a key the builder moved is picked out in the brand colour',
+      /var\(--brand-text\)/.test(at.declaredAt('.key-chip.moved', 'color', PHONE) || ''),
+      true,
+    );
+    eq(
+      'the key sheet offers thumb-sized targets',
+      at.valueAt('.key-option', 'min-height', PHONE),
+      '38px',
     );
 
     eq(

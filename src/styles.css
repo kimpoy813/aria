@@ -1483,42 +1483,9 @@ select {
 }
 
 /* Per-slot key in the lineup builder. */
-.slot-key {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
 
-.slot-key-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
 
-.slot-key-select {
-  width: auto;
-  min-width: 132px;
-  height: 32px;
-  padding: 0 26px 0 8px;
-  font-size: 12.5px;
-}
 
-.slot-key-all {
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--brand-text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
 
 /* Chord entry in the song editor. */
 .chord-panel-head {
@@ -1764,32 +1731,133 @@ select {
   font-weight: 500;
 }
 
-.guardrail-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
 
-.guardrail-pill {
-  padding: 3px 9px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 500;
-  background: var(--surface-2);
-  color: var(--muted);
-  border: 1px solid transparent;
-}
 
-.guardrail-pill.ok {
-  background: var(--brand-soft);
-  color: var(--brand-text);
-  border-color: var(--brand-soft-2);
-}
 
 .seq-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* One sentence, not four counters — the rule is stated with what is missing. */
+.guardrail {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.guardrail.ok {
+  color: var(--brand-text);
+  font-weight: 500;
+}
+
+/* A run of one song's parts shares a heading instead of repeating its title. */
+.seq-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 2px 5px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.seq-run-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The key as a chip. It is read far more often than it is changed, so it takes
+ * the space of a label and opens the picker on tap.
+ */
+.key-chip {
+  flex: 0 0 auto;
+  min-width: 46px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.key-chip.moved {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-text);
+}
+
+.insert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--brand);
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  font-size: 12.5px;
+}
+
+/*
+ * The builder's bar stacks: a one-line summary of the set above the two
+ * buttons. Written as a compound selector so it wins over the shared
+ * `.sticky-bar` base rule regardless of where the two sit in the file.
+ */
+.sticky-bar.sticky-bar-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.sticky-bar-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.sticky-bar-actions {
+  display: flex;
+  gap: 8px;
+}
+.sticky-bar-ready {
+  color: var(--brand-text);
+  font-weight: 600;
+}
+.sticky-bar-todo {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.key-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 6px;
+}
+.key-grid .key-option:first-child {
+  grid-column: 1 / -1;
+}
+.key-option {
+  min-height: 38px;
+  padding: 9px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.key-option.active {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--brand-ink);
 }
 
 .seq-item {
@@ -3994,7 +4062,6 @@ select {
   .chord-bar,
   .chord-panel,
   .chord-entry,
-  .slot-key,
   .print-hide,
   .running-order {
     display: none !important;

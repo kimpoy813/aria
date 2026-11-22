@@ -70,6 +70,14 @@ export function BuilderPage() {
   const [titleMissing, setTitleMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copyingSongId, setCopyingSongId] = useState<string | null>(null);
+  // Which row's sheet is open, by position in the sequence.
+  const [keyIndex, setKeyIndex] = useState<number | null>(null);
+  const [menuIndex, setMenuIndex] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  // Set by "insert after this": the next part tapped goes here, not at the end.
+  const [insertAfter, setInsertAfter] = useState<number | null>(null);
+  // Whether the key sheet writes to one part or to every part of that song.
+  const [keyScope, setKeyScope] = useState<'part' | 'song'>('part');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -158,17 +166,48 @@ export function BuilderPage() {
     slow: slowCount >= 1,
   };
 
+  /*
+   * The guardrail names the rule it is checking, in the words the rule uses.
+   * "no slow song yet" is actionable; "1/2 parts" is not — it tells you a
+   * number is short without saying which number or what to do about it.
+   */
+  const missing = [
+    checks.parts ? '' : `at least two parts (you have ${resolved.length})`,
+    checks.songs ? '' : `parts from at least two songs (you have ${songCount})`,
+    checks.fast ? '' : 'a fast song',
+    checks.slow ? '' : 'a slow song',
+  ].filter(Boolean);
+  // The same list, shortened for the sticky bar so the bar and the sentence
+  // above it can never disagree about what is still missing.
+  const missingShort = [
+    checks.parts ? '' : '2 parts',
+    checks.songs ? '' : '2 songs',
+    checks.fast ? '' : 'a fast song',
+    checks.slow ? '' : 'a slow song',
+  ].filter(Boolean);
+
   const insertPart = (songId: string, partId: string, at?: number) => {
     const slot = makeSlot(songId, partId);
+    // An explicit drop point wins; otherwise honour "insert after this", and
+    // failing both, append. Appending is what made the middle of a set
+    // unreachable without dragging.
+    const target = at !== undefined ? at : insertAfter !== null ? insertAfter + 1 : undefined;
     setItems((prev) => {
-      if (at === undefined || at < 0 || at >= prev.length) return [...prev, slot];
+      if (target === undefined || target < 0 || target > prev.length) return [...prev, slot];
       const copy = [...prev];
-      copy.splice(at, 0, slot);
+      copy.splice(target, 0, slot);
       return copy;
     });
     const song = songs.find((s) => s.id === songId);
     const part = song?.parts.find((p) => p.id === partId);
-    if (song && part) showToast(`Added ${song.title} · ${part.label}`);
+    if (song && part) {
+      showToast(
+        target !== undefined && target < items.length
+          ? `Added ${part.label} at position ${target + 1}`
+          : `Added ${song.title} · ${part.label}`,
+      );
+    }
+    if (at === undefined && insertAfter !== null) setInsertAfter(null);
   };
 
   const insertAllSongParts = (song: Song) => {
@@ -353,6 +392,11 @@ export function BuilderPage() {
     [librarySongs, collapsed],
   );
 
+  const keyRow = keyIndex !== null ? resolved[keyIndex] : null;
+  const menuRow = menuIndex !== null ? resolved[menuIndex] : null;
+  /** How many parts of that song are in the set — decides whether "whole song" is offered. */
+  const partsOfSongInSet = (songId: string) => resolved.filter((r) => r.song.id === songId).length;
+
   const save = async () => {
     setError(null);
     if (!name.trim()) {
@@ -457,31 +501,45 @@ export function BuilderPage() {
           </select>
         </div>
 
-        <div className="guardrail-bar" aria-label="Requirements">
-          <span className={`guardrail-pill ${checks.parts ? 'ok' : ''}`}>
-            {resolved.length}/2 parts
-          </span>
-          <span className={`guardrail-pill ${checks.songs ? 'ok' : ''}`}>
-            {songCount}/2 songs
-          </span>
-          <span className={`guardrail-pill ${checks.fast ? 'ok' : ''}`}>
-            {fastCount} fast
-          </span>
-          <span className={`guardrail-pill ${checks.slow ? 'ok' : ''}`}>
-            {slowCount} slow
-          </span>
-        </div>
+        {/*
+          One sentence saying what is missing, not four counters that only make
+          sense once you already know the rule.
+        */}
+        <p
+          className={`guardrail${missing.length === 0 ? ' ok' : ''}`}
+          role="status"
+        >
+          {missing.length === 0
+            ? `Ready — ${resolved.length} parts from ${songCount} songs · ${fastCount} fast, ${slowCount} slow`
+            : `A set needs ${missing.join(' and ')} — you have ${resolved.length} parts from ${songCount} songs, ${fastCount} fast and ${slowCount} slow.`}
+        </p>
       </div>
 
       <div className="stack-sm">
         <div className="row-between">
           <span className="label">Sequence ({resolved.length})</span>
           {resolved.length > 0 && (
-            <button type="button" className="link-button tiny" onClick={() => setItems([])}>
+            <button
+              type="button"
+              className="link-button tiny"
+              onClick={() => setConfirmClear(true)}
+            >
               Clear
             </button>
           )}
         </div>
+
+        {insertAfter !== null && resolved[insertAfter] && (
+          <div className="insert-banner">
+            <span className="truncate">
+              Adding after {resolved[insertAfter].song.title} ·{' '}
+              {resolved[insertAfter].part.label}
+            </span>
+            <button type="button" className="link-button tiny" onClick={() => setInsertAfter(null)}>
+              Cancel
+            </button>
+          </div>
+        )}
 
         {resolved.length > 0 && (
           <div className="seq-list">
@@ -491,131 +549,122 @@ export function BuilderPage() {
                   .split(/\r?\n/)
                   .map((l) => l.trim())
                   .find(Boolean) ?? '';
+              /*
+               * Consecutive parts of one song share a heading. A four-part song
+               * was four rows repeating its title; now it is one heading and
+               * four short rows, and the set fits on a screen.
+               */
+              const startsRun = i === 0 || resolved[i - 1].song.id !== song.id;
+              let runLength = 1;
+              while (
+                i + runLength < resolved.length &&
+                resolved[i + runLength].song.id === song.id
+              ) {
+                runLength += 1;
+              }
               return (
-                <div
-                  key={item.id}
-                  ref={(el) => {
-                    slotRefs.current[i] = el;
-                  }}
-                  className={[
-                    'seq-item',
-                    dragIndex === i ? 'dragging' : '',
-                    overIndex === i && dragIndex !== i ? 'over' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  draggable
-                  onDragStart={(e) => onSlotDragStart(e, i)}
-                  onDragOver={(e) => onSlotDragOver(e, i)}
-                  onDrop={(e) => onSlotDrop(e, i)}
-                  onDragEnd={() => {
-                    setDragIndex(null);
-                    setOverIndex(null);
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="seq-handle"
-                    aria-label="Drag to reorder"
-                    onPointerDown={(e) =>
-                      startTouchSlot(e, i, `${song.title} · ${part.label}`)
-                    }
+                <div key={item.id} className="seq-slot">
+                  {startsRun && (
+                    <div className="seq-run-head">
+                      <span className={`tempo-dot ${song.tempo}`} />
+                      <span className="truncate seq-run-title">{song.title}</span>
+                      <span className="tiny">
+                        {runLength} {runLength === 1 ? 'part' : 'parts'}
+                      </span>
+                    </div>
+                  )}
+
+                  <div
+                    ref={(el) => {
+                      slotRefs.current[i] = el;
+                    }}
+                    className={[
+                      'seq-item',
+                      dragIndex === i ? 'dragging' : '',
+                      overIndex === i && dragIndex !== i ? 'over' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    draggable
+                    onDragStart={(e) => onSlotDragStart(e, i)}
+                    onDragOver={(e) => onSlotDragOver(e, i)}
+                    onDrop={(e) => onSlotDrop(e, i)}
+                    onDragEnd={() => {
+                      setDragIndex(null);
+                      setOverIndex(null);
+                    }}
                   >
-                    <Icon name="drag" size={16} />
-                  </button>
+                    <button
+                      type="button"
+                      className="seq-handle"
+                      aria-label="Drag to reorder"
+                      onPointerDown={(e) =>
+                        startTouchSlot(e, i, `${song.title} · ${part.label}`)
+                      }
+                    >
+                      <Icon name="drag" size={16} />
+                    </button>
 
-                  <span className={`tempo-dot ${song.tempo}`} />
-
-                  <div className="seq-body">
-                    <div className="seq-title">
-                      <span className="truncate">{song.title}</span>
-                      <Chip tone={song.tempo}>{part.label}</Chip>
-                    </div>
-                    {firstLine && <div className="lyric-line muted">{firstLine}</div>}
-
-                    {/*
-                      Always shown. A key is not a property of the chord notation
-                      — it is the key the band plays the song in — and a library
-                      whose songs have no chords written down still needs to say
-                      "this one is in D" on the sheet.
-                    */}
-                    <div className="slot-key">
-                      <label className="slot-key-label" htmlFor={`slotkey-${item.id}`}>
-                        Key
-                      </label>
-                      <select
-                        id={`slotkey-${item.id}`}
-                        className="select slot-key-select"
-                        value={item.key || ''}
-                        onChange={(e) => setSlotKey(item.id, e.target.value)}
-                      >
-                        <option value="">
-                          {song.key ? `${song.key} (as written)` : 'As written'}
-                        </option>
-                        <optgroup label="Major">
-                          {MAJOR_KEYS.map((k) => (
-                            <option key={k} value={k}>
-                              {k}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="Minor">
-                          {MINOR_KEYS.map((k) => (
-                            <option key={k} value={k}>
-                              {k}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </select>
-                      {item.key && (
-                        <button
-                          type="button"
-                          className="slot-key-all"
-                          onClick={() => setSongKey(song.id, item.key!)}
-                          title={`Play all of ${song.title} in ${item.key}`}
-                        >
-                          All parts
-                        </button>
-                      )}
-                    </div>
-                            {(() => {
+                    <div className="seq-body">
+                      <div className="seq-title">
+                        <Chip tone={song.tempo}>{part.label}</Chip>
+                      </div>
+                      {firstLine && <div className="lyric-line muted">{firstLine}</div>}
+                    {(() => {
                       if (song.ownerId === user?.id) return null;
                       const myVersion = yourVersionOf(songs, song, user?.id);
                       return (
                       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                        <span className="tiny">Shared by {song.ownerName}</span>
-                        <button
-                          type="button"
-                          className="copy-action-btn"
-                          disabled={copyingSongId === song.id}
-                          onClick={() => useOwnVersionOf(song)}
-                        >
-                          <Icon name="copy" size={12} />{' '}
-                          {copyingSongId === song.id
-                            ? '…'
-                            : myVersion
-                              ? isTheOriginal(myVersion, song)
-                                ? 'Use original'
-                                : 'Use my copy'
-                              : 'Copy song'}
-                        </button>
+                      <span className="tiny">Shared by {song.ownerName}</span>
+                      <button
+                      type="button"
+                      className="copy-action-btn"
+                      disabled={copyingSongId === song.id}
+                      onClick={() => useOwnVersionOf(song)}
+                      >
+                      <Icon name="copy" size={12} />{' '}
+                      {copyingSongId === song.id
+                      ? '…'
+                      : myVersion
+                      ? isTheOriginal(myVersion, song)
+                      ? 'Use original'
+                      : 'Use my copy'
+                      : 'Copy song'}
+                      </button>
                       </div>
                       );
-                    })()}
-                  </div>
+                      })()}
+                    </div>
 
-                  <div className="seq-toolbar">
-                    <IconButton
-                      label="Preview"
-                      onClick={() => setPreviewSlot({ song, part })}
+                    {/*
+                      The key as a chip, not a dropdown on every row: it is read
+                      far more often than it is changed, and five controls on one
+                      row is what made a twelve-part set a wall of dropdowns.
+                    */}
+                    <button
+                      type="button"
+                      className={`key-chip${item.key ? ' moved' : ''}`}
+                      aria-label={`Key for ${song.title} ${part.label}`}
+                      title={
+                        item.key
+                          ? `Moved to ${item.key}${song.key ? ` from ${song.key}` : ''}`
+                          : song.key
+                            ? `As written in ${song.key}`
+                            : 'Set the key this part plays in'
+                      }
+                      onClick={() => {
+                        setKeyScope('part');
+                        setKeyIndex(i);
+                      }}
                     >
-                      <Icon name="view" size={14} />
-                    </IconButton>
-                    <IconButton label="Duplicate" onClick={() => duplicateSlot(i)}>
-                      <Icon name="copy" size={14} />
-                    </IconButton>
-                    <IconButton label="Remove" onClick={() => removeSlot(i)}>
-                      <Icon name="trash" size={14} />
+                      {item.key ? `→ ${item.key}` : song.key || 'Key'}
+                    </button>
+
+                    <IconButton
+                      label={`Options for ${song.title} ${part.label}`}
+                      onClick={() => setMenuIndex(i)}
+                    >
+                      <Icon name="more" size={16} />
                     </IconButton>
                   </div>
                 </div>
@@ -811,21 +860,33 @@ export function BuilderPage() {
         </div>
       )}
 
-      <div className="sticky-bar">
-        <Button
-          onClick={() => navigate(editing && existing ? `/lineups/${existing.id}` : '/lineups')}
-          style={{ flex: 1 }}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={save}
-          disabled={busy}
-          style={{ flex: 2 }}
-        >
-          {busy ? 'Saving…' : 'Save lineup'}
-        </Button>
+      <div className="sticky-bar sticky-bar-stack">
+        {/*
+          The set is built above and the library is below, so the only place a
+          leader can see what they have assembled is here.
+        */}
+        <div className="sticky-bar-summary" aria-live="polite">
+          <span>
+            {resolved.length} {resolved.length === 1 ? 'part' : 'parts'} · {songCount}{' '}
+            {songCount === 1 ? 'song' : 'songs'}
+          </span>
+          {missingShort.length === 0 ? (
+            <span className="sticky-bar-ready">Ready to save</span>
+          ) : (
+            <span className="sticky-bar-todo">needs {missingShort.join(' and ')}</span>
+          )}
+        </div>
+        <div className="sticky-bar-actions">
+          <Button
+            onClick={() => navigate(editing && existing ? `/lineups/${existing.id}` : '/lineups')}
+            style={{ flex: 1 }}
+          >
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={save} disabled={busy} style={{ flex: 2 }}>
+            {busy ? 'Saving…' : 'Save lineup'}
+          </Button>
+        </div>
       </div>
 
       {touchDrag && (
@@ -849,6 +910,196 @@ export function BuilderPage() {
           {touchDrag.label}
         </div>
       )}
+
+      <Sheet
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        title="Clear the sequence?"
+        subtitle={`All ${resolved.length} parts will be removed. The songs themselves are untouched.`}
+      >
+        <div className="row" style={{ gap: 8 }}>
+          <Button onClick={() => setConfirmClear(false)} style={{ flex: 1 }}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            style={{ flex: 1 }}
+            onClick={() => {
+              setItems([]);
+              setInsertAfter(null);
+              setConfirmClear(false);
+              showToast('Sequence cleared', 'info');
+            }}
+          >
+            Clear
+          </Button>
+        </div>
+      </Sheet>
+
+      <Sheet
+        open={Boolean(menuRow)}
+        onClose={() => setMenuIndex(null)}
+        title={menuRow ? menuRow.song.title : ''}
+        subtitle={menuRow ? menuRow.part.label : ''}
+      >
+        {menuRow && menuIndex !== null && (
+          <div className="stack-xs">
+            {/*
+              Reordering without dragging. Drag stays for people who like it,
+              but on a touch list it is the least reliable gesture there is and
+              it was the only one.
+            */}
+            <Button
+              block
+              variant="quiet"
+              disabled={menuIndex === 0}
+              onClick={() => {
+                moveSlot(menuIndex, menuIndex - 1);
+                setMenuIndex(menuIndex - 1);
+              }}
+            >
+              <Icon name="arrowUp" size={14} /> Move up
+            </Button>
+            <Button
+              block
+              variant="quiet"
+              disabled={menuIndex === resolved.length - 1}
+              onClick={() => {
+                moveSlot(menuIndex, menuIndex + 1);
+                setMenuIndex(menuIndex + 1);
+              }}
+            >
+              <Icon name="arrowDown" size={14} /> Move down
+            </Button>
+            <Button
+              block
+              variant="quiet"
+              onClick={() => {
+                setInsertAfter(menuIndex);
+                setMenuIndex(null);
+                showToast('Now tap the part to add after this one', 'info');
+              }}
+            >
+              <Icon name="add" size={14} /> Insert a part after this
+            </Button>
+            <Button
+              block
+              variant="quiet"
+              onClick={() => {
+                duplicateSlot(menuIndex);
+                setMenuIndex(null);
+              }}
+            >
+              <Icon name="copy" size={14} /> Duplicate
+            </Button>
+            <Button
+              block
+              variant="quiet"
+              onClick={() => {
+                setPreviewSlot({ song: menuRow.song, part: menuRow.part });
+                setMenuIndex(null);
+              }}
+            >
+              <Icon name="view" size={14} /> Preview
+            </Button>
+            <Button
+              block
+              variant="danger"
+              onClick={() => {
+                removeSlot(menuIndex);
+                setMenuIndex(null);
+                if (insertAfter !== null && insertAfter > menuIndex) setInsertAfter(insertAfter - 1);
+              }}
+            >
+              <Icon name="trash" size={14} /> Remove from the set
+            </Button>
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={Boolean(keyRow)}
+        onClose={() => setKeyIndex(null)}
+        title={keyRow ? keyRow.song.title : ''}
+        subtitle={keyRow ? keyRow.part.label : ''}
+      >
+        {keyRow && (
+          <div className="stack">
+            {partsOfSongInSet(keyRow.song.id) > 1 && (
+              <div className="filter-row">
+                {(['part', 'song'] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    className={`filter-pill ${keyScope === scope ? 'active' : ''}`}
+                    onClick={() => setKeyScope(scope)}
+                  >
+                    {scope === 'part' ? 'This part' : 'Whole song'}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="hint">
+              {keyScope === 'song'
+                ? `Every part of ${keyRow.song.title} in this set will play in the key you pick.`
+                : 'Only this part moves. The rest of the song keeps its key.'}
+            </p>
+            <div className="key-grid">
+              <button
+                type="button"
+                className={`key-option ${
+                  (keyScope === 'song'
+                    ? resolved
+                        .filter((r) => r.song.id === keyRow.song.id)
+                        .every((r) => !r.item.key)
+                    : !keyRow.item.key)
+                    ? 'active'
+                    : ''
+                }`}
+                onClick={() => {
+                  if (keyScope === 'song') setSongKey(keyRow.song.id, '');
+                  else setSlotKey(keyRow.item.id, '');
+                  setKeyIndex(null);
+                  showToast(
+                    keyScope === 'song'
+                      ? `${keyRow.song.title} back to the written key`
+                      : 'Back to the written key',
+                  );
+                }}
+              >
+                {keyRow.song.key ? `As written (${keyRow.song.key})` : 'As written'}
+              </button>
+              {[...MAJOR_KEYS, ...MINOR_KEYS].map((k) => {
+                const on =
+                  keyScope === 'song'
+                    ? resolved
+                        .filter((r) => r.song.id === keyRow.song.id)
+                        .every((r) => r.item.key === k)
+                    : keyRow.item.key === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    className={`key-option ${on ? 'active' : ''}`}
+                    onClick={() => {
+                      if (keyScope === 'song') setSongKey(keyRow.song.id, k);
+                      else setSlotKey(keyRow.item.id, k);
+                      setKeyIndex(null);
+                      showToast(
+                        keyScope === 'song'
+                          ? `${keyRow.song.title} in ${k}`
+                          : `${keyRow.part.label} in ${k}`,
+                      );
+                    }}
+                  >
+                    {k}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Sheet>
 
       <Sheet
         open={Boolean(previewSlot)}
