@@ -45,14 +45,19 @@ async function loadTs(rel) {
 const {
   MAJOR_KEYS,
   MINOR_KEYS,
+  STARTER_CHORDS,
   diatonicChords,
+  extraChords,
   hasChords,
   hasInlineChord,
+  inlineChords,
   isChordLine,
   keyInterval,
+  moveChord,
   parseChord,
   parseKey,
   prefersFlats,
+  removeChordAt,
   sheetToInline,
   splitChordSegments,
   stripChords,
@@ -585,6 +590,41 @@ console.log('\n16. The controls fit a phone');
       at.valueAt('.key-option', 'min-height', PHONE),
       '38px',
     );
+    eq(
+      'the palette dock stacks its label above the pills',
+      at.valueAt('.chord-dock', 'flex-direction', PHONE),
+      'column',
+    );
+    eq(
+      'the colour chords read as a second choice, not a first',
+      at.valueAt('.chord-pill-extra', 'border-style', PHONE),
+      'dashed',
+    );
+    eq(
+      'a placed chord keeps its name on one line',
+      at.valueAt('.chord-row-name', 'min-width', PHONE),
+      '44px',
+    );
+    eq(
+      'and its word truncates instead of wrapping the row taller',
+      at.valueAt('.chord-row-word', 'white-space', PHONE),
+      'nowrap',
+    );
+    eq(
+      'the actions stay put while the word gives way',
+      at.valueAt('.chord-row-actions', 'flex', PHONE),
+      '0 0 auto',
+    );
+    eq(
+      'removing a chord is red, not just another icon',
+      /var\(--danger\)/.test(at.declaredAt('.icon-btn.danger', 'color', PHONE) || ''),
+      true,
+    );
+    eq(
+      'the live preview is set apart from the words being typed',
+      /var\(--surface-2\)/.test(at.declaredAt('.chord-preview', 'background', PHONE) || ''),
+      true,
+    );
 
     eq(
       'the running-order title can shrink instead of pushing the picker out',
@@ -929,6 +969,207 @@ console.log('\n21. The schema the live database runs cannot drift from the repo'
   // try to name them — worth stating, because it is why slots survived while
   // song keys did not.
   check('lineup items are stored as one jsonb column', /v_lineup->'items'/.test(body));
+}
+
+console.log('\n22. Entering chords: the palette, and fixing a chord that landed wrong');
+{
+  // The palette used to be empty until the song had a key. Two of the
+  // thirty-eight songs in the live database have one, so for the other
+  // thirty-six the panel said "pick a key above" and offered nothing to tap.
+  eq('with no key the six-chord palette is empty', diatonicChords('').length, 0);
+  eq('a keyless song still gets chords to tap', STARTER_CHORDS.length, 8);
+  check(
+    'and they are all real chords',
+    STARTER_CHORDS.every((c) => parseChord(c) !== null),
+  );
+
+  // The second row: the colour chords past the six that work everywhere.
+  eq('G majors colour chords', extraChords('G').join(' '), 'D7 F A7 Em7');
+  eq('D majors', extraChords('D').join(' '), 'A7 C E7 Bm7');
+  eq('F majors are spelled in flats', extraChords('F').join(' '), 'C7 Eb G7 Dm7');
+  eq('A minors get a dominant seventh on the major V', extraChords('Am').join(' '), 'E7 Dm7 Esus4 G7');
+  eq('and no key means no colour chords to guess at', extraChords('').length, 0);
+  check(
+    'the second row never repeats the first',
+    ['G', 'D', 'A', 'F', 'Bb', 'Am', 'Em', 'Dm'].every(
+      (k) => diatonicChords(k).filter((c) => extraChords(k).includes(c)).length === 0,
+    ),
+  );
+  check(
+    'every colour chord is a chord the renderer understands',
+    ['G', 'D', 'A', 'F', 'Bb', 'Am', 'Em', 'Dm'].every((k) =>
+      extraChords(k).every((c) => parseChord(c) !== null),
+    ),
+  );
+
+  // The list the editor shows, and the three things you can do to one.
+  const words = '[G]Amazing [D]grace, how [Em]sweet the [C]sound';
+  const found = inlineChords(words);
+  eq('every chord in the part is listed', found.length, 4);
+  eq(
+    'each one knows the word it is standing on',
+    found.map((c) => `${c.chord}:${c.word}`).join(' '),
+    'G:Amazing D:grace, Em:sweet C:sound',
+  );
+  eq('and where it sits', found[1].index, words.indexOf('[D]'));
+  eq(
+    'a section heading is not a chord',
+    inlineChords('[Verse 1]\n[G]Amazing grace').length,
+    1,
+  );
+  eq(
+    'a chord at the end of a line has no word after it',
+    inlineChords('Amazing grace[C]')[0].word,
+    '',
+  );
+
+  eq(
+    'removing one leaves the words exactly alone',
+    removeChordAt(words, words.indexOf('[Em]')),
+    '[G]Amazing [D]grace, how sweet the [C]sound',
+  );
+  eq(
+    'moving right puts it on the next word',
+    moveChord(words, words.indexOf('[D]'), 1),
+    '[G]Amazing grace, [D]how [Em]sweet the [C]sound',
+  );
+  eq(
+    'moving left puts it on the word before',
+    moveChord(words, words.indexOf('[Em]'), -1),
+    '[G]Amazing [D]grace, [Em]how sweet the [C]sound',
+  );
+  eq(
+    'the first chord cannot move further left',
+    moveChord(words, words.indexOf('[G]'), -1),
+    words,
+  );
+  const lineEnd = 'Amazing grace[C]\nthat saved';
+  eq(
+    'and a chord at the end of a line cannot move right onto the next line',
+    moveChord(lineEnd, lineEnd.indexOf('[C]'), 1),
+    lineEnd,
+  );
+  eq(
+    'punctuation stays with the word it ends',
+    moveChord('[G]Amazing [D]grace, how sweet', words.indexOf('[D]'), 1),
+    '[G]Amazing grace, [D]how sweet',
+  );
+  eq(
+    'moving a chord keeps every other chord where it was',
+    inlineChords(moveChord(words, words.indexOf('[D]'), 1)).map((c) => c.chord).join(' '),
+    'G D Em C',
+  );
+  check(
+    'an unknown index changes nothing',
+    removeChordAt(words, 999) === words && moveChord(words, 999, 1) === words,
+  );
+}
+
+console.log('\n23. The chord panel as a leader actually meets it');
+{
+  const { pageRenderer } = await import('./lib/render-page.mjs');
+  const render = await pageRenderer('./src/pages/SongFormPage', 'SongFormPage');
+  const count = (s, re) => (s.match(re) || []).length;
+  const song = (over) => ({
+    id: 's1', title: 'Grace', artist: 'x', tempo: 'slow', theme: '', key: '',
+    parts: [
+      { id: 'p1', kind: 'verse', label: 'Verse 1', lyrics: '[G]Amazing [D]grace, how sweet' },
+      { id: 'p2', kind: 'chorus', label: 'Chorus', lyrics: 'That saved a wretch like me' },
+    ],
+    analysis: null, ownerId: 'u1', ownerName: 'Kim', teamId: null, sourceSongId: null,
+    createdAt: 1, updatedAt: 1, ...over,
+  });
+  const store = (songs) => ({
+    songs,
+    user: { id: 'u1', name: 'Kim' },
+    refresh: async () => {},
+    notify: () => {},
+  });
+  // SongFormPage hook order: 8 key, 9 chordsOpen, 12 activePart.
+  const at = (route, songs, hooks) => render({ route, store: store(songs), hooks });
+
+  /*
+   * The case that made the feature look missing: a brand new song, which has no
+   * key, because nobody has sung it yet.
+   */
+  const fresh = at({}, [], { 9: true });
+  check(
+    'a song with no key still gets a palette',
+    count(fresh, /class="chord-pill"/g) >= 8,
+    `${count(fresh, /class="chord-pill"/g)} pills`,
+  );
+  check(
+    'and the panel asks for the key beside the chords, not instead of them',
+    /class="key-quick"[\s\S]*?Set a key and these become the chords that fit it/.test(fresh) &&
+      count(fresh, /class="filter-pill"[^>]*>[A-G][#b]?m?</g) >= 8,
+  );
+  check(
+    'the panel says what it needs before the tap, not after',
+    /class="chord-target"[^>]*>Tap a part’s lyrics first/.test(fresh),
+  );
+  check(
+    'the palette rides along above the Save bar',
+    /class="sticky-bar sticky-bar-stack"[\s\S]*?class="chord-dock"[\s\S]*?aria-label="Chords"[\s\S]*?class="sticky-bar-actions"/.test(fresh),
+  );
+  check(
+    'and names the part it will write into',
+    /class="chord-dock-target tiny">Tap the lyrics first</.test(fresh),
+  );
+
+  // The same panel once the leader is standing in a verse that already has
+  // chords in it — the part where a wrong syllable used to be invisible.
+  const editing = at({ id: 's1' }, [song({})], { 12: 'p1' });
+  check(
+    'the panel names the part it is writing into',
+    /class="chord-target"[^>]*>Adding to <strong>Verse 1<\/strong> · 2 chords so far/.test(editing),
+  );
+  check(
+    'every chord already placed is listed with the word it sits on',
+    count(editing, /class="chord-row"/g) === 2 &&
+      /class="chord-row-word tiny">on “Amazing”/.test(editing) &&
+      /class="chord-row-word tiny">on “grace,”/.test(editing),
+  );
+  for (const label of ['Move G one word earlier', 'Move G one word later', 'Remove G', 'Move D one word earlier', 'Remove D']) {
+    check(`a placed chord can be ${label.toLowerCase()}`, editing.includes(`aria-label="${label}"`));
+  }
+  const preview = editing.slice(editing.indexOf('class="chord-preview"'));
+  check(
+    'the part is shown as it will print, under the words being edited',
+    /How Verse 1 reads[\s\S]*?class="lyric-body lyric-body-chorded[\s\S]*?class="chord-note">G<\/span>Amazing /.test(preview) &&
+      /class="chord-note">D<\/span>grace, how sweet/.test(preview),
+  );
+  check(
+    'and only the part being edited, not the whole song',
+    !/That saved a wretch/.test(preview.slice(0, preview.indexOf('<div class="stack-sm">'))),
+    'the chorus has its own textarea and no preview of its own',
+  );
+
+  // A key changes what is offered: the six that fit, then the colour chords.
+  const keyed = at({ id: 's1' }, [song({ key: 'G' })], { 12: 'p1' });
+  check(
+    'a keyed song gets the six that fit',
+    /class="chord-palette">[\s\S]*?>G<\/button>[\s\S]*?>Am<\/button>[\s\S]*?>Bm<\/button>[\s\S]*?>C<\/button>[\s\S]*?>D<\/button>[\s\S]*?>Em<\/button>/.test(keyed),
+  );
+  check(
+    'and a second row of colour chords',
+    /class="chord-palette chord-palette-extra"[\s\S]*?>D7<\/button>[\s\S]*?>F<\/button>[\s\S]*?>A7<\/button>[\s\S]*?>Em7<\/button>/.test(keyed),
+  );
+  check(
+    'it stops asking for a key it already has',
+    !/class="key-quick"/.test(keyed),
+  );
+  check(
+    'the dock carries both rows',
+    count(keyed.slice(keyed.indexOf('chord-dock')), /class="chord-pill/g) === 10,
+  );
+
+  // Nothing is offered that cannot be parsed back.
+  check(
+    'every pill on the panel is a chord',
+    [...keyed.matchAll(/class="chord-pill[^"]*"[^>]*>([^<]+)</g)]
+      .map((m) => m[1].trim())
+      .every((c) => parseChord(c) !== null),
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
