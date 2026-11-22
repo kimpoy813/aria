@@ -5,10 +5,16 @@ import { api } from '../lib/api';
 import {
   MAJOR_KEYS,
   MINOR_KEYS,
+  STARTER_CHORDS,
   diatonicChords,
+  extraChords,
   hasChords,
+  inlineChords,
+  moveChord,
   parseChord,
+  removeChordAt,
 } from '../lib/chords';
+import { LyricView } from '../components/LyricView';
 import {
   defaultPartLabel,
   shouldAutoSplitPaste,
@@ -60,8 +66,11 @@ export function SongFormPage() {
   const [chordDraft, setChordDraft] = useState('');
   const [chordError, setChordError] = useState('');
   // Which part the leader is typing in, so a chord lands where the cursor is.
+  // Kept as a ref for the caret and as state for the panel: the palette has to
+  // say which part it is writing into, and a ref cannot re-render anything.
   const partAreaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const activePartId = useRef<string | null>(null);
+  const [activePart, setActivePart] = useState<string | null>(null);
 
   const [parts, setParts] = useState<SongPart[]>(() => {
     if (existing?.parts.length) return existing.parts.map((p) => ({ ...p }));
@@ -237,6 +246,38 @@ export function SongFormPage() {
       area.focus();
       area.setSelectionRange(pos, pos);
     });
+  };
+
+  /*
+   * What the palette offers, and to whom.
+   *
+   * A song almost never has a key when the words first go in — two of the
+   * thirty-eight songs in the live database do — so a palette that waits for
+   * one is a palette nobody ever sees. With no key the first row falls back to
+   * the chords a guitar player reaches for most, and the panel keeps asking for
+   * the key next to them instead of instead of the chords.
+   */
+  const palette = key ? diatonicChords(key) : STARTER_CHORDS;
+  const extras = extraChords(key);
+  const activeIndex = parts.findIndex((p) => p.id === activePart);
+  const activeSong = activeIndex === -1 ? null : parts[activeIndex];
+  const activeChords = activeSong ? inlineChords(activeSong.lyrics) : [];
+
+  const removeChord = (index: number) => {
+    if (!activeSong) return;
+    setChordError('');
+    updatePart(activeIndex, { lyrics: removeChordAt(activeSong.lyrics, index) });
+  };
+
+  const nudgeChord = (index: number, dir: -1 | 1) => {
+    if (!activeSong) return;
+    const next = moveChord(activeSong.lyrics, index, dir);
+    if (next === activeSong.lyrics) {
+      setChordError('That chord is at the end of its line — there is no next word to move it to.');
+      return;
+    }
+    setChordError('');
+    updatePart(activeIndex, { lyrics: next });
   };
 
   const submitChordDraft = () => {
@@ -627,21 +668,69 @@ export function SongFormPage() {
               syllable, so it stays put when the key changes.
             </p>
 
-            {key ? (
-              <div className="chord-palette">
-                {diatonicChords(key).map((c) => (
+            {/*
+              The palette says which part it is writing into. "Tap the lyrics
+              where the chord goes first" is an error message that arrives
+              *after* a tap; naming the part up front means the tap that lands
+              in the wrong verse is the one that never happens.
+            */}
+            <p className="chord-target" role="status">
+              {activeSong ? (
+                <>
+                  Adding to <strong>{activeSong.label || 'this part'}</strong>
+                  {activeChords.length > 0 ? ` · ${activeChords.length} chords so far` : ''}
+                </>
+              ) : (
+                'Tap a part’s lyrics first — the chord goes where your cursor is.'
+              )}
+            </p>
+
+            <div className="chord-palette">
+              {palette.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="chord-pill"
+                  onClick={() => insertChord(c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+
+            {extras.length > 0 && (
+              <div className="chord-palette chord-palette-extra">
+                {extras.map((c) => (
                   <button
                     key={c}
                     type="button"
-                    className="chord-pill"
+                    className="chord-pill chord-pill-extra"
                     onClick={() => insertChord(c)}
                   >
                     {c}
                   </button>
                 ))}
               </div>
-            ) : (
-              <p className="hint">Pick a key above to get the chords that fit it.</p>
+            )}
+
+            {!key && (
+              <div className="key-quick">
+                <span className="tiny">
+                  Set a key and these become the chords that fit it:
+                </span>
+                <div className="filter-row">
+                  {[...MAJOR_KEYS.slice(0, 5), ...MINOR_KEYS.slice(0, 3)].map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className="filter-pill"
+                      onClick={() => setKey(k)}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
 
             <div className="chord-custom">
@@ -670,6 +759,61 @@ export function SongFormPage() {
               <p className="chord-entry-error" role="alert">
                 {chordError}
               </p>
+            )}
+
+            {/*
+              Every chord already in the part, with the word it is standing on.
+              Until now the only way to see whether a chord had landed on the
+              right syllable was to save the song and open it; the only way to
+              fix one was to find the bracket in the text by hand.
+            */}
+            {activeChords.length > 0 && (
+              <div className="chord-list">
+                <span className="label">
+                  Chords in {activeSong?.label || 'this part'}
+                </span>
+                {activeChords.map((c) => (
+                  <div className="chord-row" key={`${c.index}-${c.chord}`}>
+                    <span className="chord-row-name">{c.chord}</span>
+                    <span className="chord-row-word tiny">
+                      {c.word ? `on “${c.word}”` : 'at the end of the line'}
+                    </span>
+                    <span className="chord-row-actions">
+                      <IconButton
+                        label={`Move ${c.chord} one word earlier`}
+                        onClick={() => nudgeChord(c.index, -1)}
+                      >
+                        <Icon name="arrowUp" size={14} />
+                      </IconButton>
+                      <IconButton
+                        label={`Move ${c.chord} one word later`}
+                        onClick={() => nudgeChord(c.index, 1)}
+                      >
+                        <Icon name="arrowDown" size={14} />
+                      </IconButton>
+                      <IconButton
+                        label={`Remove ${c.chord}`}
+                        className="danger"
+                        onClick={() => removeChord(c.index)}
+                      >
+                        <Icon name="trash" size={14} />
+                      </IconButton>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/*
+              The part as it will print, under the words being edited. A chord
+              two syllables late reads perfectly in a textarea and sounds wrong
+              the moment anyone sings it.
+            */}
+            {activeSong && activeSong.lyrics.trim().length > 0 && (
+              <div className="chord-preview">
+                <span className="label">How {activeSong.label || 'this part'} reads</span>
+                <LyricView lyrics={activeSong.lyrics} />
+              </div>
             )}
           </div>
         )}
@@ -745,12 +889,15 @@ export function SongFormPage() {
                 }}
                 onFocus={() => {
                   activePartId.current = part.id;
+                  setActivePart(part.id);
                 }}
                 onClick={() => {
                   activePartId.current = part.id;
+                  setActivePart(part.id);
                 }}
                 onKeyUp={() => {
                   activePartId.current = part.id;
+                  setActivePart(part.id);
                 }}
                 placeholder={
                   i === 0 && !hasLyrics
@@ -859,21 +1006,57 @@ export function SongFormPage() {
         </div>
       )}
 
-      <div className="sticky-bar">
-        <Button
-          onClick={() => navigate(editing && existing ? `/songs/${existing.id}` : '/songs')}
-          style={{ flex: 1 }}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={submit}
-          disabled={busy}
-          style={{ flex: 2 }}
-        >
-          {busy ? 'Saving…' : 'Save'}
-        </Button>
+      <div className={`sticky-bar${chordsOpen ? ' sticky-bar-stack' : ''}`}>
+        {/*
+          The palette rides along at the bottom of the screen. Entering chords
+          is a two-handed job — one thumb in the words, one on a chord — and
+          the panel is a scroll away from wherever the caret happens to be.
+        */}
+        {chordsOpen && (
+          <div className="chord-dock" role="group" aria-label="Chords">
+            <span className="chord-dock-target tiny">
+              {activeSong ? activeSong.label || 'This part' : 'Tap the lyrics first'}
+            </span>
+            <div className="chord-palette">
+              {palette.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="chord-pill"
+                  onClick={() => insertChord(c)}
+                >
+                  {c}
+                </button>
+              ))}
+              {extras.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="chord-pill chord-pill-extra"
+                  onClick={() => insertChord(c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="sticky-bar-actions">
+          <Button
+            onClick={() => navigate(editing && existing ? `/songs/${existing.id}` : '/songs')}
+            style={{ flex: 1 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={submit}
+            disabled={busy}
+            style={{ flex: 2 }}
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
       </div>
 
       <Sheet

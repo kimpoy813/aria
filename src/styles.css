@@ -1548,6 +1548,109 @@ select {
   color: var(--danger);
 }
 
+/* Which part the palette is writing into — the question the old panel left
+   to be answered by an error message after the fact. */
+.chord-target {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.chord-target strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* The colour chords: a second row, visually quieter than the six that work
+   everywhere in the key. */
+.chord-palette-extra {
+  margin-top: -2px;
+}
+.chord-pill-extra {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+}
+
+/* Asking for the key beside the chords, not instead of them. */
+.key-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Every chord already placed, with the word it stands on and the three things
+   a leader needs to do to one: earlier, later, gone. */
+.chord-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.chord-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.chord-row-name {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+}
+.chord-row-word {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.chord-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+.icon-btn.danger {
+  color: var(--danger);
+}
+
+/* The part as it will print, right under the words being edited. */
+.chord-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+/*
+ * The palette, pinned above the Save bar. Entering chords is two-handed — one
+ * thumb in the words, one on a chord — and the panel is a scroll away from
+ * wherever the caret happens to be.
+ */
+.chord-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 4px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.chord-dock-target {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 /* --------------------------------------------------------------- lyrics */
 
 .lyric-chord {

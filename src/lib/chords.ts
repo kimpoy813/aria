@@ -467,3 +467,117 @@ export function diatonicChords(key: string | null | undefined): string[] {
   const degrees = parsed.minor ? MINOR_DEGREES : MAJOR_DEGREES;
   return degrees.map(([offset, quality]) => `${spellPitch(parsed.pc + offset, flat)}${quality}`);
 }
+
+/**
+ * The colour chords a band reaches for past the six diatonic ones: the
+ * dominant seventh, the flat seven borrowed from the parallel mode, and the
+ * secondary dominant that walks into the V. Offered as a second row so the
+ * first six stay the six that work everywhere in the key.
+ */
+const MAJOR_EXTRAS: [number, string][] = [
+  [7, '7'],
+  [10, ''],
+  [2, '7'],
+  [9, 'm7'],
+];
+
+// Natural minor: the dominant seventh on the major V, the minor iv seventh,
+// the suspended V, and the seventh on the flat seven — which is how a minor-key
+// song walks back to its relative major.
+const MINOR_EXTRAS: [number, string][] = [
+  [7, '7'],
+  [5, 'm7'],
+  [7, 'sus4'],
+  [10, '7'],
+];
+
+/** The second row of the palette — empty until a key is known. */
+export function extraChords(key: string | null | undefined): string[] {
+  const parsed = parseKey(key);
+  if (!parsed) return [];
+  const flat = prefersFlats(key);
+  const degrees = parsed.minor ? MINOR_EXTRAS : MAJOR_EXTRAS;
+  return degrees.map(([offset, quality]) => `${spellPitch(parsed.pc + offset, flat)}${quality}`);
+}
+
+/**
+ * What to offer when the song has no key yet.
+ *
+ * Almost every song in a real library starts with the words and nothing else —
+ * two of thirty-eight songs in the live database carry a key. A palette that
+ * waits for a key is a palette nobody sees, so the first row falls back to the
+ * chords a guitar player reaches for most, and the panel keeps asking for the
+ * key beside them.
+ */
+export const STARTER_CHORDS = ['G', 'D', 'Em', 'C', 'Am', 'F', 'A', 'E'];
+
+/** One chord marker in the text: what it says, where it sits, what it sits on. */
+export interface InlineChord {
+  chord: string;
+  /** Offset of the `[` in the lyric text. */
+  index: number;
+  /** The word after the marker — empty when it is the last thing on the line. */
+  word: string;
+}
+
+/**
+ * Every chord marker in a part, in reading order.
+ *
+ * Brackets that are not chords — `[Verse 1]`, a stray `[?]` — are left out, so
+ * the list the editor shows is exactly the list the renderer will draw.
+ */
+export function inlineChords(text: string): InlineChord[] {
+  const found: InlineChord[] = [];
+  const re = /\[[^\]\n]{0,12}\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const inner = m[0].slice(1, -1);
+    if (!inner || parseChord(inner) === null) continue;
+    const after = text.slice(m.index + m[0].length);
+    const word = /^[^\S\n]*([^\s\[]+)/.exec(after)?.[1] ?? '';
+    found.push({ chord: inner, index: m.index, word });
+  }
+  return found;
+}
+
+/** Drops the marker at `index` and leaves the words exactly as they were. */
+export function removeChordAt(text: string, index: number): string {
+  const at = inlineChords(text).find((c) => c.index === index);
+  if (!at) return text;
+  return text.slice(0, index) + text.slice(index + at.chord.length + 2);
+}
+
+/**
+ * Slides a chord one word left or right.
+ *
+ * A chord belongs to a syllable, and the only mistake worth one tap to fix is
+ * "that is the word before the one I meant". Moving by a word rather than by a
+ * character is what makes the fix land where the ear expects it. Returns the
+ * text unchanged at the ends of a line — there is no word out there to move
+ * onto, and inventing one would put the chord on the wrong line.
+ */
+export function moveChord(text: string, index: number, dir: -1 | 1): string {
+  const at = inlineChords(text).find((c) => c.index === index);
+  if (!at) return text;
+  const marker = `[${at.chord}]`;
+  const rest = text.slice(0, index) + text.slice(index + marker.length);
+
+  if (dir === 1) {
+    /*
+     * Past the word it sat on *and* past the punctuation and space after it, so
+     * the chord lands at the start of the next word rather than at the end of
+     * this one — "grace, [D]how", not "grace,[D] how". A newline stops the
+     * search: the next word is on another line and a chord does not belong to
+     * a line break.
+     */
+    const ahead = /^[^\S\n]*[^\s\[\n]+[^\S\n]*/.exec(rest.slice(index));
+    if (!ahead) return text;
+    const to = index + ahead[0].length;
+    return rest.slice(0, to) + marker + rest.slice(to);
+  }
+
+  const back = /([^\s\[\n]+)[^\S\n]*$/.exec(rest.slice(0, index));
+  if (!back || back.index === undefined) return text;
+  const to = back.index;
+  return rest.slice(0, to) + marker + rest.slice(to);
+}
