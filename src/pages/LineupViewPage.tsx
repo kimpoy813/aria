@@ -40,11 +40,11 @@ export function LineupViewPage() {
   const [showChords, setShowChords] = useState(true);
   const [offset, setOffset] = useState(0);
   /*
-   * Open by default. This is the owner's page and the key is the thing they came
-   * here to set; a disclosure that hides it behind a tap is how a control ends
-   * up shipped and never found. It never prints, and one tap puts it away.
+   * Collapsed by default. The key section is useful when the band is setting
+   * keys, but opening a lineup to read it doesn't need a wall of key pickers
+   * up front — the reader taps "Key" to open it. One tap puts it away.
    */
-  const [orderOpen, setOrderOpen] = useState(true);
+  const [orderOpen, setOrderOpen] = useState(false);
   // Id of the row being saved — a slot id, or a song id for a whole-song save.
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
