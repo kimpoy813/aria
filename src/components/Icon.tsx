@@ -22,6 +22,7 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'drag'
+  | 'more'
   | 'share'
   | 'copy'
   | 'check'
@@ -108,6 +109,13 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   moon: <path d="M20 14.4A8.3 8.3 0 0 1 9.6 4a8.4 8.4 0 1 0 10.4 10.4Z" />,
+  more: (
+    <>
+      <circle cx="12" cy="5.6" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="18.4" r="1.5" fill="currentColor" stroke="none" />
+    </>
+  ),
   drag: (
     <>
       <circle cx="9.2" cy="6.4" r="1.15" fill="currentColor" stroke="none" />

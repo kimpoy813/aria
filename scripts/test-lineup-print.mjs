@@ -578,6 +578,46 @@ console.log('\n4. The print sheet (resolved from the built CSS)');
       );
     }
 
+    /*
+     * The builder's own layout, resolved at phone width: rows short enough to
+     * scan, a key that reads as a label, and a bar that reports the set above
+     * the buttons instead of hiding it behind a scroll.
+     */
+    const PHONE = 375;
+    const at = (sel, prop) => screen.valueAt(sel, prop, PHONE);
+    check(
+      'the sequence groups a song’s parts under one heading',
+      at('.seq-run-head', 'font-weight') === '600',
+      `font-weight=${at('.seq-run-head', 'font-weight')}`,
+    );
+    check(
+      'the key chip takes the space of a label, not a dropdown',
+      at('.key-chip', 'flex') === '0 0 auto' && at('.key-chip', 'min-width') === '46px',
+      `flex=${at('.key-chip', 'flex')} min-width=${at('.key-chip', 'min-width')}`,
+    );
+    check(
+      'a key the builder moved is picked out in the brand colour',
+      /var\(--brand-text\)/.test(screen.declaredAt('.key-chip.moved', 'color', PHONE) || ''),
+    );
+    check(
+      'the key sheet offers thumb-sized targets in a wrapping grid',
+      at('.key-option', 'min-height') === '38px' &&
+        at('.key-grid', 'grid-template-columns') === 'repeat(auto-fill,minmax(56px,1fr))',
+      `min-height=${at('.key-option', 'min-height')}`,
+    );
+    check(
+      'the builder’s bar stacks its summary above the buttons',
+      at('.sticky-bar.sticky-bar-stack', 'flex-direction') === 'column' &&
+        at('.sticky-bar.sticky-bar-stack', 'align-items') === 'stretch' &&
+        at('.sticky-bar-actions', 'display') === 'flex',
+      `flex-direction=${at('.sticky-bar.sticky-bar-stack', 'flex-direction')}`,
+    );
+    check(
+      'the guardrail sentence is quiet until the set is ready',
+      /var\(--muted\)/.test(screen.declaredAt('.guardrail', 'color', PHONE) || '') &&
+        /var\(--brand-text\)/.test(screen.declaredAt('.guardrail.ok', 'color', PHONE) || ''),
+    );
+
     check(
       'the print footer is hidden on screen',
       screen.valueAt('.print-only', 'display', 375) === 'none',
@@ -857,47 +897,157 @@ console.log('\n5. The preview page, actually rendered');
   );
 }
 
-console.log('\n5b. The builder offers a key for every part it is given');
+console.log('\n5b. The builder: grouped runs, the key as a chip, per-slot actions, an insert-at');
 {
   const render = await pageRenderer('./src/pages/BuilderPage', 'BuilderPage');
   const part = (id, label, lyrics) => ({ id, kind: 'verse', label, lyrics });
-  // No key on the song and no chords in a single line of it — the common case.
-  const wordOnly = {
-    id: 'w', title: 'How Great', artist: 'x', tempo: 'slow', theme: '', key: '',
-    parts: [part('w1', 'Verse 1', 'How great Thou art'), part('w2', 'Chorus', 'Then sings my soul')],
-    analysis: null, ownerId: 'u1', ownerName: 'Kim', teamId: null, sourceSongId: null,
-    createdAt: 1, updatedAt: 1,
+  const base = {
+    artist: 'x', tempo: 'slow', theme: '', analysis: null, ownerId: 'u1', ownerName: 'Kim',
+    teamId: null, sourceSongId: null, createdAt: 1, updatedAt: 1,
   };
-  const slot = (id, partId, label, lyrics) => ({
-    id, songId: 'w', partId, partLabel: label, lyrics, key: '', songTitle: 'How Great',
+  // A keyed song placed twice, and a song with no key and no chords at all.
+  const grace = {
+    ...base, id: 'g', title: 'Grace', key: 'G',
+    parts: [part('g1', 'Verse 1', 'Amazing grace'), part('g2', 'Chorus', 'How sweet the sound')],
+  };
+  const plain = {
+    ...base, id: 'w', title: 'How Great', key: '',
+    parts: [part('w1', 'Verse 1', 'How great Thou art')],
+  };
+  const slot = (id, songId, songTitle, partId, label, lyrics, key) => ({
+    id, songId, songTitle, partId, partLabel: label, lyrics, key,
   });
+  const store = {
+    lineups: [{
+      id: 'L1', name: 'Sunday', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
+      items: [
+        slot('i1', 'g', 'Grace', 'g1', 'Verse 1', 'Amazing grace', 'D'),
+        slot('i2', 'g', 'Grace', 'g2', 'Chorus', 'How sweet the sound', ''),
+        slot('i3', 'w', 'How Great', 'w1', 'Verse 1', 'How great Thou art', ''),
+      ],
+      shareToken: 't', sourceLineupId: null, createdAt: 1, updatedAt: 1,
+      lastUsedAt: null, useCount: 0, lastUsedReason: null,
+    }],
+    songs: [grace, plain],
+    user: { id: 'u1', name: 'Kim' },
+  };
+  // useState order in BuilderPage: 14 keyIndex, 15 menuIndex, 16 confirmClear,
+  // 17 insertAfter, 18 keyScope.
+  const at = (hooks) => render({ route: { id: 'L1' }, store, hooks });
+  const count = (s, re) => (s.match(re) || []).length;
 
-  const html = render({
-    route: { id: 'L1' },
-    store: {
-      lineups: [{
-        id: 'L1', name: 'Sunday', theme: '', ownerId: 'u1', ownerName: 'Kim', teamId: null,
-        items: [
-          slot('i1', 'w1', 'Verse 1', 'How great Thou art'),
-          slot('i2', 'w2', 'Chorus', 'Then sings my soul'),
-        ],
-        shareToken: 't', sourceLineupId: null, createdAt: 1, updatedAt: 1,
-        lastUsedAt: null, useCount: 0, lastUsedReason: null,
-      }],
-      songs: [wordOnly],
-      user: { id: 'u1', name: 'Kim' },
-    },
-  });
-
-  const selects = (html.match(/class="select slot-key-select"/g) || []).length;
+  const html = at();
+  const chips = count(html, /class="key-chip/g);
+  check('every slot still has a key control', chips === 3, `${chips} chips for 3 slots`);
   check(
-    'a song with no key and no chords still gets a key picker per part',
-    selects === 2,
-    `${selects} pickers`,
+    'and it is a chip, not a select repeated on every row',
+    !/slot-key-select/.test(html) && !/slot-key-label/.test(html),
   );
   check(
-    'each one labelled as the key of the part it sits on',
-    (html.match(/class="slot-key-label"[^>]*>\s*Key\s*</g) || []).length === 2,
+    'a key the builder moved says so, and where it went',
+    /class="key-chip moved"[^>]*>→ D</.test(html) && /title="Moved to D from G"/.test(html),
+  );
+  check(
+    'a key that was not moved shows just the written key',
+    /class="key-chip"[^>]*title="As written in G"[^>]*>G</.test(html),
+  );
+  check(
+    'a song with no key and no chords still gets a key control per part',
+    /class="key-chip"[^>]*>Key</.test(html),
+    'How Great has no written key, so its chip says "Key"',
+  );
+  check(
+    'the parts of one song are grouped under a single heading',
+    count(html, /class="seq-run-head"/g) === 2,
+    'two songs, two headings',
+  );
+  check(
+    'which counts the parts instead of repeating the title',
+    /class="truncate seq-run-title">Grace<\/span><span class="tiny">2 parts<\/span>/.test(html) &&
+      /class="truncate seq-run-title">How Great<\/span><span class="tiny">1 part<\/span>/.test(html),
+  );
+  check(
+    'every slot is still rendered inside its run',
+    count(html, /class="seq-item"/g) === 3,
+  );
+  check(
+    'the guardrail is one sentence that names what is missing',
+    /class="guardrail" role="status">A set needs a fast song — you have 3 parts from 2 songs, 0 fast and 3 slow\./.test(html) &&
+      !/guardrail-pill/.test(html),
+  );
+  check(
+    'the sticky bar carries a running summary of the sequence',
+    /class="sticky-bar sticky-bar-stack">[\s\S]*?class="sticky-bar-summary"[\s\S]*?>3 parts · 2 songs<\/span>[\s\S]*?class="sticky-bar-todo">needs a fast song<\/span>[\s\S]*?class="sticky-bar-actions">/.test(html),
+  );
+  check(
+    'Clear is there, but nothing is confirmed yet',
+    /Clear<\/button>/.test(html) && !/sheet-backdrop/.test(html),
+  );
+
+  // Clear asks first.
+  check(
+    'Clear asks before it wipes the sequence',
+    /aria-label="Clear the sequence\?"/.test(at({ 16: true })) &&
+      /All 3 parts will be removed\. The songs themselves are untouched\./.test(at({ 16: true })),
+  );
+
+  // Per-slot actions in one sheet — no dragging required.
+  const menu = at({ 15: 2 });
+  check(
+    'a slot’s actions live in one sheet, named after the slot',
+    /role="dialog" aria-modal="true" aria-label="How Great"[\s\S]*?<p class="small">Verse 1<\/p>/.test(menu),
+  );
+  for (const action of ['Move up', 'Move down', 'Insert a part after this', 'Duplicate', 'Preview', 'Remove from the set']) {
+    check(`the sheet offers “${action}”`, menu.includes(action));
+  }
+  check(
+    'the last slot cannot move down — the action is disabled, not missing',
+    count(menu, /<button type="button" class="btn btn-quiet btn-block" disabled/g) === 1,
+  );
+  check(
+    'and the first slot cannot move up',
+    count(at({ 15: 0 }), /<button type="button" class="btn btn-quiet btn-block" disabled/g) === 1,
+  );
+  check(
+    'a middle slot can go either way',
+    count(at({ 15: 1 }), /<button type="button" class="btn btn-quiet btn-block" disabled/g) === 0,
+  );
+
+  // An insert lands where the builder asked for it.
+  check(
+    'the builder is told where the next part will land',
+    /class="insert-banner"[\s\S]*?Adding after Grace · Chorus/.test(at({ 17: 1 })),
+  );
+
+  // The key sheet reaches one part, or the whole song.
+  const keySheet = at({ 14: 1 });
+  check(
+    'the key sheet names the song and the part it is changing',
+    /role="dialog" aria-modal="true" aria-label="Grace"[\s\S]*?<p class="small">Chorus<\/p>/.test(keySheet),
+  );
+  check(
+    'it says what the choice does to the rest of the song',
+    /Only this part moves\. The rest of the song keeps its key\./.test(keySheet),
+  );
+  check(
+    'it offers the same change for the whole song when it is played twice',
+    /class="filter-pill active">This part<\/button>[\s\S]*?class="filter-pill ">Whole song<\/button>/.test(keySheet),
+  );
+  check(
+    'the picker offers every key, major and minor, plus "as written"',
+    count(keySheet, /class="key-option/g) === 1 + 11 + 10,
+  );
+  check(
+    'the key currently in force is marked',
+    /class="key-option active"[^>]*>As written \(G\)</.test(keySheet),
+  );
+  check(
+    'a song played once is not offered a whole-song scope',
+    !/Whole song/.test(at({ 14: 2, 18: 'song' })),
+  );
+  check(
+    'and the whole-song hint replaces the per-part one',
+    /Every part of Grace in this set will play in the key you pick\./.test(at({ 14: 1, 18: 'song' })),
   );
 }
 
