@@ -115,6 +115,7 @@ function purgeLegacyDemoData() {
   if (demoUserIds.size === 0 && demoTeamIds.size === 0) return;
 
   db.users = db.users.filter((u) => !demoUserIds.has(u.id));
+  invalidateUserTotal();
   db.teams = db.teams.filter((t) => !demoTeamIds.has(t.id));
   db.songs = db.songs.filter(
     (s) => !demoUserIds.has(s.ownerId) && !(s.teamId && demoTeamIds.has(s.teamId)),
@@ -483,6 +484,7 @@ function ensureUserRecord(identity) {
       createdAt: now(),
     };
     db.users.push(user);
+    invalidateUserTotal();
     save();
   } else {
     let dirty = false;
@@ -630,6 +632,7 @@ function purgeUserContent(userId) {
   }
 
   db.users = db.users.filter((u) => u.id !== userId);
+  invalidateUserTotal();
 }
 
 const api = express.Router();
@@ -963,6 +966,61 @@ function reconcileApkCounts({ throttle = true } = {}) {
   return syncApkCountAfterSave().then(() => apkCounts());
 }
 
+/**
+ * The user total the admin dashboard reports, for the public /app page.
+ *
+ * The number is read from the users table when the store can do that: a container
+ * only holds the users it has hydrated, so `db.users` alone would undercount on
+ * any deployment with more than one device signed in. Two kinds of account are
+ * never rows in that table but *are* counted by the admin — the built-in admin,
+ * which signs in with a key, and the demo driver's seeded accounts — so they are
+ * added back here. Without that the page would sit one behind the admin screen.
+ *
+ * Cached briefly: /app/release is polled, and a user total does not move fast
+ * enough to justify a query on every poll.
+ */
+const USER_TOTAL_TTL_MS = 15000;
+let userTotalCache = { at: 0, value: null };
+
+/** Drops the cached total the moment the user list changes. */
+function invalidateUserTotal() {
+  userTotalCache = { at: 0, value: null };
+}
+
+async function publicUserTotal() {
+  const now = Date.now();
+  if (userTotalCache.value !== null && now - userTotalCache.at < USER_TOTAL_TTL_MS) {
+    return userTotalCache.value;
+  }
+
+  let registered = null;
+  if (store && typeof store.countUsers === 'function') {
+    try {
+      const n = await store.countUsers(db);
+      if (Number.isFinite(n)) registered = Math.max(0, Math.floor(n));
+    } catch (err) {
+      console.error('[aria] could not count the users:', err?.message || err);
+    }
+  }
+  if (registered === null) {
+    registered = (db.users || []).filter(
+      (u) => u && u.id !== 'user_admin' && !u.isDemo,
+    ).length;
+  }
+
+  const known = new Set((db.users || []).map((u) => u?.id).filter(Boolean));
+  let extra = 0;
+  if (adminGate && !known.has('user_admin')) extra += 1;
+  if (auth?.driver === 'demo' && typeof auth.listAccounts === 'function') {
+    for (const acc of auth.listAccounts()) {
+      if (acc?.id && !known.has(acc.id)) extra += 1;
+    }
+  }
+
+  userTotalCache = { at: now, value: registered + extra };
+  return userTotalCache.value;
+}
+
 /** Shape the release payload from whatever package we can actually serve. */
 function describeApk(file) {
   let stat = null;
@@ -1026,12 +1084,16 @@ api.get('/app/release', async (req, res) => {
   // in the background keeps this poll instant while the next one is accurate.
   void reconcileApkCounts();
   const file = await ensureApk({ wait });
-  const release = describeApk(file || '');
+  const [release, totalUsers] = await Promise.all([
+    describeApk(file || ''),
+    publicUserTotal(),
+  ]);
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     ...release,
     notes: clean(process.env.ARIA_APK_NOTES || '', 400) || null,
     downloads: release.downloads,
+    totalUsers,
     mirrorStatus: apkMirrorState.status,
     mirrorError: apkMirrorState.status === 'failed' ? apkMirrorState.error : null,
     packageName: clean(process.env.ANDROID_PACKAGE_NAME || 'com.kimpoy813.aria', 120),

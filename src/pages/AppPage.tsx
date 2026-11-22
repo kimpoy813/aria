@@ -239,6 +239,12 @@ export function AppPage() {
   const downloadCount = release?.downloads;
   const count = formatCount(downloadCount);
   const downloadCountLabel = count.label;
+  // The headline figure is the user total the admin dashboard reports, not the
+  // APK click counter: how many people use Aria is the number that means
+  // anything to someone deciding whether to install it.
+  const totalUsers = release?.totalUsers;
+  const userCount = formatCount(totalUsers);
+  const userCountLabel = userCount.label;
   const mirroring = release?.mirrorStatus === 'fetching';
   const mirrorFailed = release?.mirrorStatus === 'failed';
 
@@ -457,9 +463,9 @@ export function AppPage() {
                 <dd className="mono">{release?.packageName ?? 'app.aria.lineups'}</dd>
               </div>
               <div>
-                <dt>Downloads</dt>
-                <dd title={count.exact ? `${count.exact} downloads` : undefined}>
-                  {downloadCountLabel ?? '—'}
+                <dt>Users</dt>
+                <dd title={userCount.exact ? `${userCount.exact} people` : undefined}>
+                  {userCountLabel ?? '—'}
                 </dd>
               </div>
             </dl>
@@ -468,17 +474,23 @@ export function AppPage() {
               <Icon name="download" size={16} />
               {downloading ? 'Starting download…' : 'Download aria.apk'}
             </button>
-            {downloadCountLabel ? (
-              <p
-                className="app-count"
-                aria-live="polite"
-                title={count.exact ? `${count.exact} downloads` : undefined}
-              >
+            {userCountLabel || downloadCountLabel ? (
+              <p className="app-count" aria-live="polite">
                 <Icon name="check" size={13} />
                 <span>
-                  <strong>{downloadCountLabel}</strong>{' '}
-                  {downloadCount === 1 ? 'download' : 'downloads'} so far
-                  <span className="sr-only"> ({count.exact})</span>
+                  {userCountLabel ? (
+                    <>
+                      <strong>{userCountLabel}</strong>{' '}
+                      {totalUsers === 1 ? 'person uses' : 'people use'} Aria
+                    </>
+                  ) : null}
+                  {userCountLabel && downloadCountLabel ? ' · ' : null}
+                  {downloadCountLabel ? (
+                    <>
+                      <strong>{downloadCountLabel}</strong>{' '}
+                      {downloadCount === 1 ? 'download' : 'downloads'}
+                    </>
+                  ) : null}
                 </span>
               </p>
             ) : null}

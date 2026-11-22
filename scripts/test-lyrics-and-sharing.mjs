@@ -393,10 +393,14 @@ My anchor is holding secure
       path.join(process.cwd(), 'src', 'styles.css'),
       'utf8',
     );
+    // Reversed: an open-by-default library is forty accordions of parts before
+    // the builder has picked a single song. Songs start tucked away and the
+    // record holds the ones that have been opened.
     check(
-      'BuilderPage keeps all song parts expanded by default (no songs.slice(0, 3) collapse)',
+      'BuilderPage keeps the song library collapsed until a song is opened',
       !builderSrc.includes('songs.slice(0, 3)') &&
-        builderSrc.includes('const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})') &&
+        builderSrc.includes('const [expanded, setExpanded] = useState<Record<string, boolean>>({})') &&
+        builderSrc.includes('const isOpen = Boolean(expanded[song.id]);') &&
         /\.part-chip\s*\{[\s\S]*?touch-action:\s*manipulation/m.test(stylesSrc),
     );
     check(

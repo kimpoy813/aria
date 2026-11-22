@@ -261,6 +261,11 @@ export class FileStore {
     }
   }
 
+  /** Registered accounts, excluding the built-in admin and demo placeholders. */
+  async countUsers(db) {
+    return (db?.users || []).filter((u) => u && u.id !== 'user_admin' && !u.isDemo).length;
+  }
+
   async countUsersAsDownloads(users) {
     const stats = await this.loadStats();
     const total = Math.max(0, Math.floor(Number(users) || 0));
@@ -472,6 +477,20 @@ export class SupabaseStore {
     if (error) throw new Error(`Could not read the download count: ${error.message}`);
     const row = Array.isArray(data) ? data[0] : data;
     return normaliseSettings({ stats: row?.data }).stats;
+  }
+
+  /**
+   * Registered accounts, straight from the table.
+   *
+   * The public /app page shows this figure and cannot sign in to look it up, and
+   * `db.users` only holds what this container has hydrated — so the count is read
+   * with the service role instead of trusted from memory.
+   */
+  async countUsers() {
+    const client = await this.connect();
+    const { data, error } = await client.from('users').select('id');
+    if (error) throw new Error(`Could not count the users: ${error.message}`);
+    return (data || []).length;
   }
 
   /**

@@ -245,6 +245,8 @@ export interface AppRelease {
   builtAt: string | null;
   notes: string | null;
   downloads: number | null;
+  /** Registered users, the same figure the admin dashboard reports. */
+  totalUsers: number | null;
   packageName: string;
   installType: 'apk' | 'pwa';
   /** How the server got the package: local file, mirror, or nothing yet. */
