@@ -263,6 +263,123 @@ function snapshotSlot(song, part, slotId = uid('slot'), slot = null) {
   };
 }
 
+/** Escapes a value destined for an HTML attribute or text node. */
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Finds a lineup by share token without counting an open.
+ *
+ * Deliberately *not* GET /api/shared/:token: that endpoint stamps `useCount`,
+ * and a link pasted into a group chat is fetched by the chat's link previewer
+ * before anyone taps it. Routing the preview through the real endpoint would
+ * count every paste — and every re-scrape — as somebody singing from the set.
+ */
+function findLineupByShareToken(token) {
+  const raw = String(token || '').trim();
+  if (!raw) return null;
+  const trimmed = raw.replace(/[.,;:!?)]+$/, '');
+  return (
+    db.lineups.find((l) => l.shareToken === raw) ||
+    (trimmed ? db.lineups.find((l) => l.shareToken === trimmed) : null) ||
+    null
+  );
+}
+
+/**
+ * The `<head>` a chat app reads for a shared lineup link.
+ *
+ * Messenger, Viber, WhatsApp and the rest fetch the URL and parse the head; they
+ * never execute the bundle. The shell on its own declares only
+ * `<title>Aria</title>`, so every lineup link previewed as a bare "Aria" with no
+ * idea what was being shared. These tags give the preview the lineup name, how
+ * big the set is, and who built it.
+ */
+function sharedLineupHead(lineup, songCount, origin) {
+  const title = String(lineup.name || '').trim() || 'Shared lineup';
+  const details = [`${songCount} ${songCount === 1 ? 'song' : 'songs'}`];
+  if (lineup.theme) details.push(String(lineup.theme));
+  if (lineup.ownerName) details.push(`Setlist by ${lineup.ownerName}`);
+  const description = details.join(' · ');
+
+  const meta = (attr, name, content) =>
+    `    <meta ${attr}="${name}" content="${escapeHtml(content)}" />`;
+
+  return [
+    `    <title>${escapeHtml(title)} · Aria</title>`,
+    meta('name', 'description', description),
+    meta('property', 'og:site_name', 'Aria'),
+    meta('property', 'og:type', 'website'),
+    meta('property', 'og:title', title),
+    meta('property', 'og:description', description),
+    // Absolute, because a previewer resolving a relative image against nothing
+    // simply shows no thumbnail.
+    meta('property', 'og:image', `${origin}/icons/icon-512.png`),
+    meta('name', 'twitter:card', 'summary'),
+    meta('name', 'twitter:title', title),
+    meta('name', 'twitter:description', description),
+    meta('name', 'twitter:image', `${origin}/icons/icon-512.png`),
+  ].join('\n');
+}
+
+/**
+ * The marked preview block in the built shell.
+ *
+ * `index.html` wraps its title and link-preview tags in these markers so they can
+ * be replaced as one unit. Vite keeps HTML comments in the build output, so the
+ * markers are still there to find at runtime.
+ */
+const PREVIEW_BLOCK = /<!--aria-preview-->[\s\S]*?<!--\/aria-preview-->/;
+
+/** Reads the built shell, swapping in share metadata when the URL is a lineup. */
+function renderShellHtml(req) {
+  const html = fs.readFileSync(path.join(DIST_DIR, 'index.html'), 'utf8');
+  const pathname = (req.originalUrl || req.url || '/').split('?')[0];
+  const match = /^\/s\/([^/?#]+)/.exec(pathname);
+  if (!match) return html;
+
+  let token = match[1];
+  try {
+    token = decodeURIComponent(token);
+  } catch {
+    /* an undecodable token simply will not match a lineup */
+  }
+  const lineup = findLineupByShareToken(token);
+  if (!lineup) return html;
+
+  // publicLineup is pure — it resolves the picks against the library and counts
+  // the distinct songs, which is the figure the shared page itself shows.
+  const { songCount } = publicLineup(lineup, db.songs);
+  const proto = String(
+    req.headers['x-forwarded-proto'] || req.protocol || 'https',
+  ).split(',')[0].trim();
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  const head = sharedLineupHead(lineup, songCount, `${proto}://${host}`);
+
+  /*
+   * The shell's own preview tags sit between these markers, and the whole block
+   * is replaced rather than appended to. A previewer takes the first tag it
+   * finds, so leaving the defaults in place ahead of the lineup's own would let
+   * the generic "Aria" win — the exact bug this fixes.
+   */
+  if (!PREVIEW_BLOCK.test(html)) {
+    // Markers missing (someone edited the template): fall back to the title, so
+    // the preview still names the lineup instead of silently going generic.
+    console.error('[aria] preview markers missing from the app shell');
+    return html.replace(/<title>[^<]*<\/title>/, head);
+  }
+  return html.replace(
+    PREVIEW_BLOCK,
+    `<!--aria-preview-->\n${head}\n    <!--/aria-preview-->`,
+  );
+}
+
 function publicLineup(lineup, songs) {
   const items = [];
   const songKeys = new Set();
@@ -2516,9 +2633,22 @@ if (fs.existsSync(DIST_DIR)) {
       },
     }),
   );
-  app.get('*', (_req, res) => {
+  /*
+   * SPA fallback. The shell is rendered rather than sent as a file so a shared
+   * lineup URL can carry its own preview metadata — see renderShellHtml.
+   */
+  app.get('*', (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.sendFile(path.join(DIST_DIR, 'index.html'));
+    let html;
+    try {
+      html = renderShellHtml(req);
+    } catch (err) {
+      // A missing or unreadable shell must not turn every route into a 500.
+      console.error('[aria] could not render the app shell:', err?.message || err);
+      return res.sendFile(path.join(DIST_DIR, 'index.html'));
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   });
 }
 
