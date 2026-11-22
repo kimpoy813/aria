@@ -1,5 +1,5 @@
 import { isChordLine } from '../lib/lyricSplit';
-import { splitChordSegments, stripChords } from '../lib/chords';
+import { parseChord, splitChordSegments, stripChords } from '../lib/chords';
 
 interface LyricViewProps {
   lyrics: string;
@@ -45,7 +45,15 @@ export function LyricView({ lyrics, large = false, showChords = true }: LyricVie
             if (isChordLine(line)) {
               return (
                 <div key={li} className="lyric-line lyric-chord">
-                  {line}
+                  {/* Strip the brackets from chord markers ([C] -> C) so a
+                      chord-only part shows just the chord names, not the
+                      bracket syntax. Brackets that aren't chords are left
+                      alone. */}
+                  {line.replace(
+                    /\[([^\]]{0,12})\]/g,
+                    (whole, inner: string) =>
+                      parseChord(inner) !== null ? inner : whole,
+                  )}
                 </div>
               );
             }
