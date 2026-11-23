@@ -8,7 +8,6 @@ import {
   canPromptInstall,
   detectPlatform,
   formatBytes,
-  formatCount,
   isInstalled,
   promptInstall,
   shortDigest,
@@ -104,6 +103,26 @@ const FAQ: { q: string; a: string }[] = [
   {
     q: 'How do I delete my account?',
     a: 'Sign in, open the account sheet from your avatar, and choose Delete account. Songs, lineups and team memberships go with it.',
+  },
+  {
+    q: 'How do I copy lyrics?',
+    a: 'On any song or shared lineup, tap “Copy lyrics”. It copies the words of every part as plain text, one section after another — ready to paste into a message, a slide, or a printable sheet.',
+  },
+  {
+    q: 'How do I copy lyrics with chords?',
+    a: 'Turn “Chords on” first, then tap “Copy lyrics”. The chords come along with the words, shown inline as [C] style markers on the syllable they fall on. If chords are hidden, only the words are copied.',
+  },
+  {
+    q: 'Can I change the key of just one part?',
+    a: 'Yes. On a shared lineup, each part has its own − / key / + control beside it — tap it to move that one part up or down a semitone without touching the rest of the set. The whole-set bar still moves everything at once.',
+  },
+  {
+    q: 'What is a “part”?',
+    a: 'A part is one labeled section of a song — Verse 1, Chorus, Bridge, and so on. Songs are stored part by part, so you can drop a single chorus or a whole song into a lineup, and reuse any section later without re-typing it.',
+  },
+  {
+    q: 'How do I build a lineup?',
+    a: 'Open Lineups, add parts from your library, and drag to reorder. A lineup needs at least two parts from two different songs, including one fast and one slow track. Share it as a view-only link when it is ready.',
   },
 ];
 
@@ -236,17 +255,6 @@ export function AppPage() {
   const size = formatBytes(release?.sizeBytes);
   const digest = shortDigest(release?.sha256);
   const apkReady = Boolean(release?.available && release.url);
-  const downloadCount = release?.downloads;
-  const count = formatCount(downloadCount);
-  const downloadCountLabel = count.label;
-  // The headline figure is the user total the admin dashboard reports, not the
-  // APK click counter: how many people use Aria is the number that means
-  // anything to someone deciding whether to install it.
-  const totalUsers = release?.totalUsers;
-  const userCount = formatCount(totalUsers);
-  const userCountLabel = userCount.label;
-  const mirroring = release?.mirrorStatus === 'fetching';
-  const mirrorFailed = release?.mirrorStatus === 'failed';
 
   const primaryLabel = useMemo(() => {
     if (installed) return 'Aria is installed';
@@ -395,162 +403,115 @@ export function AppPage() {
           </div>
         </section>
 
-        {/* -------------------------------------------------------- at a glance */}
-        <section className="app-card app-glance" aria-label="At a glance">
-          <div className="app-glance-row">
-            <span className="app-glance-icon">
-              <Icon name="device" size={16} />
-            </span>
-            <div>
-              <div className="app-glance-title">On your phone</div>
-              <p className="tiny muted">
-                Android 8 and newer. {apkReady ? `${size} install file, sideloaded once.` : 'Install from the browser in seconds.'}
-              </p>
-            </div>
-          </div>
-          <div className="app-glance-row">
-            <span className="app-glance-icon">
-              <Icon name="monitor" size={16} />
-            </span>
-            <div>
-              <div className="app-glance-title">Anywhere else</div>
-              <p className="tiny muted">
-                The same account on the web — iPhone, tablet and desktop included.
-              </p>
-            </div>
-          </div>
-          <div className="app-glance-row">
-            <span className="app-glance-icon">
-              <Icon name="lock" size={16} />
-            </span>
-            <div>
-              <div className="app-glance-title">Before you install</div>
-              <p className="tiny muted">
-                Android will warn that this came from outside Google Play. That is expected for a
-                direct download — the checksum below is here so you can verify the file.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* --------------------------------------------------------- download */}
-        {apkReady ? (
-          <section className="app-card app-download" aria-labelledby="download-title">
-            <div className="app-download-head">
-              <div>
-                <h2 id="download-title" className="app-card-title">
-                  Download the APK
-                </h2>
-                <p className="tiny muted">
-                  Direct install file · {release?.fileName ?? 'aria.apk'}
-                  {release?.version ? ` · v${release.version}` : ''}
-                </p>
-              </div>
-              <span className="chip brand">Android</span>
-            </div>
-
-            <dl className="app-specs">
-              <div>
-                <dt>Size</dt>
-                <dd>{size ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Version</dt>
-                <dd>{release?.version ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Package</dt>
-                <dd className="mono">{release?.packageName ?? 'app.aria.lineups'}</dd>
-              </div>
-              <div>
-                <dt>Users</dt>
-                <dd title={userCount.exact ? `${userCount.exact} people` : undefined}>
-                  {userCountLabel ?? '—'}
-                </dd>
-              </div>
-            </dl>
-
-            <button type="button" className="btn btn-primary btn-block" onClick={startDownload}>
-              <Icon name="download" size={16} />
-              {downloading ? 'Starting download…' : 'Download aria.apk'}
-            </button>
-            {userCountLabel || downloadCountLabel ? (
-              <p className="app-count" aria-live="polite">
-                <Icon name="check" size={13} />
-                <span>
-                  {userCountLabel ? (
-                    <>
-                      <strong>{userCountLabel}</strong>{' '}
-                      {totalUsers === 1 ? 'person uses' : 'people use'} Aria
-                    </>
-                  ) : null}
-                  {userCountLabel && downloadCountLabel ? ' · ' : null}
-                  {downloadCountLabel ? (
-                    <>
-                      <strong>{downloadCountLabel}</strong>{' '}
-                      {downloadCount === 1 ? 'download' : 'downloads'}
-                    </>
-                  ) : null}
+        {/* -------------------------------------------------------- install */}
+        <section className="app-section" aria-labelledby="install-title">
+          <h2 id="install-title" className="app-section-title">
+            Install Aria
+          </h2>
+          <div className="app-install">
+            <article className="app-card app-install-card">
+              <div className="app-install-head">
+                <span className="app-install-icon">
+                  <Icon name="device" size={18} />
                 </span>
-              </p>
+                <div>
+                  <h3 className="app-card-title">Install from the browser</h3>
+                  <p className="small muted">
+                    Adds Aria to your home screen — full screen, an icon, and offline access —
+                    without downloading anything. Works on Android, iPhone and desktop.
+                  </p>
+                </div>
+                <span className="chip brand">Fastest</span>
+              </div>
+              <div className="app-steps" id="install-steps">
+                {steps.map((step, i) => (
+                  <div className="app-step" key={step}>
+                    <span className="app-step-num">{i + 1}</span>
+                    <span>{step}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                onClick={installFromBrowser}
+                disabled={installed || downloading}
+              >
+                <Icon name={installed ? 'check' : 'device'} size={16} />
+                {downloading ? 'Starting…' : installed ? 'Installed' : installable ? 'Install Aria now' : 'Show me how'}
+              </button>
+              {installed ? (
+                <p className="tiny muted app-cta-note">
+                  You are already in the installed app. Nothing else to do.
+                </p>
+              ) : null}
+            </article>
+
+            {apkReady ? (
+              <article className="app-card app-install-card">
+                <div className="app-install-head">
+                  <span className="app-install-icon">
+                    <Icon name="download" size={18} />
+                  </span>
+                  <div>
+                    <h3 className="app-card-title">Download the APK</h3>
+                    <p className="small muted">
+                      Direct Android install file · {release?.fileName ?? 'aria.apk'}
+                      {release?.version ? ` · v${release.version}` : ''}
+                    </p>
+                  </div>
+                  <span className="chip brand">Android</span>
+                </div>
+                <dl className="app-specs">
+                  <div>
+                    <dt>Size</dt>
+                    <dd>{size ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{release?.version ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Package</dt>
+                    <dd className="mono">{release?.packageName ?? 'app.aria.lineups'}</dd>
+                  </div>
+                </dl>
+                <button type="button" className="btn btn-primary btn-block" onClick={startDownload}>
+                  <Icon name="download" size={16} />
+                  {downloading ? 'Starting download…' : 'Download aria.apk'}
+                </button>
+                {digest ? (
+                  <p className="app-digest">
+                    <Icon name="lock" size={13} /> SHA-256 <span className="mono">{digest}…</span>
+                  </p>
+                ) : null}
+                <p className="tiny muted">
+                  Android will ask you to allow installs from this browser the first time. You may
+                  also need to allow installs for Aria under Settings → Apps → Special access.
+                </p>
+              </article>
             ) : null}
-            {digest ? (
-              <p className="app-digest">
-                <Icon name="lock" size={13} /> SHA-256 <span className="mono">{digest}…</span>
-              </p>
+          </div>
+
+          <div className="app-install-compare">
+            <h4>Which should I choose?</h4>
+            <div className="app-compare-row">
+              <strong>Install from the browser</strong>
+              <span>Every device · no file · starts instantly</span>
+            </div>
+            {apkReady ? (
+              <div className="app-compare-row">
+                <strong>Download the APK</strong>
+                <span>Android only · keeps a copy · works fully offline</span>
+              </div>
             ) : null}
             <p className="tiny muted">
-              Android will ask you to allow installs from this browser the first time. You may also
-              need to allow installs for Aria under Settings → Apps → Special access.
+              Both give you the same Aria. The browser install is the quickest way to start; the APK
+              is handy if you want the install file itself or are on Android without Play Store
+              access.
             </p>
-          </section>
-        ) : (
-          <section className="app-card app-download" aria-labelledby="pwa-title">
-            <div className="app-download-head">
-              <div>
-                <h2 id="pwa-title" className="app-card-title">
-                  Install without a download
-                </h2>
-                <p className="tiny muted">Home-screen app · no store account needed</p>
-              </div>
-              <span className="chip brand">Fastest</span>
-            </div>
-            <p className="small">
-              Aria is a full app in the browser already. Adding it to your home screen gives you the
-              same full-screen experience, an icon, and offline access — on Android, iPhone and
-              desktop.
-            </p>
-            {mirroring ? (
-              <p className="app-mirror tiny muted">
-                <Icon name="refresh" size={13} /> Fetching the latest build — this takes a moment the
-                first time.
-              </p>
-            ) : null}
-            {mirrorFailed ? (
-              <p className="app-mirror tiny muted">
-                <Icon name="refresh" size={13} /> The download is being prepared and is not ready
-                yet. The home-screen install below works right now.
-              </p>
-            ) : null}
-            <div className="app-steps" id="install-steps">
-              {steps.map((step, i) => (
-                <div className="app-step" key={step}>
-                  <span className="app-step-num">{i + 1}</span>
-                  <span>{step}</span>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              onClick={installFromBrowser}
-              disabled={installed}
-            >
-              <Icon name={installed ? 'check' : 'device'} size={16} />
-              {installed ? 'Installed' : installable ? 'Install Aria now' : 'Show me how'}
-            </button>
-          </section>
-        )}
+          </div>
+        </section>
 
         {/* ---------------------------------------------------------- how it works */}
         <section className="app-section" aria-labelledby="how-title">
