@@ -3945,7 +3945,7 @@ select {
 /* Replace the earlier flat mark treatment with a staged hero. */
 .app-hero-stage {
   position: relative;
-  width: 100%;
+  width: auto;
   padding: 26px 0 18px;
   display: grid;
   place-items: center;
@@ -4583,38 +4583,6 @@ select {
 
   .onb-title {
     font-size: 26px;
-  }
-}
-
-/* Public page hero: the copy and the call to action sit side by side once
-   there is room, which is the usual shape for a landing hero on a laptop. */
-@media (min-width: 900px) {
-  .app-hero {
-    padding: 34px 32px 36px;
-    gap: 14px;
-  }
-
-  .app-hero-title {
-    font-size: 34px;
-    max-width: 20ch;
-  }
-
-  .app-hero-lede {
-    font-size: 15px;
-    max-width: 46ch;
-  }
-
-  .app-cta {
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: center;
-    width: auto;
-    max-width: 620px;
-  }
-
-  .app-cta-main {
-    min-width: 240px;
   }
 }
 
