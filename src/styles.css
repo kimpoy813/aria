@@ -3218,13 +3218,13 @@ select {
     border-radius: 28px;
   }
 
-  .app-hero > *:first-child {
+  .app-hero-text {
     flex: 1;
     min-width: 0;
     text-align: left;
   }
 
-  .app-hero-mark {
+  .app-hero-stage {
     flex: 0 0 auto;
     min-width: 150px;
   }
