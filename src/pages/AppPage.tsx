@@ -105,6 +105,26 @@ const FAQ: { q: string; a: string }[] = [
     q: 'How do I delete my account?',
     a: 'Sign in, open the account sheet from your avatar, and choose Delete account. Songs, lineups and team memberships go with it.',
   },
+  {
+    q: 'How do I copy lyrics?',
+    a: 'On any song or shared lineup, tap “Copy lyrics”. It copies the words of every part as plain text, one section after another — ready to paste into a message, a slide, or a printable sheet.',
+  },
+  {
+    q: 'How do I copy lyrics with chords?',
+    a: 'Turn “Chords on” first, then tap “Copy lyrics”. The chords come along with the words, shown inline as [C] style markers on the syllable they fall on. If chords are hidden, only the words are copied.',
+  },
+  {
+    q: 'Can I change the key of just one part?',
+    a: 'Yes. On a shared lineup, each part has its own − / key / + control beside it — tap it to move that one part up or down a semitone without touching the rest of the set. The whole-set bar still moves everything at once.',
+  },
+  {
+    q: 'What is a “part”?',
+    a: 'A part is one labeled section of a song — Verse 1, Chorus, Bridge, and so on. Songs are stored part by part, so you can drop a single chorus or a whole song into a lineup, and reuse any section later without re-typing it.',
+  },
+  {
+    q: 'How do I build a lineup?',
+    a: 'Open Lineups, add parts from your library, and drag to reorder. A lineup needs at least two parts from two different songs, including one fast and one slow track. Share it as a view-only link when it is ready.',
+  },
 ];
 
 function MockArt({ kind }: { kind: 'song' | 'class' | 'lineup' }) {
