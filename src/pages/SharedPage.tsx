@@ -289,7 +289,7 @@ export function SharedPage() {
                 body="The sender has not added lyric sections to this lineup yet."
               />
             ) : (
-              <div className="stack">
+              <div className="stack song-group-grid">
                 {songBlocks.map((block, i) => {
                   const builtKey = builtKeyOf(block);
                   const shownKey = displayKey(builtKey, offset);
