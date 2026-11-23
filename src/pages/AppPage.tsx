@@ -8,6 +8,7 @@ import {
   canPromptInstall,
   detectPlatform,
   formatBytes,
+  formatCount,
   isInstalled,
   promptInstall,
   shortDigest,
@@ -255,6 +256,12 @@ export function AppPage() {
   const size = formatBytes(release?.sizeBytes);
   const digest = shortDigest(release?.sha256);
   const apkReady = Boolean(release?.available && release.url);
+  const downloadCount = release?.downloads;
+  const count = formatCount(downloadCount);
+  const downloadCountLabel = count.label;
+  const totalUsers = release?.totalUsers;
+  const userCount = formatCount(totalUsers);
+  const userCountLabel = userCount.label;
 
   const primaryLabel = useMemo(() => {
     if (installed) return 'Aria is installed';
@@ -489,6 +496,26 @@ export function AppPage() {
                   Android will ask you to allow installs from this browser the first time. You may
                   also need to allow installs for Aria under Settings → Apps → Special access.
                 </p>
+                {downloadCountLabel || userCountLabel ? (
+                  <p className="app-count" aria-live="polite">
+                    <Icon name="check" size={13} />
+                    <span>
+                      {userCountLabel ? (
+                        <>
+                          <strong>{userCountLabel}</strong>{' '}
+                          {totalUsers === 1 ? 'person uses' : 'people use'} Aria
+                        </>
+                      ) : null}
+                      {userCountLabel && downloadCountLabel ? ' · ' : null}
+                      {downloadCountLabel ? (
+                        <>
+                          <strong>{downloadCountLabel}</strong>{' '}
+                          {downloadCount === 1 ? 'download' : 'downloads'}
+                        </>
+                      ) : null}
+                    </span>
+                  </p>
+                ) : null}
               </article>
             ) : null}
           </div>
@@ -567,6 +594,54 @@ export function AppPage() {
                 <p className="small muted">{item.a}</p>
               </details>
             ))}
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------------- lyrics guide */}
+        <section className="app-section" aria-labelledby="paste-title">
+          <h2 id="paste-title" className="app-section-title">
+            Pasting lyrics
+          </h2>
+          <div className="app-how">
+            <article className="app-card app-how-card">
+              <div className="app-how-head">
+                <span className="app-how-num">1</span>
+                <h3>Paste plain lyrics</h3>
+              </div>
+              <p className="small muted">
+                Paste a whole song — verses, choruses, bridges — into the lyrics box.
+                Aria splits it into parts automatically and labels each one (Verse,
+                Chorus, Bridge, …). You can rename, reorder, or add parts by hand
+                anytime.
+              </p>
+            </article>
+
+            <article className="app-card app-how-card">
+              <div className="app-how-head">
+                <span className="app-how-num">2</span>
+                <h3>Paste lyrics with chords</h3>
+              </div>
+              <p className="small muted">
+                Write chords in square brackets on the syllable they fall on — for
+                example <span className="mono">[C]</span> or
+                <span className="mono">[F#m]</span>. Paste the whole thing and Aria
+                keeps each chord glued to its word, so transposing the key moves the
+                chords with the lyrics instead of leaving them behind.
+              </p>
+            </article>
+
+            <article className="app-card app-how-card">
+              <div className="app-how-head">
+                <span className="app-how-num">3</span>
+                <h3>Set the key</h3>
+              </div>
+              <p className="small muted">
+                Tell Aria the key the chords are written in (or leave it blank — a
+                song with no key simply has no chords to move). From there you can
+                transpose any part up or down a semitone at a time, on its own or
+                across the whole lineup.
+              </p>
+            </article>
           </div>
         </section>
 
