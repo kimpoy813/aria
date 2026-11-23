@@ -12,7 +12,7 @@ import {
   type ToastTone,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { MAJOR_KEYS, MINOR_KEYS, hasChords } from '../lib/chords';
+import { MAJOR_KEYS, MINOR_KEYS, hasChords, stripChords } from '../lib/chords';
 import { applyReaderOffset, displayKey } from '../lib/chordView';
 import {
   lineupSequenceBlocks,
@@ -39,6 +39,12 @@ export function LineupViewPage() {
   // key for their voice. Neither is saved — the band's sheet is untouched.
   const [showChords, setShowChords] = useState(true);
   const [offset, setOffset] = useState(0);
+  // Per-part key overrides: reader-only nudges for one part without moving the
+  // rest of the set. Stored as an absolute offset from the block's written key;
+  // a part that has never been touched falls back to the global offset.
+  const [sectionOffsets, setSectionOffsets] = useState<Map<string, number>>(
+    new Map(),
+  );
   /*
    * Collapsed by default. The key section is useful when the band is setting
    * keys, but opening a lineup to read it doesn't need a wall of key pickers
@@ -113,6 +119,16 @@ export function LineupViewPage() {
 
   const printLineup = () => {
     if (typeof window.print === 'function') window.print();
+  };
+
+  /** The words as this reader sees them — same function the page renders with. */
+  const viewLyrics = (
+    block: (typeof songBlocks)[number],
+    section: (typeof songBlocks)[number]['sections'][number],
+  ) => {
+    const effective = sectionOffsets.get(section.key) ?? offset;
+    const moved = applyReaderOffset(section.lyrics, builtKeyOf(block), effective);
+    return showChords ? moved : stripChords(moved);
   };
 
   /**
@@ -405,17 +421,67 @@ export function LineupViewPage() {
               )}
             </div>
             <div className="song-group-sections">
-              {block.sections.map((sec) => (
-                <div key={sec.key} className="song-section">
-                  {!(
-                    block.sections.length === 1 && sec.partLabel.toLowerCase() === 'part'
-                  ) && <div className="song-section-label">{sec.partLabel}</div>}
-                  <LyricView
-                    lyrics={applyReaderOffset(sec.lyrics, builtKey, offset)}
-                    showChords={showChords}
-                  />
-                </div>
-              ))}
+              {block.sections.map((sec) => {
+                const sectionEffective =
+                  sectionOffsets.get(sec.key) ?? offset;
+                return (
+                  <div key={sec.key} className="song-section">
+                    {!(
+                      block.sections.length === 1 &&
+                      sec.partLabel.toLowerCase() === 'part'
+                    ) && (
+                      <div className="row-between" style={{ gap: 8 }}>
+                        <div className="song-section-label">{sec.partLabel}</div>
+                        {hasChords(sec.lyrics) && (
+                          <div className="section-key-control">
+                            <button
+                              type="button"
+                              className="section-key-step"
+                              onClick={() =>
+                                setSectionOffsets((prev) => {
+                                  const next = new Map(prev);
+                                  const cur = next.get(sec.key) ?? offset;
+                                  next.set(sec.key, cur - 1);
+                                  return next;
+                                })
+                              }
+                              aria-label={`Transpose ${sec.partLabel} down`}
+                            >
+                              −
+                            </button>
+                            <span
+                              className="section-key-readout"
+                              title={`Key of ${displayKey(builtKey, sectionEffective)}`}
+                            >
+                              {displayKey(builtKey, sectionEffective) ||
+                                'as written'}
+                            </span>
+                            <button
+                              type="button"
+                              className="section-key-step"
+                              onClick={() =>
+                                setSectionOffsets((prev) => {
+                                  const next = new Map(prev);
+                                  const cur = next.get(sec.key) ?? offset;
+                                  next.set(sec.key, cur + 1);
+                                  return next;
+                                })
+                              }
+                              aria-label={`Transpose ${sec.partLabel} up`}
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <LyricView
+                      lyrics={viewLyrics(block, sec)}
+                      showChords={showChords}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
           );
