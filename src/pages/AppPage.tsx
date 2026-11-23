@@ -398,11 +398,15 @@ export function AppPage() {
           <div className="app-facts">
             <span>
               <Icon name="check" size={13} />
-              {apkReady ? `Android APK${release?.version ? ` v${release.version}` : ''}` : 'Android · iPhone · web'}
+              {platform === 'desktop'
+                ? 'Desktop · iPhone · Android · web'
+                : apkReady
+                  ? `Android APK${release?.version ? ` v${release.version}` : ''}`
+                  : 'Android · iPhone · web'}
             </span>
             <span>
               <Icon name="check" size={13} />
-              {apkReady ? `${size ?? 'Small'} download` : `Web app · ${size ?? 'no download'}`}
+              {apkReady ? `${size ?? 'Small'} download` : `Web app · install in seconds`}
             </span>
             <span>
               <Icon name="check" size={13} /> Works offline
@@ -453,6 +457,48 @@ export function AppPage() {
                 </p>
               ) : null}
             </article>
+
+            {platform === 'desktop' ? (
+              <article className="app-card app-install-card">
+                <div className="app-install-head">
+                  <span className="app-install-icon">
+                    <Icon name="monitor" size={18} />
+                  </span>
+                  <div>
+                    <h3 className="app-card-title">Install on desktop</h3>
+                    <p className="small muted">
+                      Aria is a web app — there is no separate desktop file to download.
+                      Install it from Chrome, Edge or Safari and it opens in its own
+                      window, like any other desktop app.
+                    </p>
+                  </div>
+                  <span className="chip brand">Desktop</span>
+                </div>
+                <div className="app-steps">
+                  <div className="app-step">
+                    <span className="app-step-num">1</span>
+                    <span>Open Aria in Chrome, Edge or Safari.</span>
+                  </div>
+                  <div className="app-step">
+                    <span className="app-step-num">2</span>
+                    <span>Use the install button in the address bar (or the Share menu on a Mac).</span>
+                  </div>
+                  <div className="app-step">
+                    <span className="app-step-num">3</span>
+                    <span>Aria opens in its own window — full screen, an icon, offline access.</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={installFromBrowser}
+                  disabled={installed || downloading}
+                >
+                  <Icon name={installed ? 'check' : 'monitor'} size={16} />
+                  {downloading ? 'Starting…' : installed ? 'Installed' : installable ? 'Install Aria on desktop' : 'Show me how'}
+                </button>
+              </article>
+            ) : null}
 
             {apkReady ? (
               <article className="app-card app-install-card">
