@@ -187,16 +187,15 @@ export function AppPage() {
   const { theme, toggleTheme, user } = useStore();
   const [release, setRelease] = useState<AppRelease | null>(null);
   const [failed, setFailed] = useState(false);
-  const [platform, setPlatform] = useState<Platform>('other');
-  const [installed, setInstalled] = useState(false);
-  const [installable, setInstallable] = useState(false);
+  // Initialised synchronously so the page never flashes a wrong platform or
+  // install state on first paint — detectPlatform, isInstalled and
+  // canPromptInstall all read sync-only browser APIs.
+  const [platform] = useState<Platform>(() => detectPlatform());
+  const [installed, setInstalled] = useState(() => isInstalled());
+  const [installable, setInstallable] = useState(() => canPromptInstall());
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
-    setPlatform(detectPlatform());
-    setInstalled(isInstalled());
-    setInstallable(canPromptInstall());
-
     const onInstallable = () => setInstallable(true);
     const onInstalled = () => {
       setInstalled(true);
@@ -238,16 +237,9 @@ export function AppPage() {
     };
     load();
 
-    // A tab left open in the background should not show a stale download state.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') load();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('aria:installable', onInstallable);
       window.removeEventListener('aria:installed', onInstalled);
     };
