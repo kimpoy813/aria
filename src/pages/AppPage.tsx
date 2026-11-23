@@ -332,6 +332,58 @@ export function AppPage() {
       <main className="app-main no-nav app-page-main">
         {/* ------------------------------------------------------------- hero */}
         <section className="app-hero">
+          <div className="app-hero-text">
+            <div className="app-pill">
+              <span className="app-pill-dot" />
+              {apkReady ? 'Android build available' : 'Android & web'}
+            </div>
+            <h1 className="app-hero-title">Setlists that read the lyric first.</h1>
+            <p className="app-hero-lede">
+              Aria keeps your songs part by part, names the message inside the words, then helps you
+              build a lineup that has not been played lately. Free, no ads, no trackers.
+            </p>
+            <div className="app-cta">
+              <button
+                type="button"
+                className="btn btn-primary btn-block app-cta-main"
+                onClick={apkReady ? startDownload : installFromBrowser}
+                disabled={installed || downloading}
+              >
+                <Icon name={installed ? 'check' : apkReady ? 'download' : 'device'} size={16} />
+                {downloading ? 'Starting download…' : primaryLabel}
+              </button>
+              {installed ? (
+                <p className="tiny muted app-cta-note">
+                  You are already in the installed app. Nothing else to do.
+                </p>
+              ) : apkReady && installable ? (
+                <button type="button" className="btn btn-block" onClick={installFromBrowser}>
+                  Or install straight from the browser
+                </button>
+              ) : null}
+              <Link to={user ? '/' : '/login'} className="btn btn-quiet btn-block">
+                {user ? 'Open my library' : 'Use Aria in the browser'}
+                <Icon name="chevronRight" size={14} />
+              </Link>
+            </div>
+            <div className="app-facts">
+              <span>
+                <Icon name="check" size={13} />
+                {platform === 'desktop'
+                  ? 'Desktop · iPhone · Android · web'
+                  : apkReady
+                    ? `Android APK${release?.version ? ` v${release.version}` : ''}`
+                    : 'Android · iPhone · web'}
+              </span>
+              <span>
+                <Icon name="check" size={13} />
+                {apkReady ? `${size ?? 'Small'} download` : `Web app · install in seconds`}
+              </span>
+              <span>
+                <Icon name="check" size={13} /> Works offline
+              </span>
+            </div>
+          </div>
           <div className="app-hero-stage" aria-hidden>
             <span className="app-halo app-halo-1" />
             <span className="app-halo app-halo-2" />
@@ -349,56 +401,6 @@ export function AppPage() {
             <span className="app-hero-mark">
               <span className="app-tile-shine" />
               <Logo size={76} />
-            </span>
-          </div>
-          <div className="app-pill">
-            <span className="app-pill-dot" />
-            {apkReady ? 'Android build available' : 'Android & web'}
-          </div>
-          <h1 className="app-hero-title">Setlists that read the lyric first.</h1>
-          <p className="app-hero-lede">
-            Aria keeps your songs part by part, names the message inside the words, then helps you
-            build a lineup that has not been played lately. Free, no ads, no trackers.
-          </p>
-          <div className="app-cta">
-            <button
-              type="button"
-              className="btn btn-primary btn-block app-cta-main"
-              onClick={apkReady ? startDownload : installFromBrowser}
-              disabled={installed || downloading}
-            >
-              <Icon name={installed ? 'check' : apkReady ? 'download' : 'device'} size={16} />
-              {downloading ? 'Starting download…' : primaryLabel}
-            </button>
-            {installed ? (
-              <p className="tiny muted app-cta-note">
-                You are already in the installed app. Nothing else to do.
-              </p>
-            ) : apkReady && installable ? (
-              <button type="button" className="btn btn-block" onClick={installFromBrowser}>
-                Or install straight from the browser
-              </button>
-            ) : null}
-            <Link to={user ? '/' : '/login'} className="btn btn-quiet btn-block">
-              {user ? 'Open my library' : 'Use Aria in the browser'}
-              <Icon name="chevronRight" size={14} />
-            </Link>
-          </div>
-          <div className="app-facts">
-            <span>
-              <Icon name="check" size={13} />
-              {platform === 'desktop'
-                ? 'Desktop · iPhone · Android · web'
-                : apkReady
-                  ? `Android APK${release?.version ? ` v${release.version}` : ''}`
-                  : 'Android · iPhone · web'}
-            </span>
-            <span>
-              <Icon name="check" size={13} />
-              {apkReady ? `${size ?? 'Small'} download` : `Web app · install in seconds`}
-            </span>
-            <span>
-              <Icon name="check" size={13} /> Works offline
             </span>
           </div>
         </section>
