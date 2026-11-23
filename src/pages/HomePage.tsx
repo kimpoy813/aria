@@ -125,155 +125,157 @@ export function HomePage() {
         </div>
       )}
 
-      {/* Minimal LRU Lineup Spotlight */}
-      {featured ? (
-        <section className="lru-card" aria-label="Least recently used lineup">
-          <div className="row-between" style={{ gap: 8 }}>
-            <span className="eyebrow">Least recently used</span>
-            <span className="tiny">
-              {featured.lastUsedAt ? timeAgo(featured.lastUsedAt) : 'Unused'}
-            </span>
-          </div>
-
-          <div className="stack-xs">
-            <h2 className="lru-card-title">{featured.name}</h2>
-            {featured.theme && <span className="tiny">{featured.theme}</span>}
-          </div>
-
-          {featuredSongs.length > 0 && (
-            <div className="lru-seq">
-              {featuredSongs.map(({ song }, idx) => (
-                <div key={`${song.id}_${idx}`} className="lru-seq-row">
-                  <span className="lru-seq-num">{idx + 1}</span>
-                  <span className="lru-seq-song truncate">{song.title}</span>
-                </div>
-              ))}
+      <div className="home-grid">
+        {/* Minimal LRU Lineup Spotlight */}
+        {featured ? (
+          <section className="lru-card" aria-label="Least recently used lineup">
+            <div className="row-between" style={{ gap: 8 }}>
+              <span className="eyebrow">Least recently used</span>
+              <span className="tiny">
+                {featured.lastUsedAt ? timeAgo(featured.lastUsedAt) : 'Unused'}
+              </span>
             </div>
-          )}
 
-          <div className="row" style={{ gap: 8 }}>
-            <Button
-              variant="primary"
-              style={{ flex: 2 }}
-              onClick={() =>
-                navigate(`/lineups/${featured.id}`, { state: { from: 'home' } })
-              }
-            >
-              Open
-            </Button>
-            <Button
-              style={{ flex: 1 }}
-              disabled={sharing}
-              onClick={quickShareFeatured}
-            >
-              <Icon name="share" size={14} /> {sharing ? '…' : 'Share'}
-            </Button>
+            <div className="stack-xs">
+              <h2 className="lru-card-title">{featured.name}</h2>
+              {featured.theme && <span className="tiny">{featured.theme}</span>}
+            </div>
+
+            {featuredSongs.length > 0 && (
+              <div className="lru-seq">
+                {featuredSongs.map(({ song }, idx) => (
+                  <div key={`${song.id}_${idx}`} className="lru-seq-row">
+                    <span className="lru-seq-num">{idx + 1}</span>
+                    <span className="lru-seq-song truncate">{song.title}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="row" style={{ gap: 8 }}>
+              <Button
+                variant="primary"
+                style={{ flex: 2 }}
+                onClick={() =>
+                  navigate(`/lineups/${featured.id}`, { state: { from: 'home' } })
+                }
+              >
+                Open
+              </Button>
+              <Button
+                style={{ flex: 1 }}
+                disabled={sharing}
+                onClick={quickShareFeatured}
+              >
+                <Icon name="share" size={14} /> {sharing ? '…' : 'Share'}
+              </Button>
+            </div>
+          </section>
+        ) : (
+          <Empty
+            icon="lineup"
+            title={hasTeamLineups ? 'No lineups of yours yet' : 'No lineups yet'}
+            body={
+              hasTeamLineups
+                ? 'Home shows your own lineups. Your team\u2019s are on the Lineups tab.'
+                : canBuildLineup
+                  ? 'Create your first lineup.'
+                  : 'Add songs first.'
+            }
+            action={
+              canBuildLineup ? (
+                <Button variant="primary" onClick={() => navigate('/lineups/new')}>
+                  <Icon name="add" size={16} /> Create lineup
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => navigate('/songs/new')}>
+                  <Icon name="add" size={16} /> Add song
+                </Button>
+              )
+            }
+          />
+        )}
+
+        {/* Minimal Up Next Queue */}
+        {upNext.length > 0 && (
+          <div className="stack-sm">
+            <div className="row-between">
+              <span className="label">Up next</span>
+              {ordered.length > upNext.length + 1 && (
+                <button
+                  type="button"
+                  className="link-button tiny"
+                  onClick={() => navigate('/lineups')}
+                >
+                  All ({ordered.length})
+                </button>
+              )}
+            </div>
+
+            <div className="list-group">
+              {upNext.map((l) => {
+                const songNames = summarizeLineupSongs(l, songs)
+                  .map((u) => u.song.title)
+                  .join(', ');
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    className="list-row"
+                    onClick={() => navigate(`/lineups/${l.id}`, { state: { from: 'home' } })}
+                  >
+                    <div className="list-row-body">
+                      <div className="list-row-title truncate">{l.name}</div>
+                      {songNames && <div className="tiny truncate">{songNames}</div>}
+                    </div>
+                    <span className="tiny" style={{ flexShrink: 0 }}>
+                      {l.lastUsedAt ? timeAgo(l.lastUsedAt) : 'Unused'}
+                    </span>
+                    <Icon name="chevronRight" size={16} className="muted" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </section>
-      ) : (
-        <Empty
-          icon="lineup"
-          title={hasTeamLineups ? 'No lineups of yours yet' : 'No lineups yet'}
-          body={
-            hasTeamLineups
-              ? 'Home shows your own lineups. Your team\u2019s are on the Lineups tab.'
-              : canBuildLineup
-                ? 'Create your first lineup.'
-                : 'Add songs first.'
-          }
-          action={
-            canBuildLineup ? (
-              <Button variant="primary" onClick={() => navigate('/lineups/new')}>
-                <Icon name="add" size={16} /> Create lineup
-              </Button>
-            ) : (
-              <Button variant="primary" onClick={() => navigate('/songs/new')}>
-                <Icon name="add" size={16} /> Add song
-              </Button>
-            )
-          }
-        />
-      )}
+        )}
 
-      {/* Minimal Up Next Queue */}
-      {upNext.length > 0 && (
-        <div className="stack-sm">
-          <div className="row-between">
-            <span className="label">Up next</span>
-            {ordered.length > upNext.length + 1 && (
+        {/* Minimal Songs Used List */}
+        {displayedSongStats.length > 0 && (
+          <div className="stack-sm">
+            <div className="row-between">
+              <span className="label">
+                {songsInLineups.length > 0 ? 'Songs used' : 'Songs'}
+              </span>
               <button
                 type="button"
                 className="link-button tiny"
-                onClick={() => navigate('/lineups')}
+                onClick={() => navigate('/songs')}
               >
-                All ({ordered.length})
+                See all
               </button>
-            )}
-          </div>
+            </div>
 
-          <div className="list-group">
-            {upNext.map((l) => {
-              const songNames = summarizeLineupSongs(l, songs)
-                .map((u) => u.song.title)
-                .join(', ');
-              return (
+            <div className="list-group">
+              {displayedSongStats.slice(0, 6).map((stat) => (
                 <button
-                  key={l.id}
+                  key={stat.song.id}
                   type="button"
                   className="list-row"
-                  onClick={() => navigate(`/lineups/${l.id}`, { state: { from: 'home' } })}
+                  onClick={() => navigate(`/songs/${stat.song.id}`)}
                 >
                   <div className="list-row-body">
-                    <div className="list-row-title truncate">{l.name}</div>
-                    {songNames && <div className="tiny truncate">{songNames}</div>}
+                    <div className="list-row-title truncate">{stat.song.title}</div>
                   </div>
                   <span className="tiny" style={{ flexShrink: 0 }}>
-                    {l.lastUsedAt ? timeAgo(l.lastUsedAt) : 'Unused'}
+                    {stat.lastUsedAt ? timeAgo(stat.lastUsedAt) : 'Unused'}
                   </span>
                   <Icon name="chevronRight" size={16} className="muted" />
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Minimal Songs Used List */}
-      {displayedSongStats.length > 0 && (
-        <div className="stack-sm">
-          <div className="row-between">
-            <span className="label">
-              {songsInLineups.length > 0 ? 'Songs used' : 'Songs'}
-            </span>
-            <button
-              type="button"
-              className="link-button tiny"
-              onClick={() => navigate('/songs')}
-            >
-              See all
-            </button>
-          </div>
-
-          <div className="list-group">
-            {displayedSongStats.slice(0, 6).map((stat) => (
-              <button
-                key={stat.song.id}
-                type="button"
-                className="list-row"
-                onClick={() => navigate(`/songs/${stat.song.id}`)}
-              >
-                <div className="list-row-body">
-                  <div className="list-row-title truncate">{stat.song.title}</div>
-                </div>
-                <span className="tiny" style={{ flexShrink: 0 }}>
-                  {stat.lastUsedAt ? timeAgo(stat.lastUsedAt) : 'Unused'}
-                </span>
-                <Icon name="chevronRight" size={16} className="muted" />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

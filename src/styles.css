@@ -1163,6 +1163,32 @@ select {
   overflow: hidden;
 }
 
+.song-group-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 900px) {
+  .song-group-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  @media (min-width: 1400px) {
+    .song-group-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 2000px) {
+    .song-group-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+}
+
 .song-group-head {
   display: flex;
   align-items: center;
@@ -1547,6 +1573,12 @@ select {
   height: 34px;
   padding: 0 26px 0 8px;
   font-size: 12.5px;
+}
+
+@media (min-width: 900px) {
+  .running-order-key {
+    min-width: 150px;
+  }
 }
 
 /* The key a song is being played in, beside its title. */
@@ -3253,6 +3285,22 @@ select {
   gap: 10px;
 }
 
+@media (min-width: 900px) {
+  .app-install {
+    flex-direction: row;
+    gap: 14px;
+    align-items: stretch;
+  }
+
+  .app-install-card {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+}
+
 .app-install-head {
   display: flex;
   align-items: center;
@@ -3304,6 +3352,25 @@ select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (min-width: 900px) {
+  .app-install-compare {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .app-compare-row {
+    white-space: normal;
+  }
+
+  .app-compare-row span {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
 }
 
 .app-steps {
@@ -3958,14 +4025,29 @@ select {
 
 @media (min-width: 1200px) {
   :root {
-    --shell: 1040px;
+    --shell: 1120px;
     --shell-pad: 30px;
   }
 }
 
-@media (min-width: 1600px) {
+@media (min-width: 1400px) {
   :root {
-    --shell: 1160px;
+    --shell: 1320px;
+    --shell-pad: 34px;
+  }
+}
+
+@media (min-width: 1800px) {
+  :root {
+    --shell: 1500px;
+    --shell-pad: 38px;
+  }
+}
+
+@media (min-width: 2200px) {
+  :root {
+    --shell: 1680px;
+    --shell-pad: 42px;
   }
 }
 
@@ -4070,6 +4152,31 @@ select {
   }
 }
 
+/* -------------------------------------------------------------- home grid */
+
+/*
+ * On wide screens the LRU spotlight, up-next queue and songs-used list sit
+ * side by side instead of stacking, so the full width is used.
+ */
+.home-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 900px) {
+  .home-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .home-grid > .stack-sm:nth-child(2) {
+    /* Up next queue gets the second column */
+  }
+}
+
 /* --------------------------------------------------------------- lists */
 
 /*
@@ -4119,6 +4226,24 @@ select {
   }
 }
 
+@media (min-width: 1600px) {
+  .list-group {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .list-row:nth-child(2n) {
+    border-right: 1px solid var(--line);
+  }
+
+  .list-row:nth-child(3n) {
+    border-right: 1px solid var(--line);
+  }
+
+  .list-row:nth-child(4n) {
+    border-right: 0;
+  }
+}
+
 /* ------------------------------------------------- grids that were 2-up */
 
 @media (min-width: 700px) {
@@ -4153,6 +4278,14 @@ select {
 
   .app-features {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1600px) {
+  .app-how,
+  .app-features,
+  .app-faq {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

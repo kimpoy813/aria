@@ -494,7 +494,7 @@ export function LineupViewPage() {
         </div>
       )}
 
-      <div className="stack">
+      <div className="stack song-group-grid">
         {songBlocks.map((block, i) => {
           const builtKey = builtKeyOf(block);
           const shownKey = displayKey(builtKey, offset);
