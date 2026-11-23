@@ -256,9 +256,6 @@ export function AppPage() {
   const size = formatBytes(release?.sizeBytes);
   const digest = shortDigest(release?.sha256);
   const apkReady = Boolean(release?.available && release.url);
-  const downloadCount = release?.downloads;
-  const count = formatCount(downloadCount);
-  const downloadCountLabel = count.label;
   const totalUsers = release?.totalUsers;
   const userCount = formatCount(totalUsers);
   const userCountLabel = userCount.label;
@@ -542,24 +539,11 @@ export function AppPage() {
                   Android will ask you to allow installs from this browser the first time. You may
                   also need to allow installs for Aria under Settings → Apps → Special access.
                 </p>
-                {downloadCountLabel || userCountLabel ? (
+                {userCountLabel ? (
                   <p className="app-count" aria-live="polite">
                     <Icon name="check" size={13} />
-                    <span>
-                      {userCountLabel ? (
-                        <>
-                          <strong>{userCountLabel}</strong>{' '}
-                          {totalUsers === 1 ? 'person uses' : 'people use'} Aria
-                        </>
-                      ) : null}
-                      {userCountLabel && downloadCountLabel ? ' · ' : null}
-                      {downloadCountLabel ? (
-                        <>
-                          <strong>{downloadCountLabel}</strong>{' '}
-                          {downloadCount === 1 ? 'download' : 'downloads'}
-                        </>
-                      ) : null}
-                    </span>
+                    <strong>{userCountLabel}</strong>{' '}
+                    {totalUsers === 1 ? 'person uses' : 'people use'} Aria
                   </p>
                 ) : null}
               </article>
