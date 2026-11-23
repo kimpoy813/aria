@@ -125,10 +125,103 @@ export function LineupViewPage() {
   const viewLyrics = (
     block: (typeof songBlocks)[number],
     section: (typeof songBlocks)[number]['sections'][number],
+    forcedShowChords?: boolean,
   ) => {
     const effective = sectionOffsets.get(section.key) ?? offset;
     const moved = applyReaderOffset(section.lyrics, builtKeyOf(block), effective);
-    return showChords ? moved : stripChords(moved);
+    return (forcedShowChords ?? showChords) ? moved : stripChords(moved);
+  };
+
+  const copySectionLyrics = async (
+    block: (typeof songBlocks)[number],
+    sec: (typeof songBlocks)[number]['sections'][number],
+  ) => {
+    const text = viewLyrics(block, sec).trim();
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`Copied ${sec.partLabel}`, 'success');
+    } catch {
+      showToast('Could not copy lyrics', 'error');
+    }
+  };
+
+  const copyAllLyrics = async () => {
+    if (!lineup || songBlocks.length === 0) return;
+    const formatted = [
+      lineup.name,
+      '',
+      ...songBlocks.map((block, idx) => {
+        const body = block.sections
+          .map((sec) => `${sec.partLabel}\n${viewLyrics(block, sec).trim()}`)
+          .join('\n\n');
+        const keyLabel = displayKey(builtKeyOf(block), offset);
+        const heading = keyLabel
+          ? `${idx + 1}. ${block.songTitle} — key of ${keyLabel}`
+          : `${idx + 1}. ${block.songTitle}`;
+        return `${heading}\n\n${body}`;
+      }),
+    ].join('\n\n');
+
+    try {
+      await navigator.clipboard.writeText(formatted);
+      showToast('Lyrics copied', 'success');
+    } catch {
+      showToast('Could not copy lyrics', 'error');
+    }
+  };
+
+  const copyAllLyricsWithChords = async () => {
+    if (!lineup || songBlocks.length === 0) return;
+    const formatted = [
+      lineup.name,
+      '',
+      ...songBlocks.map((block, idx) => {
+        const body = block.sections
+          .map((sec) => `${sec.partLabel}\n${viewLyrics(block, sec, true)}`)
+          .join('\n\n');
+        const keyLabel = displayKey(builtKeyOf(block), offset);
+        const heading = keyLabel
+          ? `${idx + 1}. ${block.songTitle} — key of ${keyLabel}`
+          : `${idx + 1}. ${block.songTitle}`;
+        return `${heading}\n\n${body}`;
+      }),
+    ].join('\n\n');
+
+    try {
+      await navigator.clipboard.writeText(formatted);
+      showToast('Lyrics with chords copied', 'success');
+    } catch {
+      showToast('Could not copy lyrics', 'error');
+    }
+  };
+
+  const exportLineup = async () => {
+    if (!lineup || songBlocks.length === 0) return;
+    const formatted = [
+      lineup.name,
+      '',
+      ...songBlocks.map((block, idx) => {
+        const body = block.sections
+          .map((sec) => `${sec.partLabel}\n${viewLyrics(block, sec).trim()}`)
+          .join('\n\n');
+        const keyLabel = displayKey(builtKeyOf(block), offset);
+        const heading = keyLabel
+          ? `${idx + 1}. ${block.songTitle} — key of ${keyLabel}`
+          : `${idx + 1}. ${block.songTitle}`;
+        return `${heading}\n\n${body}`;
+      }),
+    ].join('\n\n');
+
+    const blob = new Blob([formatted], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${lineup.name.replace(/[^a-z0-9]/gi, '_') || 'lineup'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Lineup exported', 'success');
   };
 
   /**
@@ -430,7 +523,10 @@ export function LineupViewPage() {
                       block.sections.length === 1 &&
                       sec.partLabel.toLowerCase() === 'part'
                     ) && (
-                      <div className="row-between" style={{ gap: 8 }}>
+                      <div
+                        className="row-between"
+                        style={{ gap: 8, flexWrap: 'wrap' }}
+                      >
                         <div className="song-section-label">{sec.partLabel}</div>
                         {hasChords(sec.lyrics) && (
                           <div className="section-key-control">
@@ -473,6 +569,14 @@ export function LineupViewPage() {
                             </button>
                           </div>
                         )}
+                        <button
+                          type="button"
+                          className="section-copy-btn"
+                          onClick={() => copySectionLyrics(block, sec)}
+                          aria-label={`Copy ${sec.partLabel} lyrics`}
+                        >
+                          <Icon name="copy" size={13} />
+                        </button>
                       </div>
                     )}
                     <LyricView
@@ -487,6 +591,27 @@ export function LineupViewPage() {
           );
         })}
       </div>
+
+      <div className="row" style={{ gap: 8, paddingTop: 4 }}>
+        <Button onClick={copyAllLyrics} style={{ flex: 1 }}>
+          <Icon name="lyrics" size={14} /> Copy lyrics
+        </Button>
+        <Button onClick={copyShareLink} style={{ flex: 1 }}>
+          <Icon name="link" size={14} /> Copy link
+        </Button>
+      </div>
+      <div className="row" style={{ gap: 8 }}>
+        <Button onClick={copyAllLyricsWithChords} style={{ flex: 1 }}>
+          <Icon name="lyrics" size={14} /> Copy with chords
+        </Button>
+        <Button onClick={exportLineup} style={{ flex: 1 }}>
+          <Icon name="download" size={14} /> Export as text
+        </Button>
+      </div>
+
+      <Button block onClick={printLineup}>
+        <Icon name="print" size={14} /> Print lineup
+      </Button>
 
       <footer className="print-only print-foot">
         <span>{lineup.name}</span>

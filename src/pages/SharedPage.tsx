@@ -316,7 +316,10 @@ export function SharedPage() {
                               block.sections.length === 1 &&
                               sec.partLabel.toLowerCase() === 'part'
                             ) && (
-                              <div className="row-between" style={{ gap: 8 }}>
+                              <div
+                                className="row-between"
+                                style={{ gap: 8, flexWrap: 'wrap' }}
+                              >
                                 <div className="song-section-label">
                                   {sec.partLabel}
                                 </div>
